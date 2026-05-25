@@ -5,7 +5,6 @@ import GoalTracker from './GoalTracker';
 import SpendingAlerts from './SpendingAlerts';
 import NetWorthCalculator from './NetWorthCalculator';
 import SubscriptionManager from './SubscriptionManager';
-import RecurringBills from './RecurringBills';
 import BillsManager from './BillsManager';
 //import { API_URL } from '../config';
 const FinancialHealth = ({ 

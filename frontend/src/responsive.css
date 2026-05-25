@@ -1,0 +1,320 @@
+/* ===== MOBILE-FIRST SCALE-DOWN SYSTEM ===== */
+
+/* Base adjustments for tablets (≤768px) */
+@media (max-width: 768px) {
+  :root {
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --radius-full: 30px;
+  }
+
+  /* Sidebar overlay instead of push */
+  .sidebar {
+    width: 280px;
+    transform: translateX(-100%);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 1150;
+    backdrop-filter: blur(3px);
+  }
+
+  /* Main content no longer pushed */
+  .main-content {
+    margin-left: 0 !important;
+    padding-top: 80px;
+    width: 100%;
+  }
+
+  /* Page padding */
+  .dashboard-root,
+  .financial-health-page,
+  .goals-page,
+  .debt-page,
+  .subscriptions-page,
+  .bills-manager,
+  .networth-page,
+  .trends-page {
+    padding: 1rem !important;
+  }
+
+  /* Section headers */
+  .section-header {
+    padding: 20px 15px !important;
+    margin-bottom: 20px !important;
+  }
+  .section-header h2,
+  .section-header h1 {
+    font-size: 1.8rem !important;
+  }
+  .section-subtitle {
+    font-size: 0.9rem !important;
+  }
+
+  /* Overview grids – single column */
+  .overview-grid,
+  .debt-overview,
+  .trend-overview {
+    grid-template-columns: 1fr !important;
+    gap: 15px !important;
+  }
+  .overview-card,
+  .trend-card,
+  .glass-card {
+    padding: 20px !important;
+  }
+  .overview-amount,
+  .amount {
+    font-size: 1.5rem !important;
+  }
+
+  /* Goals */
+  .goals-grid {
+    grid-template-columns: 1fr !important;
+    gap: 15px !important;
+  }
+  .goal-card {
+    padding: 20px !important;
+  }
+  .goal-title h3 {
+    font-size: 1.2rem !important;
+  }
+  .current-amount {
+    font-size: 1.5rem !important;
+  }
+  .detail-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .quick-add-buttons {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .custom-add {
+    grid-column: span 2 !important;
+  }
+  .goal-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  /* Bills & Debts */
+  .bill-item,
+  .subscription-item,
+  .debt-item {
+    padding: 15px !important;
+  }
+  .bill-name,
+  .debt-name {
+    font-size: 1rem !important;
+  }
+  .bill-field {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+  .bill-field label {
+    min-width: auto !important;
+  }
+  .bank-select,
+  .bill-field input {
+    width: 100% !important;
+  }
+
+  /* Subscriptions */
+  .subscriptions-list {
+    gap: 10px !important;
+  }
+  .sub-details {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .sub-details span {
+    width: 100%;
+  }
+  .sub-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  .status-btn, .remove-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Net Worth */
+  .networth-value {
+    font-size: 2.5rem !important;
+  }
+  .breakdown-item {
+    padding: 15px !important;
+  }
+  .asset-item,
+  .liability-item {
+    flex-direction: column !important;
+    gap: 10px !important;
+    align-items: flex-start !important;
+  }
+  .amount-input-container {
+    width: 100% !important;
+  }
+
+  /* Financial Health tabs – icons only */
+  .tab-navigation {
+    gap: 6px;
+    padding: 8px;
+  }
+  .tab-btn {
+    padding: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    justify-content: center;
+    font-size: 0;
+  }
+  .tab-btn i {
+    font-size: 1.2rem;
+    margin: 0;
+  }
+  .tab-btn span {
+    display: none;
+  }
+  .health-cards {
+    grid-template-columns: 1fr !important;
+    gap: 15px !important;
+  }
+  .health-card {
+    padding: 20px !important;
+  }
+  .rate-circle {
+    width: 90px;
+    height: 90px;
+    font-size: 1.4rem;
+  }
+
+  /* Trends */
+  .trends-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .header-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .timeframe-selectors,
+  .chart-selectors {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .timeframe-btn,
+  .chart-btn {
+    padding: 8px 14px;
+    font-size: 0.8rem;
+  }
+
+  /* Forms */
+  .form-grid {
+    grid-template-columns: 1fr !important;
+    gap: 15px !important;
+  }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    padding: 10px !important;
+    font-size: 0.9rem !important;
+  }
+
+  /* Buttons */
+  .add-transaction-btn,
+  .btn-primary,
+  .btn-submit {
+    padding: 12px 20px !important;
+    font-size: 0.9rem !important;
+  }
+
+  /* Modal */
+  .modal-content {
+    width: 100% !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    padding: 1.2rem !important;
+  }
+}
+
+/* Extra compact for small phones (≤480px) */
+@media (max-width: 480px) {
+  :root {
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-full: 20px;
+  }
+
+  .section-header h2,
+  .section-header h1 {
+    font-size: 1.5rem !important;
+  }
+
+  .overview-amount,
+  .amount {
+    font-size: 1.3rem !important;
+  }
+
+  .goal-card {
+    padding: 15px !important;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .quick-add-buttons {
+    grid-template-columns: 1fr !important;
+  }
+  .custom-add {
+    grid-column: span 1 !important;
+  }
+
+  .networth-value {
+    font-size: 2rem !important;
+  }
+
+  .tab-btn {
+    width: 38px;
+    height: 38px;
+  }
+  .tab-btn i {
+    font-size: 1rem;
+  }
+
+  .bill-item,
+  .debt-item,
+  .subscription-item {
+    padding: 12px !important;
+  }
+
+  /* Cards padding */
+  .overview-card,
+  .trend-card,
+  .glass-card,
+  .health-card {
+    padding: 15px !important;
+  }
+
+  /* Header actions stacked */
+  .dashboard-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  .dashboard-actions button {
+    width: 100%;
+  }
+}

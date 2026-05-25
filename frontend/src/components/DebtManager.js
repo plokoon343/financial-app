@@ -19,7 +19,7 @@ const DebtManager = () => {
   const fetchDebts = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/debts', {
+      const res = await axios.get('${API_URL}/api/debts', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDebts(res.data);
@@ -62,7 +62,7 @@ const DebtManager = () => {
         dayOfMonth: parseInt(newDebt.scheduledPayment.dayOfMonth, 10) || 1,
       }
     };
-    await axios.post('http://localhost:5000/api/debts', payload, {
+    await axios.post('${API_URL}/api/debts', payload, {
       headers: { Authorization: `Bearer ${token}` }
     });
     fetchDebts();
@@ -78,7 +78,7 @@ const DebtManager = () => {
     if (!window.confirm('Delete this debt?')) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/debts/${id}`, {
+      await axios.delete(`${API_URL}/api/debts/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchDebts();
@@ -91,7 +91,7 @@ const DebtManager = () => {
   const updateScheduledPayment = async (id, scheduledPayment) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`http://localhost:5000/api/debts/${id}`, { scheduledPayment }, {
+      await axios.put(`${API_URL}/api/debts/${id}`, { scheduledPayment }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchDebts();

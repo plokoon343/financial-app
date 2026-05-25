@@ -33,7 +33,7 @@ const StatementUpload = () => {
     if (password) formData.append('pdfPassword', password);
 
     const token = localStorage.getItem('token');
-    const res = await axios.post('http://localhost:5000/api/upload-statement', formData, {
+    const res = await axios.post('${API_URL}/api/upload-statement', formData, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
     });
     return res.data;
@@ -176,7 +176,7 @@ const StatementUpload = () => {
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post(
-        'http://localhost:5000/api/import-transactions',
+        '${API_URL}/api/import-transactions',
         { transactions: toImport },
         { headers: { Authorization: `Bearer ${token}` } }
       );

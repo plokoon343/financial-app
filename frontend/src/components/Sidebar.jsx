@@ -25,7 +25,7 @@ const Sidebar = () => {
     const fetchWallet = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get('http://localhost:5000/api/wallet', {
+        const res = await axios.get('${API_URL}/api/wallet', {
           headers: { Authorization: `Bearer ${token}` }
         });
         setWalletBalance(res.data.balance);

@@ -18,7 +18,7 @@ const SubscriptionManager = () => {
   const fetchSubscriptions = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/subscriptions', {
+      const res = await axios.get('${API_URL}/api/subscriptions', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSubscriptions(res.data);
@@ -47,7 +47,7 @@ const SubscriptionManager = () => {
           ? { enabled: true, dayOfMonth: newSubscription.scheduledPayment.dayOfMonth }
           : { enabled: false }
       };
-      await axios.post('http://localhost:5000/api/subscriptions', payload, {
+      await axios.post('${API_URL}/api/subscriptions', payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchSubscriptions();
@@ -69,7 +69,7 @@ const SubscriptionManager = () => {
     const newStatus = currentStatus === 'active' ? 'cancelled' : 'active';
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`http://localhost:5000/api/subscriptions/${id}`, { status: newStatus }, {
+      await axios.put(`${API_URL}/api/subscriptions/${id}`, { status: newStatus }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchSubscriptions();
@@ -83,7 +83,7 @@ const SubscriptionManager = () => {
     if (!window.confirm('Remove this subscription?')) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/subscriptions/${id}`, {
+      await axios.delete(`${API_URL}/api/subscriptions/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchSubscriptions();
@@ -96,7 +96,7 @@ const SubscriptionManager = () => {
   const updateScheduledPayment = async (id, scheduledPayment) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`http://localhost:5000/api/subscriptions/${id}`, { scheduledPayment }, {
+      await axios.put(`${API_URL}/api/subscriptions/${id}`, { scheduledPayment }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchSubscriptions();

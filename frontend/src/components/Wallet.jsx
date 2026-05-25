@@ -16,7 +16,7 @@ const Wallet = () => {
   const fetchWallet = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/wallet', {
+      const res = await axios.get('${API_URL}/api/wallet', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setBalance(res.data.balance);
@@ -41,7 +41,7 @@ const Wallet = () => {
     try {
       const token = localStorage.getItem('token');
       const endpoint = type === 'deposit' ? '/api/wallet/deposit' : '/api/wallet/withdraw';
-      const res = await axios.post(`http://localhost:5000${endpoint}`, {
+      const res = await axios.post(`${API_URL}${endpoint}`, {
         amount: parseFloat(amount),
         description: description || (type === 'deposit' ? 'Manual deposit' : 'Manual withdrawal')
       }, {

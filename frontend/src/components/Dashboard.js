@@ -12,7 +12,7 @@ import {
   FaCloudUploadAlt, FaPaperclip, FaMagic, FaInfoCircle, FaEye, FaEyeSlash
 } from 'react-icons/fa';
 
-const API = 'http://localhost:5000';
+const API = '${API_URL}';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20 },

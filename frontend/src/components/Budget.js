@@ -24,7 +24,7 @@ const Budget = () => {
   const fetchBudgets = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:5000/api/budgets');
+      const response = await axios.get('${API_URL}/api/budgets');
       setBudgets(response.data);
       setLoading(false);
     } catch (error) {
@@ -35,7 +35,7 @@ const Budget = () => {
 
   const fetchTransactions = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/transactions');
+      const response = await axios.get('${API_URL}/api/transactions');
       setTransactions(response.data);
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -45,7 +45,7 @@ const Budget = () => {
   const addBudget = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:5000/api/budgets', {
+      await axios.post('${API_URL}/api/budgets', {
         ...formData,
         amount: parseFloat(formData.amount)
       });
@@ -61,7 +61,7 @@ const Budget = () => {
   const deleteBudget = async (id) => {
     if (window.confirm('Are you sure you want to delete this budget?')) {
       try {
-        await axios.delete(`http://localhost:5000/api/budgets/${id}`);
+        await axios.delete(`${API_URL}/api/budgets/${id}`);
         fetchBudgets();
       } catch (error) {
         console.error('Error deleting budget:', error);

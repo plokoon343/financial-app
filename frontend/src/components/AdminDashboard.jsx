@@ -28,8 +28,8 @@ const AdminDashboard = () => {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
       const [statsRes, usersRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/admin/stats', { headers }),
-        axios.get('http://localhost:5000/api/admin/users', { headers })
+        axios.get('${API_URL}/api/admin/stats', { headers }),
+        axios.get('${API_URL}/api/admin/users', { headers })
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data);
@@ -46,7 +46,7 @@ const AdminDashboard = () => {
     setActionLoading(userId + '_role');
     try {
       const token = localStorage.getItem('token');
-      await axios.patch(`http://localhost:5000/api/admin/users/${userId}/role`, { role: newRole }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.patch(`${API_URL}/api/admin/users/${userId}/role`, { role: newRole }, { headers: { Authorization: `Bearer ${token}` } });
       setUsers(prev => prev.map(u => u._id === userId ? { ...u, role: newRole } : u));
       showMessage('Role updated');
     } catch (error) { showMessage(error.response?.data?.message || 'Failed', 'error'); }
@@ -57,7 +57,7 @@ const AdminDashboard = () => {
     setActionLoading(userId + '_status');
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.patch(`http://localhost:5000/api/admin/users/${userId}/status`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.patch(`${API_URL}/api/admin/users/${userId}/status`, {}, { headers: { Authorization: `Bearer ${token}` } });
       setUsers(prev => prev.map(u => u._id === userId ? { ...u, isActive: res.data.user.isActive } : u));
       showMessage(res.data.message);
     } catch (error) { showMessage(error.response?.data?.message || 'Failed', 'error'); }
@@ -69,7 +69,7 @@ const AdminDashboard = () => {
     setActionLoading(userId + '_delete');
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/admin/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.delete(`${API_URL}/api/admin/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
       setUsers(prev => prev.filter(u => u._id !== userId));
       showMessage('User deleted');
     } catch (error) { showMessage(error.response?.data?.message || 'Failed', 'error'); }

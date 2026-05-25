@@ -20,10 +20,10 @@ const BillsManager = () => {
     const headers = { Authorization: `Bearer ${token}` };
     try {
       const [debtsRes, subsRes, billsRes, banksRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/debts', { headers }),
-        axios.get('http://localhost:5000/api/subscriptions', { headers }),
-        axios.get('http://localhost:5000/api/bills', { headers }),
-        axios.get('http://localhost:5000/api/banks', { headers }),
+        axios.get('${API_URL}/api/debts', { headers }),
+        axios.get('${API_URL}/api/subscriptions', { headers }),
+        axios.get('${API_URL}/api/bills', { headers }),
+        axios.get('${API_URL}/api/banks', { headers }),
       ]);
       setDebts(debtsRes.data);
       setSubscriptions(subsRes.data);
@@ -63,9 +63,9 @@ const BillsManager = () => {
     try {
       const token = localStorage.getItem('token');
       let endpoint = '';
-      if (type === 'debt') endpoint = `http://localhost:5000/api/debts/${id}`;
-      else if (type === 'subscription') endpoint = `http://localhost:5000/api/subscriptions/${id}`;
-      else if (type === 'bill') endpoint = `http://localhost:5000/api/bills/${id}`;
+      if (type === 'debt') endpoint = `${API_URL}/api/debts/${id}`;
+      else if (type === 'subscription') endpoint = `${API_URL}/api/subscriptions/${id}`;
+      else if (type === 'bill') endpoint = `${API_URL}/api/bills/${id}`;
       await axios.delete(endpoint, { headers: { Authorization: `Bearer ${token}` } });
       await fetchAll(); // refresh list
     } catch (err) {
@@ -101,7 +101,7 @@ const BillsManager = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const resolveRes = await axios.get('http://localhost:5000/api/bank/resolve', {
+      const resolveRes = await axios.get('${API_URL}/api/bank/resolve', {
         params: { bank_code: bankCode, account_number: accountNumber },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -111,9 +111,9 @@ const BillsManager = () => {
       const bankName = selectedBank?.name || '';
 
       let endpoint = '';
-      if (type === 'debt') endpoint = `http://localhost:5000/api/debts/${id}`;
-      else if (type === 'subscription') endpoint = `http://localhost:5000/api/subscriptions/${id}`;
-      else if (type === 'bill') endpoint = `http://localhost:5000/api/bills/${id}`;
+      if (type === 'debt') endpoint = `${API_URL}/api/debts/${id}`;
+      else if (type === 'subscription') endpoint = `${API_URL}/api/subscriptions/${id}`;
+      else if (type === 'bill') endpoint = `${API_URL}/api/bills/${id}`;
 
       await axios.put(endpoint, {
         bankCode,
@@ -143,7 +143,7 @@ const BillsManager = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const response = await axios.post('http://localhost:5000/api/payments/pay-all-due', {}, { headers });
+      const response = await axios.post('${API_URL}/api/payments/pay-all-due', {}, { headers });
       alert(response.data.message || 'All due bills have been paid successfully!');
       await fetchAll();
     } catch (err) {

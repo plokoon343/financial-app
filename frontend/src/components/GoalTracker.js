@@ -22,7 +22,7 @@ const GoalTracker = () => {
   const fetchGoals = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/goals', {
+      const res = await axios.get('${API_URL}/api/goals', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGoals(res.data);
@@ -50,7 +50,7 @@ const GoalTracker = () => {
           dayOfMonth: parseInt(newGoal.scheduledPayment.dayOfMonth, 10) || 1,
         }
       };
-      const res = await axios.post('http://localhost:5000/api/goals', payload, {
+      const res = await axios.post('${API_URL}/api/goals', payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGoals([res.data, ...goals]);
@@ -62,7 +62,7 @@ const GoalTracker = () => {
   const contributeToGoal = async (id, amount) => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post(`http://localhost:5000/api/goals/${id}/contribute`, { amount }, {
+      const res = await axios.post(`${API_URL}/api/goals/${id}/contribute`, { amount }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchGoals(); // refresh goal list
@@ -77,7 +77,7 @@ const GoalTracker = () => {
     if (!window.confirm('Delete this goal?')) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/goals/${id}`, {
+      await axios.delete(`${API_URL}/api/goals/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGoals(goals.filter(g => g._id !== id));
@@ -88,7 +88,7 @@ const GoalTracker = () => {
   const updateScheduledPayment = async (id, scheduledPayment) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.patch(`http://localhost:5000/api/goals/${id}/scheduled-payment`, scheduledPayment, {
+      await axios.patch(`${API_URL}/api/goals/${id}/scheduled-payment`, scheduledPayment, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchGoals(); // refresh to get updated data

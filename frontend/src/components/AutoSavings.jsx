@@ -21,7 +21,7 @@ const AutoSavings = () => {
   const fetchRule = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/savings/rules', {
+      const res = await axios.get('${API_URL}/api/savings/rules', {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data) {
@@ -36,7 +36,7 @@ const AutoSavings = () => {
   const fetchGoals = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/goals', {
+      const res = await axios.get('${API_URL}/api/goals', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGoals(res.data);
@@ -55,7 +55,7 @@ const AutoSavings = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.post('http://localhost:5000/api/savings/rules', {
+      await axios.post('${API_URL}/api/savings/rules', {
         type,
         value: Number(value),
         active: true,
@@ -76,7 +76,7 @@ const AutoSavings = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.delete('http://localhost:5000/api/savings/rules', {
+      await axios.delete('${API_URL}/api/savings/rules', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage({ text: 'Auto‑savings disabled', type: 'success' });

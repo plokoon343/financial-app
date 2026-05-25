@@ -21,7 +21,7 @@ const Profile = () => {
     const fetchBanks = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get('http://localhost:5000/api/banks', {
+        const res = await axios.get('${API_URL}/api/banks', {
           headers: { Authorization: `Bearer ${token}` }
         });
         setBanks(res.data);
@@ -37,7 +37,7 @@ const Profile = () => {
     const fetchBankDetails = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get('http://localhost:5000/api/user/bank-details', {
+        const res = await axios.get('${API_URL}/api/user/bank-details', {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.data) {
@@ -59,7 +59,7 @@ const Profile = () => {
         setResolving(true);
         try {
           const token = localStorage.getItem('token');
-          const res = await axios.get('http://localhost:5000/api/bank/resolve', {
+          const res = await axios.get('${API_URL}/api/bank/resolve', {
             params: {
               account_number: bankDetails.accountNumber,
               bank_code: bankDetails.bankCode,
@@ -99,7 +99,7 @@ const Profile = () => {
     setSaving(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.post('http://localhost:5000/api/user/bank-details', bankDetails, {
+      await axios.post('${API_URL}/api/user/bank-details', bankDetails, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage({ text: 'Bank details saved!', type: 'success' });

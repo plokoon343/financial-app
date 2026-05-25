@@ -16,7 +16,7 @@ const SpendingAlerts = () => {
   const fetchAlerts = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/alerts', {
+      const res = await axios.get('${API_URL}/api/alerts', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setAlerts(res.data);

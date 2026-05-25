@@ -61,7 +61,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post('http://localhost:5000/api/login', {
+      const response = await axios.post('${API_URL}/api/login', {
         email,
         password
       });
@@ -83,7 +83,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (name, email, password) => {
     try {
-      const response = await axios.post('http://localhost:5000/api/register', {
+      const response = await axios.post('${API_URL}/api/register', {
         name,
         email,
         password
@@ -188,7 +188,7 @@ export const AuthProvider = ({ children }) => {
 
 //   const login = async (email, password) => {
 //     try {
-//       const response = await axios.post('http://localhost:5000/api/login', {
+//       const response = await axios.post('${API_URL}/api/login', {
 //         email,
 //         password
 //       });
@@ -210,7 +210,7 @@ export const AuthProvider = ({ children }) => {
 
 //   const register = async (name, email, password) => {
 //     try {
-//       const response = await axios.post('http://localhost:5000/api/register', {
+//       const response = await axios.post('${API_URL}/api/register', {
 //         name,
 //         email,
 //         password

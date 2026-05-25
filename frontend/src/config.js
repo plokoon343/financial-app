@@ -1,0 +1,1 @@
+export const API_URL = 'https://financial-app-w2ai.onrender.com';

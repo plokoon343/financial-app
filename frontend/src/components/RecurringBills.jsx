@@ -21,7 +21,7 @@ const RecurringBills = () => {
   const fetchBills = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/bills', {
+      const res = await axios.get('${API_URL}/api/bills', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setBills(res.data);
@@ -38,12 +38,12 @@ const RecurringBills = () => {
     try {
       const token = localStorage.getItem('token');
       if (editingId) {
-        await axios.put(`http://localhost:5000/api/bills/${editingId}`, formData, {
+        await axios.put(`${API_URL}/api/bills/${editingId}`, formData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMessage({ text: 'Bill updated', type: 'success' });
       } else {
-        await axios.post('http://localhost:5000/api/bills', formData, {
+        await axios.post('${API_URL}/api/bills', formData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMessage({ text: 'Bill added', type: 'success' });
@@ -62,7 +62,7 @@ const RecurringBills = () => {
     if (!window.confirm('Delete this bill?')) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/bills/${id}`, {
+      await axios.delete(`${API_URL}/api/bills/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchBills();
@@ -76,7 +76,7 @@ const RecurringBills = () => {
     setProcessing(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post('http://localhost:5000/api/bills/process', {}, {
+      const res = await axios.post('${API_URL}/api/bills/process', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage({ text: `Processed ${res.data.processed} bills`, type: 'success' });

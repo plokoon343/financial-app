@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
-import { API_URL } from '../config';
+
 const FinancialTrends = ({ transactions = [] }) => {
   const [timeframe, setTimeframe] = useState('6months');
   const [monthlyData, setMonthlyData] = useState([]);
@@ -14,21 +14,14 @@ const FinancialTrends = ({ transactions = [] }) => {
     { value: '1year', label: '1 Year', color: '#43e97b' }
   ];
 
-  useEffect(() => {
-    if (transactions.length > 0) {
-      processTransactionData();
-    }
-  }, [transactions, timeframe]);
-
-  const processTransactionData = () => {
-    // Group transactions by month
+  const processTransactionData = useCallback(() => {
     const monthlySummary = {};
-    
+
     transactions.forEach(transaction => {
       const date = new Date(transaction.date);
       const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
       const monthName = date.toLocaleString('default', { month: 'short' });
-      
+
       if (!monthlySummary[monthKey]) {
         monthlySummary[monthKey] = {
           month: monthName,
@@ -37,7 +30,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           savings: 0
         };
       }
-      
+
       if (transaction.type === 'income') {
         monthlySummary[monthKey].income += transaction.amount;
       } else {
@@ -45,7 +38,6 @@ const FinancialTrends = ({ transactions = [] }) => {
       }
     });
 
-    // Calculate savings and convert to array
     const data = Object.values(monthlySummary).map(month => ({
       ...month,
       savings: month.income - month.expenses,
@@ -55,7 +47,6 @@ const FinancialTrends = ({ transactions = [] }) => {
       return months.indexOf(a.month) - months.indexOf(b.month);
     });
 
-    // Limit data based on timeframe
     let filteredData = data;
     if (timeframe === '3months') filteredData = data.slice(-3);
     else if (timeframe === '6months') filteredData = data.slice(-6);
@@ -63,7 +54,6 @@ const FinancialTrends = ({ transactions = [] }) => {
 
     setMonthlyData(filteredData);
 
-    // Process expense categories
     const categories = {};
     transactions
       .filter(t => t.type === 'expense')
@@ -87,11 +77,10 @@ const FinancialTrends = ({ transactions = [] }) => {
 
     setExpenseCategories(categoryData);
 
-    // Calculate trend metrics
     if (filteredData.length > 0) {
       const firstMonth = filteredData[0];
       const lastMonth = filteredData[filteredData.length - 1];
-      
+
       const incomeChange = ((lastMonth.income - firstMonth.income) / firstMonth.income * 100).toFixed(1);
       const expenseChange = ((lastMonth.expenses - firstMonth.expenses) / firstMonth.expenses * 100).toFixed(1);
       const savingsChange = ((lastMonth.savings - firstMonth.savings) / Math.abs(firstMonth.savings || 1) * 100).toFixed(1);
@@ -106,14 +95,19 @@ const FinancialTrends = ({ transactions = [] }) => {
         averageSavingsRate: filteredData.reduce((sum, month) => sum + parseFloat(month.savingsRate || 0), 0) / filteredData.length
       });
     }
-  };
+  }, [transactions, timeframe]);
+
+  useEffect(() => {
+    if (transactions.length > 0) {
+      processTransactionData();
+    }
+  }, [transactions, timeframe, processTransactionData]);
 
   const largestCategory = expenseCategories.length > 0
-    ? expenseCategories.reduce((max, category) => 
+    ? expenseCategories.reduce((max, category) =>
         category.amount > max.amount ? category : max, expenseCategories[0])
     : null;
 
-  // Custom tooltip for charts
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
@@ -129,7 +123,6 @@ const FinancialTrends = ({ transactions = [] }) => {
     }
     return null;
   };
-
   return (
     <div className="trends-page">
       <div className="section-header">

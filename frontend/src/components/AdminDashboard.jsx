@@ -20,7 +20,7 @@ const AdminDashboard = () => {
   };
   const textPrimary = { color: darkMode ? '#f7fafc' : '#1a365d' };
   const textSecondary = { color: darkMode ? '#a0aec0' : '#718096' };
-
+// eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
@@ -29,8 +29,8 @@ const AdminDashboard = () => {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
       const [statsRes, usersRes] = await Promise.all([
-        axios.get('${API_URL}/api/admin/stats', { headers }),
-        axios.get('${API_URL}/api/admin/users', { headers })
+        axios.get(`${API_URL}/api/admin/stats`, { headers }),
+        axios.get(`${API_URL}/api/admin/users`, { headers })
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data);

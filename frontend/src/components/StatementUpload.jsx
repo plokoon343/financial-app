@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 const StatementUpload = () => {
-  const { darkMode } = useAuth();
+  //const { darkMode } = useAuth();
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [transactions, setTransactions] = useState([]);
@@ -33,7 +33,7 @@ const StatementUpload = () => {
     if (password) formData.append('pdfPassword', password);
 
     const token = localStorage.getItem('token');
-    const res = await axios.post('${API_URL}/api/upload-statement', formData, {
+    const res = await axios.post(`${API_URL}/api/upload-statement`, formData, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
     });
     return res.data;
@@ -176,7 +176,7 @@ const StatementUpload = () => {
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post(
-        '${API_URL}/api/import-transactions',
+        `${API_URL}/api/import-transactions`,
         { transactions: toImport },
         { headers: { Authorization: `Bearer ${token}` } }
       );

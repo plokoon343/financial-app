@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 const RecurringBills = () => {
-  const { darkMode } = useAuth();
+  //const { darkMode } = useAuth();
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -21,7 +21,7 @@ const RecurringBills = () => {
   const fetchBills = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('${API_URL}/api/bills', {
+      const res = await axios.get(`${API_URL}/api/bills`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setBills(res.data);
@@ -43,7 +43,7 @@ const RecurringBills = () => {
         });
         setMessage({ text: 'Bill updated', type: 'success' });
       } else {
-        await axios.post('${API_URL}/api/bills', formData, {
+        await axios.post(`${API_URL}/api/bills`, formData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMessage({ text: 'Bill added', type: 'success' });
@@ -76,7 +76,7 @@ const RecurringBills = () => {
     setProcessing(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post('${API_URL}/api/bills/process', {}, {
+      const res = await axios.post(`${API_URL}/api/bills/process`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage({ text: `Processed ${res.data.processed} bills`, type: 'success' });

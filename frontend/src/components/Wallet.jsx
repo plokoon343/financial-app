@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 const Wallet = () => {
-  const { darkMode } = useAuth();
+  //const { darkMode } = useAuth();
   const [balance, setBalance] = useState(0);
   const [savingsBalance, setSavingsBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
@@ -16,7 +16,7 @@ const Wallet = () => {
   const fetchWallet = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('${API_URL}/api/wallet', {
+      const res = await axios.get(`${API_URL}/api/wallet`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setBalance(res.data.balance);

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 const GoalTracker = () => {
-  const { darkMode } = useAuth();
+  //const { darkMode } = useAuth();
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newGoal, setNewGoal] = useState({
@@ -22,7 +22,7 @@ const GoalTracker = () => {
   const fetchGoals = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('${API_URL}/api/goals', {
+      const res = await axios.get(`${API_URL}/api/goals`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGoals(res.data);
@@ -50,7 +50,7 @@ const GoalTracker = () => {
           dayOfMonth: parseInt(newGoal.scheduledPayment.dayOfMonth, 10) || 1,
         }
       };
-      const res = await axios.post('${API_URL}/api/goals', payload, {
+      const res = await axios.post(`${API_URL}/api/goals`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGoals([res.data, ...goals]);

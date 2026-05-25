@@ -6,14 +6,13 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import {
   FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
-  FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaCalculator, FaListAlt,
-  FaArrowUp, FaArrowDown, FaTrash, FaEdit, FaChartPie, FaRegCalendarAlt,
-  FaRegChartBar, FaWallet, FaPiggyBank, FaRegMoneyBillAlt,
+  FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
+  FaArrowUp, FaArrowDown, FaTrash, FaEdit, FaChartPie, FaWallet, FaPiggyBank, FaRegMoneyBillAlt,
   FaFileUpload, FaTimes, FaCheck, FaSpinner, FaExclamationTriangle,
   FaCloudUploadAlt, FaPaperclip, FaMagic, FaInfoCircle, FaEye, FaEyeSlash
 } from 'react-icons/fa';
 
-const API = '${API_URL}';
+const API = `${API_URL}`;
 
 const pageVariants = {
   initial: { opacity: 0, y: 20 },
@@ -414,6 +413,7 @@ const Dashboard = () => {
     return `₦${value.toLocaleString()}`;
   };
 
+// eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     (async () => {
       try {
@@ -426,7 +426,7 @@ const Dashboard = () => {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [setTransactions]);
 
   useEffect(() => {
     const totalIncome   = transactions.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0);

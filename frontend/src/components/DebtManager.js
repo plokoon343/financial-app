@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 const DebtManager = () => {
-  const { darkMode } = useAuth();
+  //const { darkMode } = useAuth();
   const [debts, setDebts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
@@ -19,7 +19,7 @@ const DebtManager = () => {
   const fetchDebts = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('${API_URL}/api/debts', {
+      const res = await axios.get(`${API_URL}/api/debts`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDebts(res.data);
@@ -62,7 +62,7 @@ const DebtManager = () => {
         dayOfMonth: parseInt(newDebt.scheduledPayment.dayOfMonth, 10) || 1,
       }
     };
-    await axios.post('${API_URL}/api/debts', payload, {
+    await axios.post(`${API_URL}/api/debts`, payload, {
       headers: { Authorization: `Bearer ${token}` }
     });
     fetchDebts();

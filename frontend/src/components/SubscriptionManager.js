@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 const SubscriptionManager = () => {
-  const { darkMode } = useAuth();
+  //const { darkMode } = useAuth();
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newSubscription, setNewSubscription] = useState({
@@ -18,7 +18,7 @@ const SubscriptionManager = () => {
   const fetchSubscriptions = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('${API_URL}/api/subscriptions', {
+      const res = await axios.get(`${API_URL}/api/subscriptions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSubscriptions(res.data);
@@ -47,7 +47,7 @@ const SubscriptionManager = () => {
           ? { enabled: true, dayOfMonth: newSubscription.scheduledPayment.dayOfMonth }
           : { enabled: false }
       };
-      await axios.post('${API_URL}/api/subscriptions', payload, {
+      await axios.post(`${API_URL}/api/subscriptions`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchSubscriptions();

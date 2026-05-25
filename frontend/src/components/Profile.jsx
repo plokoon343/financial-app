@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 const Profile = () => {
-  const { darkMode } = useAuth();
+  //const { darkMode } = useAuth();
   const [banks, setBanks] = useState([]);
   const [bankDetails, setBankDetails] = useState({
     bankName: '',
@@ -21,7 +21,7 @@ const Profile = () => {
     const fetchBanks = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get('${API_URL}/api/banks', {
+        const res = await axios.get(`${API_URL}/api/banks`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setBanks(res.data);
@@ -37,7 +37,7 @@ const Profile = () => {
     const fetchBankDetails = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get('${API_URL}/api/user/bank-details', {
+        const res = await axios.get(`${API_URL}/api/user/bank-details`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.data) {
@@ -59,7 +59,7 @@ const Profile = () => {
         setResolving(true);
         try {
           const token = localStorage.getItem('token');
-          const res = await axios.get('${API_URL}/api/bank/resolve', {
+          const res = await axios.get(`${API_URL}/api/bank/resolve`, {
             params: {
               account_number: bankDetails.accountNumber,
               bank_code: bankDetails.bankCode,
@@ -99,7 +99,7 @@ const Profile = () => {
     setSaving(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.post('${API_URL}/api/user/bank-details', bankDetails, {
+      await axios.post(`${API_URL}/api/user/bank-details`, bankDetails, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage({ text: 'Bank details saved!', type: 'success' });

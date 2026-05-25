@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 const AutoSavings = () => {
-  const { darkMode } = useAuth();
+  //const { darkMode } = useAuth();
   const [rule, setRule] = useState(null);
   const [type, setType] = useState('percentage'); // 'percentage' or 'roundup'
   const [value, setValue] = useState(10); // percentage or roundup step
@@ -21,7 +21,7 @@ const AutoSavings = () => {
   const fetchRule = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('${API_URL}/api/savings/rules', {
+      const res = await axios.get(`${API_URL}/api/savings/rules`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data) {
@@ -36,7 +36,7 @@ const AutoSavings = () => {
   const fetchGoals = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('${API_URL}/api/goals', {
+      const res = await axios.get(`${API_URL}/api/goals`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGoals(res.data);
@@ -55,7 +55,7 @@ const AutoSavings = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.post('${API_URL}/api/savings/rules', {
+      await axios.post(`${API_URL}/api/savings/rules`, {
         type,
         value: Number(value),
         active: true,
@@ -76,7 +76,7 @@ const AutoSavings = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.delete('${API_URL}/api/savings/rules', {
+      await axios.delete(`${API_URL}/api/savings/rules`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage({ text: 'Auto‑savings disabled', type: 'success' });

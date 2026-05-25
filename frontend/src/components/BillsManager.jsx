@@ -20,10 +20,10 @@ const BillsManager = () => {
     const headers = { Authorization: `Bearer ${token}` };
     try {
       const [debtsRes, subsRes, billsRes, banksRes] = await Promise.all([
-        axios.get('${API_URL}/api/debts', { headers }),
-        axios.get('${API_URL}/api/subscriptions', { headers }),
-        axios.get('${API_URL}/api/bills', { headers }),
-        axios.get('${API_URL}/api/banks', { headers }),
+        axios.get(`${API_URL}/api/debts`, { headers }),
+        axios.get(`${API_URL}/api/subscriptions`, { headers }),
+        axios.get(`${API_URL}/api/bills`, { headers }),
+        axios.get(`${API_URL}/api/banks`, { headers }),
       ]);
       setDebts(debtsRes.data);
       setSubscriptions(subsRes.data);
@@ -101,7 +101,7 @@ const BillsManager = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const resolveRes = await axios.get('${API_URL}/api/bank/resolve', {
+      const resolveRes = await axios.get(`${API_URL}/api/bank/resolve`, {
         params: { bank_code: bankCode, account_number: accountNumber },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -143,7 +143,7 @@ const BillsManager = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const response = await axios.post('${API_URL}/api/payments/pay-all-due', {}, { headers });
+      const response = await axios.post(`${API_URL}/api/payments/pay-all-due`, {}, { headers });
       alert(response.data.message || 'All due bills have been paid successfully!');
       await fetchAll();
     } catch (err) {

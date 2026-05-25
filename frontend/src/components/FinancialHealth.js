@@ -7,7 +7,7 @@ import NetWorthCalculator from './NetWorthCalculator';
 import SubscriptionManager from './SubscriptionManager';
 import RecurringBills from './RecurringBills';
 import BillsManager from './BillsManager';
-
+import { API_URL } from '../config';
 const FinancialHealth = ({ 
   transactions = [], 
   debts = [], 

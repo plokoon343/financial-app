@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import { API_URL } from '../config';
 
 const AdminDashboard = () => {
   const { user, darkMode } = useAuth();

@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import { API_URL } from '../config';
 import {
   FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
   FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaCalculator, FaListAlt,

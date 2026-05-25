@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './Login.css'; // reuse same CSS for consistency
-
+import { API_URL } from '../config';
 // Theme configuration
 const theme = {
   light: {

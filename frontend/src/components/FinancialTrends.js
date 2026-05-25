@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
-
+import { API_URL } from '../config';
 const FinancialTrends = ({ transactions = [] }) => {
   const [timeframe, setTimeframe] = useState('6months');
   const [monthlyData, setMonthlyData] = useState([]);

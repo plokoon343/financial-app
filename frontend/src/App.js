@@ -6,8 +6,7 @@ import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import Budget from './components/Budget';
 import FinancialHealth from './components/FinancialHealth';
-import Sidebar from './components/Sidebar';           // <-- import Sidebar, not Navbar
-import CurrencyConverter from './components/CurrencyConverter';
+import Sidebar from './components/Sidebar';
 import SuperAdminRoute from './components/SuperAdminRoute';
 import AdminDashboard from './components/AdminDashboard';
 import './App.css';
@@ -15,9 +14,7 @@ import './responsive.css';  // at the top with other CSS imports
 import Wallet from './components/Wallet';
 import GoalTracker from './components/GoalTracker';
 import AutoSavings from './components/AutoSavings';
-import StatementUpload from './components/StatementUpload';
 import Profile from './components/Profile';
-// inside <Routes>:
 
 function App() {
   return (
@@ -87,11 +84,9 @@ function AppContent() {
               setSubscriptions={setSubscriptions}
             />
           } />
-          <Route path="currency-converter" element={<CurrencyConverter />} />
           <Route path="wallet" element={<Wallet />} />
           <Route path="goals" element={<GoalTracker goals={goals} setGoals={setGoals} />} />
           <Route path="auto-savings" element={<AutoSavings />} />
-          <Route path="statement-upload" element={<StatementUpload />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="admin" element={
             <SuperAdminRoute>

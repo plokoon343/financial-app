@@ -757,7 +757,7 @@ const Dashboard = () => {
 
       {/* Quick Stats */}
       <motion.div className="quick-stats" initial="hidden" animate="visible" variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } }}
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
         {[
           { label: 'Total Income',   value: formatAmount(stats.totalIncome),   icon: <FaArrowUp   style={{ color: '#38a169', fontSize: '1.5rem' }} />, isPos: true },
           { label: 'Total Expenses', value: formatAmount(stats.totalExpenses), icon: <FaArrowDown style={{ color: '#e53e3e', fontSize: '1.5rem' }} />, isPos: false },
@@ -777,7 +777,7 @@ const Dashboard = () => {
 
       {/* Main grid: Financial Overview + Recent Transactions */}
       <motion.div className="dashboard-grid" initial="hidden" animate="visible" variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.2 } } }}
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
         <motion.div className="card overview-card" variants={cardVariants} whileHover="hover"
           style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
           <h2 style={{ color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -861,7 +861,7 @@ const Dashboard = () => {
 
       {/* Savings Rate + Quick Insights */}
       <motion.div className="insights-grid" initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
         <motion.div className="card savings-card" whileHover={{ scale: 1.02, y: -5 }}
           style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
           <h3 style={{ color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

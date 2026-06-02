@@ -230,12 +230,12 @@ const Wallet = () => {
         .balance-cards {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 25px;
+          gap: 16px;
           margin-bottom: 30px;
         }
         .wallet-balance-card {
           text-align: center;
-          padding: 30px;
+          padding: 18px;
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
@@ -284,7 +284,7 @@ const Wallet = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           margin-bottom: 30px;
           border: 1px solid var(--glass-border);
         }
@@ -408,7 +408,7 @@ const Wallet = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           border: 1px solid var(--glass-border);
         }
         .wallet-transactions h3 {

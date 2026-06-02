@@ -168,8 +168,8 @@ const NetWorthCalculator = () => {
         
         .section-header {
           text-align: center;
-          margin-bottom: 40px;
-          padding: 30px 20px;
+          margin-bottom: 24px;
+          padding: 18px 14px;
           background: var(--card-bg);
           border-radius: var(--radius-lg);
           box-shadow: var(--shadow-md);
@@ -203,10 +203,10 @@ const NetWorthCalculator = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
-          margin-bottom: 40px;
+          margin-bottom: 24px;
           text-align: center;
         }
         
@@ -231,7 +231,7 @@ const NetWorthCalculator = () => {
         }
         
         .networth-display {
-          padding: 30px;
+          padding: 18px;
           background: var(--glass-bg);
           border-radius: var(--radius-lg);
           border: 2px solid var(--glass-border);
@@ -263,7 +263,7 @@ const NetWorthCalculator = () => {
         }
         
         .breakdown-item {
-          padding: 25px;
+          padding: 16px;
           border-radius: var(--radius-md);
           background: var(--glass-bg);
           display: flex;
@@ -324,7 +324,7 @@ const NetWorthCalculator = () => {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
           gap: 30px;
-          margin-bottom: 40px;
+          margin-bottom: 24px;
         }
         
         @media (max-width: 1100px) {
@@ -337,7 +337,7 @@ const NetWorthCalculator = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
         }
@@ -486,7 +486,7 @@ const NetWorthCalculator = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
         }
@@ -513,13 +513,13 @@ const NetWorthCalculator = () => {
         .tips-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 25px;
+          gap: 16px;
         }
         
         .tip-card {
           background: var(--glass-bg);
           border-radius: var(--radius-md);
-          padding: 25px;
+          padding: 16px;
           display: flex;
           gap: 20px;
           transition: all var(--transition-base);

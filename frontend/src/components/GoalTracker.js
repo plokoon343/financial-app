@@ -436,11 +436,11 @@ const GoalTracker = () => {
 
       <style jsx="true">{`
         .goals-page { padding: 20px; max-width: 1200px; margin: 0 auto; }
-        .section-header { text-align: center; margin-bottom: 40px; padding: 30px 20px; background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); }
+        .section-header { text-align: center; margin-bottom: 24px; padding: 18px 14px; background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); }
         .section-header h2 { font-family: var(--font-heading); font-size: 2.5rem; font-weight: 700; margin-bottom: 10px; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; display: flex; align-items: center; justify-content: center; gap: 15px; }
         .section-subtitle { color: var(--text-secondary); font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
-        .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 25px; margin-bottom: 40px; }
-        .overview-card { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 25px; display: flex; align-items: center; gap: 20px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); transition: all var(--transition-base); }
+        .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .overview-card { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 16px; display: flex; align-items: center; gap: 20px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); transition: all var(--transition-base); }
         .overview-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lg); }
         .overview-icon { width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; color: white; }
         .overview-icon.total-goals { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
@@ -449,7 +449,7 @@ const GoalTracker = () => {
         .overview-icon.overall-progress { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
         .overview-content h3 { font-size: 1rem; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
         .overview-amount { font-size: 1.8rem; font-weight: 700; font-family: var(--font-accent); color: var(--text-primary); }
-        .goals-list-container { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 30px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 40px; }
+        .goals-list-container { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 24px; }
         .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid var(--glass-border); }
         .list-header h3 { font-family: var(--font-heading); font-size: 1.6rem; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
         .goals-count { font-size: 0.9rem; background: var(--glass-bg); padding: 6px 15px; border-radius: var(--radius-full); color: var(--text-secondary); font-weight: 600; }
@@ -459,8 +459,8 @@ const GoalTracker = () => {
         .empty-state p { color: var(--text-secondary); max-width: 400px; margin: 0 auto 25px; font-size: 1.1rem; line-height: 1.6; }
         .btn-primary { padding: 14px 32px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: var(--radius-full); font-weight: 600; cursor: pointer; transition: all var(--transition-base); display: inline-flex; align-items: center; gap: 10px; font-size: 1rem; box-shadow: var(--shadow-md); }
         .btn-primary:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
-        .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 25px; }
-        .goal-card { background: var(--glass-bg); border-radius: var(--radius-lg); padding: 25px; transition: all var(--transition-base); border: 1px solid var(--glass-border); position: relative; overflow: hidden; }
+        .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px; }
+        .goal-card { background: var(--glass-bg); border-radius: var(--radius-lg); padding: 16px; transition: all var(--transition-base); border: 1px solid var(--glass-border); position: relative; overflow: hidden; }
         .goal-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-md); }
         .goal-card.completed { border-left: 4px solid #27ae60; }
         .goal-card.completed::before { content: 'Completed ✓'; position: absolute; top: 10px; right: -25px; background: #27ae60; color: white; padding: 5px 25px; transform: rotate(45deg); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.5px; }
@@ -504,7 +504,7 @@ const GoalTracker = () => {
         .custom-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
         .goal-completed { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 20px; background: rgba(39, 174, 96, 0.1); border-radius: var(--radius-md); color: #27ae60; font-weight: 600; font-size: 1.2rem; }
         .goal-completed i { font-size: 1.5rem; }
-        .add-goal-form { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 30px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 40px; }
+        .add-goal-form { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 24px; }
         .form-header { text-align: center; margin-bottom: 30px; }
         .form-header h3 { font-family: var(--font-heading); font-size: 1.8rem; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 10px; }
         .form-header p { color: var(--text-secondary); font-size: 0.95rem; }
@@ -520,12 +520,12 @@ const GoalTracker = () => {
         .btn-submit:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
         .btn-cancel { background: var(--glass-bg); color: var(--text-primary); border: 1px solid var(--glass-border); }
         .btn-cancel:hover { background: var(--glass-bg); transform: translateY(-2px); }
-        .goals-tips { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 30px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); }
+        .goals-tips { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); }
         .tips-header { margin-bottom: 30px; }
         .tips-header h3 { font-family: var(--font-heading); font-size: 1.8rem; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
         .tips-header p { color: var(--text-secondary); font-size: 0.95rem; }
-        .tips-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
-        .tip-item { background: var(--glass-bg); border-radius: var(--radius-md); padding: 25px; display: flex; gap: 20px; transition: all var(--transition-base); }
+        .tips-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+        .tip-item { background: var(--glass-bg); border-radius: var(--radius-md); padding: 16px; display: flex; gap: 20px; transition: all var(--transition-base); }
         .tip-item:hover { transform: translateY(-5px); background: rgba(255, 255, 255, 0.05); }
         .tip-icon { width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; flex-shrink: 0; }
         .tip-content h4 { font-size: 1.1rem; color: var(--text-primary); margin-bottom: 10px; font-weight: 600; }

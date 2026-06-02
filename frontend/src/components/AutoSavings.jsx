@@ -5,8 +5,8 @@ import { API_URL } from '../config';
 const AutoSavings = () => {
   //const { darkMode } = useAuth();
   const [rule, setRule] = useState(null);
-  const [type, setType] = useState('percentage'); // 'percentage' or 'roundup'
-  const [value, setValue] = useState(10); // percentage or roundup step
+  const [type, setType] = useState('fixed'); // 'fixed' or 'roundup'
+  const [value, setValue] = useState(1000); // fixed naira amount or roundup step
   const [selectedGoalId, setSelectedGoalId] = useState('');
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -44,8 +44,8 @@ const AutoSavings = () => {
   };
 
   const saveRule = async () => {
-    if (type === 'percentage' && (value < 0 || value > 100)) {
-      setMessage({ text: 'Percentage must be between 0 and 100', type: 'error' });
+    if (type === 'fixed' && value <= 0) {
+      setMessage({ text: 'Amount must be greater than 0', type: 'error' });
       return;
     }
     if (type === 'roundup' && value <= 0) {
@@ -81,8 +81,8 @@ const AutoSavings = () => {
       });
       setMessage({ text: 'Auto‑savings disabled', type: 'success' });
       setRule(null);
-      setType('percentage');
-      setValue(10);
+      setType('fixed');
+      setValue(1000);
       setSelectedGoalId('');
     } catch (err) {
       setMessage({ text: 'Failed to disable', type: 'error' });
@@ -111,10 +111,12 @@ const AutoSavings = () => {
               <i className="fas fa-check-circle"></i> Active
             </div>
             <div className="rule-detail">
-              {rule.type === 'percentage' ? (
+              {rule.type === 'roundup' ? (
+                <>Round‑up expenses to the nearest <strong>₦{rule.value}</strong> and save the difference</>
+              ) : rule.type === 'percentage' ? (
                 <>Save <strong>{rule.value}%</strong> of every income</>
               ) : (
-                <>Round‑up expenses to the nearest <strong>₦{rule.value}</strong> and save the difference</>
+                <>Save <strong>₦{Number(rule.value).toLocaleString()}</strong> from every income</>
               )}
               {rule.targetGoalId && (
                 <div className="rule-goal">
@@ -134,10 +136,10 @@ const AutoSavings = () => {
               <div className="type-buttons">
                 <button
                   type="button"
-                  className={type === 'percentage' ? 'active' : ''}
-                  onClick={() => setType('percentage')}
+                  className={type === 'fixed' ? 'active' : ''}
+                  onClick={() => setType('fixed')}
                 >
-                  <i className="fas fa-percent"></i> Percentage of income
+                  <i className="fas fa-coins"></i> Fixed amount
                 </button>
                 <button
                   type="button"
@@ -152,21 +154,20 @@ const AutoSavings = () => {
               </div>
             </div>
 
-            {type === 'percentage' && (
+            {type === 'fixed' && (
               <div className="form-group">
-                <label>Percentage of income to save</label>
+                <label>Amount to save from each income (₦)</label>
                 <div className="input-with-icon">
-                  <i className="fas fa-percent input-icon"></i>
+                  <i className="fas fa-naira-sign input-icon"></i>
                   <input
                     type="number"
                     min="0"
-                    max="100"
-                    step="1"
+                    step="100"
                     value={value}
                     onChange={(e) => setValue(Number(e.target.value))}
                   />
                 </div>
-                <small>Example: 10% of ₦100,000 → ₦10,000 saved</small>
+                <small>Example: save ₦1,000 every time income is added to your wallet</small>
               </div>
             )}
 
@@ -242,17 +243,17 @@ const AutoSavings = () => {
       <div className="info-card glass-effect">
         <h3><i className="fas fa-lightbulb"></i> How it works</h3>
         <ul>
-          <li><strong>Percentage rule</strong>: When you add income, the chosen % is moved to savings.</li>
+          <li><strong>Fixed amount rule</strong>: When you add income, the chosen amount is moved to savings.</li>
           <li><strong>Round‑up rule</strong>: When you add an expense, we round up to the nearest step and save the difference.</li>
           <li>Money is taken from your <strong>main wallet</strong> and added to your <strong>savings balance</strong> (or linked goal).</li>
-          <li>You can only have one active rule at a time (percentage OR round‑up).</li>
+          <li>You can only have one active rule at a time (fixed amount OR round‑up).</li>
         </ul>
       </div>
 
       <style jsx="true">{`
         .auto-savings-page { max-width: 700px; margin: 0 auto; padding: 20px; }
         .page-header { text-align: center; margin-bottom: 30px; }
-        .savings-card, .info-card { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 30px; margin-bottom: 30px; border: 1px solid var(--glass-border); }
+        .savings-card, .info-card { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; margin-bottom: 30px; border: 1px solid var(--glass-border); }
         .type-buttons { display: flex; gap: 15px; margin-top: 10px; }
         .type-buttons button { flex: 1; padding: 12px; border: 1px solid var(--border-color); background: var(--glass-bg); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .type-buttons button.active { background: var(--gradient-primary); color: white; border-color: transparent; }
@@ -270,7 +271,7 @@ const AutoSavings = () => {
         .rule-detail { font-size: 1.2rem; margin: 15px 0; }
         .rule-goal { margin-top: 10px; font-size: 0.9rem; color: var(--text-secondary); }
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 2000; }
-        .modal-content { max-width: 450px; width: 90%; background: var(--card-bg); border-radius: var(--radius-lg); padding: 25px; border: 1px solid var(--glass-border); }
+        .modal-content { max-width: 450px; width: 90%; background: var(--card-bg); border-radius: var(--radius-lg); padding: 16px; border: 1px solid var(--glass-border); }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-secondary); }
         .modal-body { margin-bottom: 20px; line-height: 1.5; }

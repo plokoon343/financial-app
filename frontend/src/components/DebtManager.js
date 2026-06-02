@@ -326,8 +326,8 @@ const DebtManager = () => {
         /* Section Header */
         .section-header {
           text-align: center;
-          margin-bottom: 40px;
-          padding: 30px;
+          margin-bottom: 24px;
+          padding: 18px;
           background: var(--card-bg);
           border-radius: var(--radius-lg);
           box-shadow: var(--shadow-md);
@@ -358,7 +358,7 @@ const DebtManager = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 25px;
+          padding: 16px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
           transition: all var(--transition-base);
@@ -381,7 +381,7 @@ const DebtManager = () => {
           display: flex;
           align-items: center;
           gap: 20px;
-          padding: 25px;
+          padding: 16px;
         }
 
         .overview-icon {

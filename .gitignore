@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# production build
+/frontend/build
+/build
+
+# uploads (temp statement files)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# misc
+.DS_Store

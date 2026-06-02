@@ -416,28 +416,163 @@ const parseExcel = (filePath) => {
   return transactions;
 };
 
+// Load pdf.js directly (it ships bundled inside pdf-parse) so we can forward a
+// password to encrypted PDFs. pdf-parse@1.1.1 calls getDocument(buffer) and never
+// passes the password option, so password-protected statements can only be
+// decrypted by talking to pdf.js ourselves.
+const PDFJS_LIB = require('pdf-parse/lib/pdf.js/v1.10.100/build/pdf.js');
+
+// Re-implements pdf-parse's per-page text extraction.
+const renderPdfPage = (pageData) =>
+  pageData
+    .getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false })
+    .then((textContent) => {
+      let lastY, text = '';
+      for (const item of textContent.items) {
+        if (lastY === item.transform[5] || !lastY) text += item.str;
+        else text += '\n' + item.str;
+        lastY = item.transform[5];
+      }
+      return text;
+    });
+
+// Extract raw text from a (possibly encrypted) PDF buffer. The password is
+// forwarded to pdf.js, which decrypts the document. When the PDF is encrypted and
+// the password is missing or wrong, pdf.js rejects with a PasswordException —
+// callers detect that via isPdfPasswordError().
+const extractPdfText = async (buffer, password = '') => {
+  PDFJS_LIB.disableWorker = true;
+  const params = { data: new Uint8Array(buffer) };
+  if (password) params.password = password;
+
+  const doc = await PDFJS_LIB.getDocument(params);
+  let text = '';
+  try {
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      text += '\n\n' + (await renderPdfPage(page));
+    }
+  } finally {
+    doc.destroy();
+  }
+  return text;
+};
+
+// Month map for DD-Mon-YYYY dates used by most Nigerian banks.
+const MONTH_MAP = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
+// Money: 1,234.56 / 50.00 / .75  (comma thousands optional, leading digits optional)
+const STMT_MONEY_RE = /(?:\d{1,3}(?:,\d{3})+|\d+)?\.\d{2}/g;
+const STMT_DATE_START_RE = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})/;
+
+const normalizeMonName = (d, mon, y) => {
+  const m = MONTH_MAP[mon.toLowerCase().slice(0, 3)];
+  if (!m) return null;
+  let year = y;
+  // Some statements render a malformed year like "0026" — repair to 20xx.
+  if (year.length === 4 && year.startsWith('0')) year = '20' + year.slice(2);
+  return `${year}-${m}-${d.padStart(2, '0')}`;
+};
+
+// Balance-aware parser for Nigerian bank statement PDFs (Union Bank, GTBank, etc.).
+// These statements have no delimiters between columns, so the debit/credit columns
+// are unreliable. Instead we read the running BALANCE at the end of each record and
+// derive the transaction amount and direction from the balance change. This makes
+// the extracted ledger reconcile exactly with the statement's opening/closing balance.
+const parseStatementByBalance = (rawText) => {
+  const lines = rawText.split('\n').map(l => l.replace(/ /g, ' ').trim()).filter(Boolean);
+
+  // Opening balance = first money figure appearing after the words "opening balance".
+  let prevBalance = null;
+  const joined = lines.join('\n');
+  const oi = joined.toLowerCase().indexOf('opening balance');
+  if (oi !== -1) {
+    const m = joined.slice(oi + 'opening balance'.length).match(/(?:\d{1,3}(?:,\d{3})+|\d+)?\.\d{2}/);
+    if (m) prevBalance = parseFloat(m[0].replace(/,/g, ''));
+  }
+
+  // Group lines into records; each record starts on a line beginning with a date.
+  const records = [];
+  let cur = null;
+  for (const line of lines) {
+    if (STMT_DATE_START_RE.test(line)) {
+      if (cur) records.push(cur);
+      cur = [line];
+    } else if (cur) {
+      cur.push(line);
+    }
+  }
+  if (cur) records.push(cur);
+
+  const transactions = [];
+  for (const rec of records) {
+    const block = rec.join(' ');
+    const dm = block.match(STMT_DATE_START_RE);
+    if (!dm) continue;
+    const date = normalizeMonName(dm[1], dm[2], dm[3]);
+    if (!date) continue;
+
+    const monies = (block.match(STMT_MONEY_RE) || [])
+      .map(s => parseFloat(s.replace(/,/g, '')))
+      .filter(n => !isNaN(n));
+    if (monies.length === 0) continue;
+    const balance = monies[monies.length - 1]; // last money on the record is the balance
+
+    let type, amount;
+    if (prevBalance !== null && Math.abs(balance - prevBalance) > 0.005) {
+      // Derive amount + direction from how the running balance moved.
+      amount = Math.abs(balance - prevBalance);
+      type = balance >= prevBalance ? 'income' : 'expense';
+    } else {
+      // No usable balance baseline — fall back to the amount column + keywords.
+      amount = monies.length >= 2 ? monies[monies.length - 2] : monies[0];
+      type = inferTransactionType(block);
+    }
+    prevBalance = balance;
+    if (!amount || amount < 0.005) continue;
+
+    // Build a readable description: drop dates, money, long reference numbers, footers.
+    const description = (block
+      .replace(/\d{1,2}-[A-Za-z]{3}-\d{4}/g, ' ')
+      .replace(STMT_MONEY_RE, ' ')
+      .replace(/'?\b\d{6,}\b/g, ' ')
+      .replace(/\*{2,}\d*/g, ' ')
+      .replace(/\bPage\s+\d+\s+of\s+\d+\b/gi, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^[-'\s]+/, '')
+      .trim()
+      .slice(0, 140)
+      .trim()) || 'Transaction';
+
+    transactions.push({
+      date,
+      description,
+      amount: +amount.toFixed(2),
+      type,
+      category: categorizeTransaction(description, type),
+      reference: null,
+      balance,
+    });
+  }
+  return transactions;
+};
+
 const parsePDF = async (filePath, password = '') => {
   const buffer = fs.readFileSync(filePath);
-  const options = password ? { password } : {};
-  
-  let data;
+
+  let rawText;
   try {
-    data = await pdfParse(buffer, options);
+    rawText = await extractPdfText(buffer, password);
   } catch (pdfErr) {
-    // If password was provided but still failed, it's likely wrong
-    if (password && isPdfPasswordError(pdfErr)) {
-      throw pdfErr; // re‑throw so the upload route can return 401
-    }
-    // If no password and it's a password error, also throw
-    if (!password && isPdfPasswordError(pdfErr)) {
+    // Encrypted PDF with a missing or incorrect password — re-throw so the upload
+    // route can prompt for a password or report that it was wrong.
+    if (isPdfPasswordError(pdfErr)) {
       throw pdfErr;
     }
-    // Otherwise, the PDF might be a scanned image or corrupt
-    console.error('[parsePDF] pdf-parse error:', pdfErr.message);
+    // Otherwise the PDF may be a scanned image or corrupt.
+    console.error('[parsePDF] pdf.js error:', pdfErr.message);
     return [];
   }
 
-  const rawText = data.text;
   console.log(`[parsePDF] Extracted ${rawText.length} chars of text`);
   
   // If very little text was extracted, the PDF is likely a scanned image
@@ -445,6 +580,14 @@ const parsePDF = async (filePath, password = '') => {
     console.warn('[parsePDF] Very little text extracted – PDF may be a scanned image');
     return [];
   }
+
+  // Primary strategy: balance-aware parser for delimiter-less Nigerian bank PDFs.
+  const balanceParsed = parseStatementByBalance(rawText);
+  if (balanceParsed.length > 0) {
+    console.log(`[parsePDF] Balance-aware parser found ${balanceParsed.length} transactions`);
+    return balanceParsed;
+  }
+  console.log('[parsePDF] Balance-aware parser found nothing — trying generic strategies…');
 
   const transactions = [];
   

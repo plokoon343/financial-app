@@ -512,7 +512,7 @@ const FinancialTrends = ({ transactions = [] }) => {
         .section-header {
           background: var(--card-bg);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           margin-bottom: 30px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
@@ -630,7 +630,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 25px;
+          padding: 16px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
           transition: all var(--transition-base);
@@ -996,7 +996,7 @@ const FinancialTrends = ({ transactions = [] }) => {
         }
 
         .empty-state.small {
-          padding: 30px 20px;
+          padding: 18px 14px;
         }
 
         .empty-icon {

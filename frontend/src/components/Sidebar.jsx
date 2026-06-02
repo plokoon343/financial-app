@@ -47,13 +47,11 @@ const Sidebar = () => {
     { path: '/budget', label: 'Budget', icon: 'fa-chart-pie' },
     { path: '/financial-health', label: 'Financial Health', icon: 'fa-heart-pulse' },
     { path: '/wallet', label: 'Wallet', icon: 'fa-wallet' },
-    //{ path: '/profile', label: 'Profile', icon: 'fa-user' },
   ];
 
   // Items that go inside the "More" dropdown
   const moreItems = [
     { path: '/auto-savings', label: 'Auto‑Savings', icon: 'fa-robot' },
-    { path: '/statement-upload', label: 'Bank Statement', icon: 'fa-file-upload' },
   ];
 
   // Add Admin link only for superadmin

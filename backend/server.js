@@ -7,7 +7,6 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const csv = require('csv-parser');
-const pdfParse = require('pdf-parse');
 const { Readable } = require('stream');
 const axios = require('axios');
 require('dotenv').config();
@@ -41,6 +40,22 @@ const userSchema = new mongoose.Schema({
     accountNumber:   { type: String, default: '' },
     accountName:     { type: String, default: '' },
     verified:        { type: Boolean, default: false }
+  },
+  // Wallet payout destination. One active method at a time: 'card' or 'titan'.
+  // For cards we deliberately store only the last 4 digits (never the full PAN or CVV).
+  payout: {
+    method: { type: String, enum: ['card', 'titan', ''], default: '' },
+    card: {
+      last4:      { type: String, default: '' },
+      expiry:     { type: String, default: '' },   // MM/YY
+      holderName: { type: String, default: '' },
+    },
+    titan: {
+      accountNumber: { type: String, default: '' },
+      accountName:   { type: String, default: '' },
+      bankCode:      { type: String, default: '' },
+      bankName:      { type: String, default: 'Titan-Paystack' },
+    },
   },
   resetToken: String,
   resetTokenExpiry: Date,
@@ -101,7 +116,10 @@ const WalletTransaction = mongoose.model('WalletTransaction', walletTransactionS
 
 const savingsRuleSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['percentage', 'roundup'], required: true },
+  // 'fixed'   → save a flat naira amount from each income
+  // 'roundup' → round each expense up to the nearest step and save the difference
+  // 'percentage' kept only so legacy rules still read without error
+  type: { type: String, enum: ['fixed', 'roundup', 'percentage'], required: true },
   value: { type: Number, required: true },
   active: { type: Boolean, default: true },
   targetGoalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Goal', default: null },
@@ -191,7 +209,11 @@ const applySavingsRule = async (userId, transactionAmount, transactionType) => {
     let saveAmount = 0;
     let description = '';
 
-    if (rule.type === 'percentage' && transactionType === 'income') {
+    if (rule.type === 'fixed' && transactionType === 'income') {
+      saveAmount = rule.value;
+      description = `Auto‑savings (₦${rule.value} per income)`;
+    } else if (rule.type === 'percentage' && transactionType === 'income') {
+      // Legacy percentage rules still work for users who set one previously.
       saveAmount = (Math.abs(transactionAmount) * rule.value) / 100;
       description = `Auto‑savings (${rule.value}% of income)`;
     } else if (rule.type === 'roundup' && transactionType === 'expense') {
@@ -914,7 +936,7 @@ app.get('/api/savings/rules', auth, async (req, res) => {
 app.post('/api/savings/rules', auth, async (req, res) => {
   const { type, value, active, targetGoalId } = req.body;
   if (!type || !value) return res.status(400).json({ message: 'Type and value required' });
-  if (type === 'percentage' && (value < 0 || value > 100)) return res.status(400).json({ message: 'Percentage must be 0‑100' });
+  if (type === 'fixed' && value <= 0) return res.status(400).json({ message: 'Amount must be greater than 0' });
   if (type === 'roundup' && value <= 0) return res.status(400).json({ message: 'Round‑up step must be >0' });
   await SavingsRule.deleteOne({ userId: req.user._id });
   const rule = new SavingsRule({ userId: req.user._id, type, value, active: active !== false, targetGoalId: targetGoalId || null });
@@ -1090,34 +1112,6 @@ app.get('/api/alerts', auth, async (req, res) => {
     }
     res.json(alerts);
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
-});
-
-// DEBUG endpoint (remove before production)
-app.post('/api/debug-statement', auth, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: 'No file' });
-  const filePath = req.file.path;
-  const ext = req.file.originalname.split('.').pop().toLowerCase();
-  try {
-    let preview = '';
-    if (ext === 'csv') {
-      preview = fs.readFileSync(filePath, 'utf-8').split('\n').slice(0, 20).join('\n');
-    } else if (ext === 'pdf') {
-      const pdfPassword = req.body.pdfPassword || '';
-      const options = pdfPassword ? { password: pdfPassword } : {};
-      const data = await pdfParse(fs.readFileSync(filePath), options);
-      preview = data.text.split('\n').slice(0, 30).join('\n');
-    } else if (ext === 'xlsx' || ext === 'xls') {
-      const wb = XLSX.readFile(filePath);
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      preview = rows.slice(0, 20).map(r => r.join(' | ')).join('\n');
-    }
-    fs.unlinkSync(filePath);
-    res.json({ preview, lines: preview.split('\n').length });
-  } catch (e) {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    res.status(500).json({ error: e.message });
-  }
 });
 
 // Bank statement upload
@@ -1648,21 +1642,53 @@ app.get('/api/bank/resolve', auth, async (req, res) => {
 // Get user bank details
 app.get('/api/user/bank-details', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('bankDetails');
-    res.json(user.bankDetails || {});
+    const user = await User.findById(req.user._id).select('payout');
+    res.json(user.payout || { method: '', card: {}, titan: {} });
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Save user bank details
+// Save the user's wallet payout method (card OR Paystack-Titan account).
+// Only one method is active at a time; saving one clears the other.
 app.post('/api/user/bank-details', auth, async (req, res) => {
   try {
-    const { bankName, bankCode, accountNumber, accountName } = req.body;
-    await User.findByIdAndUpdate(req.user._id, {
-      bankDetails: { bankName, bankCode, accountNumber, accountName, verified: false }
-    });
-    res.json({ message: 'Bank details saved' });
+    const { method, card, titan } = req.body;
+
+    if (method === 'card') {
+      const digits = (card?.number || '').replace(/\D/g, '');
+      if (digits.length < 12) return res.status(400).json({ message: 'Enter a valid card number' });
+      if (!card?.expiry) return res.status(400).json({ message: 'Card expiry is required' });
+      await User.findByIdAndUpdate(req.user._id, {
+        payout: {
+          method: 'card',
+          // Store only the last 4 digits — never the full PAN or CVV.
+          card: { last4: digits.slice(-4), expiry: card.expiry, holderName: card.holderName || '' },
+          titan: { accountNumber: '', accountName: '', bankCode: '', bankName: 'Titan-Paystack' },
+        },
+      });
+      return res.json({ message: 'Card saved' });
+    }
+
+    if (method === 'titan') {
+      const acct = (titan?.accountNumber || '').replace(/\D/g, '');
+      if (acct.length !== 10) return res.status(400).json({ message: 'Enter a valid 10-digit account number' });
+      await User.findByIdAndUpdate(req.user._id, {
+        payout: {
+          method: 'titan',
+          card: { last4: '', expiry: '', holderName: '' },
+          titan: {
+            accountNumber: acct,
+            accountName: titan.accountName || '',
+            bankCode: titan.bankCode || '',
+            bankName: titan.bankName || 'Titan-Paystack',
+          },
+        },
+      });
+      return res.json({ message: 'Paystack-Titan account saved' });
+    }
+
+    return res.status(400).json({ message: 'Choose a payout method (card or titan)' });
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
   }

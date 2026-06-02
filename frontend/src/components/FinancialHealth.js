@@ -246,8 +246,8 @@ const FinancialHealth = ({
         
         .page-header {
           text-align: center;
-          margin-bottom: 40px;
-          padding: 30px 20px;
+          margin-bottom: 24px;
+          padding: 18px 14px;
           background: var(--card-bg);
           border-radius: var(--radius-lg);
           box-shadow: var(--shadow-md);
@@ -365,15 +365,15 @@ const FinancialHealth = ({
         .health-cards {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-          gap: 25px;
-          margin-bottom: 40px;
+          gap: 16px;
+          margin-bottom: 24px;
         }
         
         .health-card {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
           transition: all var(--transition-base);

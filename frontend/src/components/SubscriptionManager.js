@@ -359,8 +359,8 @@ const SubscriptionManager = () => {
         
         .section-header {
           text-align: center;
-          margin-bottom: 40px;
-          padding: 30px 20px;
+          margin-bottom: 24px;
+          padding: 18px 14px;
           background: var(--card-bg);
           border-radius: var(--radius-lg);
           box-shadow: var(--shadow-md);
@@ -393,15 +393,15 @@ const SubscriptionManager = () => {
         .overview-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 25px;
-          margin-bottom: 40px;
+          gap: 16px;
+          margin-bottom: 24px;
         }
         
         .overview-card {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 25px;
+          padding: 16px;
           display: flex;
           align-items: center;
           gap: 20px;
@@ -457,10 +457,10 @@ const SubscriptionManager = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
-          margin-bottom: 40px;
+          margin-bottom: 24px;
         }
         
         .breakdown-header {
@@ -540,7 +540,7 @@ const SubscriptionManager = () => {
         .category-info {
           display: flex;
           align-items: center;
-          gap: 25px;
+          gap: 16px;
         }
         
         .category-amount {
@@ -567,10 +567,10 @@ const SubscriptionManager = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
-          margin-bottom: 40px;
+          margin-bottom: 24px;
         }
         
         .list-header {
@@ -751,10 +751,10 @@ const SubscriptionManager = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
-          margin-bottom: 40px;
+          margin-bottom: 24px;
         }
         
         .form-header {
@@ -871,7 +871,7 @@ const SubscriptionManager = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
         }

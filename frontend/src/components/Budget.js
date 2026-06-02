@@ -397,8 +397,8 @@ const Budget = () => {
         
         .page-header {
           text-align: center;
-          margin-bottom: 40px;
-          padding: 30px 20px;
+          margin-bottom: 24px;
+          padding: 18px 14px;
           background: var(--card-bg);
           border-radius: var(--radius-lg);
           box-shadow: var(--shadow-md);
@@ -535,14 +535,14 @@ const Budget = () => {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
           gap: 20px;
-          margin-bottom: 40px;
+          margin-bottom: 24px;
         }
         
         .budget-summary-card {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 25px;
+          padding: 16px;
           display: flex;
           align-items: center;
           gap: 20px;
@@ -603,13 +603,13 @@ const Budget = () => {
         
         /* Budget Form Styles */
         .budget-form-container {
-          margin-bottom: 40px;
+          margin-bottom: 24px;
         }
         
         .budget-form {
           max-width: 800px;
           margin: 0 auto;
-          padding: 30px;
+          padding: 18px;
           border-radius: var(--radius-lg);
           animation: slideInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
@@ -765,7 +765,7 @@ const Budget = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 30px;
+          padding: 18px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
           height: 400px;
@@ -806,7 +806,7 @@ const Budget = () => {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
-          padding: 25px;
+          padding: 16px;
           box-shadow: var(--shadow-md);
           border: 1px solid var(--glass-border);
           transition: all var(--transition-base);
@@ -1121,7 +1121,7 @@ const Budget = () => {
           }
           
           .empty-state {
-            padding: 30px 15px;
+            padding: 18px 12px;
           }
           
           .empty-state-icon {

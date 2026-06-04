@@ -783,25 +783,41 @@ const inferTransactionType = (description) => {
   return 'expense';
 };
 
+// Categorise a transaction by its description. The returned category names must stay
+// in sync with frontend/src/constants/categories.js so budgets cross-check correctly.
+// Rules are ordered specific -> general; the first keyword match wins.
 const categorizeTransaction = (description, typeOrAmount) => {
   const lower = description.toLowerCase();
   const isExpense = typeof typeOrAmount === 'string' ? typeOrAmount === 'expense' : typeOrAmount < 0;
   const rules = [
-    { for: 'income',  keywords: ['salary','wage','payroll','monthly pay'],                                         category: 'Salary' },
-    { for: 'income',  keywords: ['freelance','consulting','contract pay'],                                          category: 'Freelance' },
-    { for: 'income',  keywords: ['dividend','interest credit','investment return'],                                  category: 'Investment' },
-    { for: 'income',  keywords: ['gift','present'],                                                                  category: 'Gift' },
-    { for: 'expense', keywords: ['shoprite','spar','grocery','supermarket','food','restaurant','bukka','kfc','chicken republic','dominos','pizza','coldstone','eatery','cafe'], category: 'Food' },
-    { for: 'expense', keywords: ['uber','bolt','taxify','fuel','petrol','filling station','nnpc','transport','keke'], category: 'Transport' },
-    { for: 'expense', keywords: ['rent','landlord','property','estate'],                                             category: 'Housing' },
-    { for: 'expense', keywords: ['netflix','spotify','showmax','apple music','cinema','bet9ja','nairabet','sportybet','gaming'], category: 'Entertainment' },
-    { for: 'expense', keywords: ['electricity','nepa','phcn','ibedc','ekedc','water bill','dstv','gotv','mtn','airtel','glo','9mobile','airtime','spectranet','smile'], category: 'Utilities' },
-    { for: 'expense', keywords: ['amazon','jumia','konga','pos purchase','pos debit','shopping','store','market'],   category: 'Shopping' },
-    { for: 'expense', keywords: ['pharmacy','hospital','clinic','medplus','health'],                                 category: 'Healthcare' },
-    { for: 'expense', keywords: ['school fees','tuition','waec','jamb','coursera'],                                  category: 'Education' },
-    { for: 'expense', keywords: ['atm withdrawal','atm cash','cash withdrawal'],                                     category: 'ATM' },
-    { for: 'expense', keywords: ['charge','bank fee','vat','stamp duty','maintenance fee','sms alert'],              category: 'Bank Charges' },
-    { for: 'both',    keywords: ['transfer','nip transfer','neft','trf'],                                            category: 'Transfer' },
+    // ── Income ──
+    { for: 'income',  keywords: ['salary','wage','payroll','monthly pay','stipend'], category: 'Salary' },
+    { for: 'income',  keywords: ['freelance','consulting','contract pay','upwork','fiverr'], category: 'Freelance' },
+    { for: 'income',  keywords: ['sales','invoice','business income','customer payment'], category: 'Business' },
+    { for: 'income',  keywords: ['dividend','interest credit','investment return','maturity','roi'], category: 'Investment' },
+    { for: 'income',  keywords: ['gift','present'], category: 'Gift' },
+    { for: 'income',  keywords: ['refund','reversal','returned','chargeback'], category: 'Refund' },
+
+    // ── Expense (specific first) ──
+    { for: 'expense', keywords: ['airtime','recharge','mobile data','data bundle','data plan','mtn','airtel','9mobile','globacom','spectranet',' smile','swift network'], category: 'Airtime & Data' },
+    { for: 'expense', keywords: ['netflix','spotify','apple music','youtube premium','showmax','prime video','dstv','gotv','startimes','icloud','google one','canva','chatgpt','openai','adobe','subscription'], category: 'Subscriptions' },
+    { for: 'expense', keywords: ['fuel','petrol','petroleum','filling station','nnpc','conoil','ardova','mobil','total energies','diesel',' pms'], category: 'Fuel' },
+    { for: 'expense', keywords: ['uber','bolt','taxify','lagride','rida','danfo','keke','transport',' brt','flight','air peace','arik','ibom air','train','trip','toll'], category: 'Transport' },
+    { for: 'expense', keywords: ['shoprite','spar','supermarket','grocery','groceries','justrite','ebeano','hubmart','addide','market'], category: 'Groceries' },
+    { for: 'expense', keywords: ['restaurant','eatery','bukka','buka','kfc','chicken republic','dominos','pizza','coldstone','cafe','food','kitchen','jollof','the place','chowdeck','glovo','suya'], category: 'Food' },
+    { for: 'expense', keywords: ['rent','landlord','property','estate','accommodation','service charge','lease'], category: 'Housing' },
+    { for: 'expense', keywords: ['electricity','nepa','phcn','ikedc','ibedc','ekedc','aedc','eedc','kaduna electric','eko electric','ibadan electric','prepaid','water bill','lawma','waste','utility'], category: 'Utilities' },
+    { for: 'expense', keywords: ['pharmacy','hospital','clinic','medplus','health','chemist','hmo','drugs','medical','dental'], category: 'Healthcare' },
+    { for: 'expense', keywords: ['school fees','tuition','waec','jamb','neco','coursera','udemy','university','college','exam','lecture','textbook'], category: 'Education' },
+    { for: 'expense', keywords: ['insurance','assurance','leadway','aiico','axa mansard','cornerstone'], category: 'Insurance' },
+    { for: 'expense', keywords: ['amazon','jumia','konga','slot','pos purchase','pos debit','purchase','boutique','fashion','clothing','shopping','mall','aliexpress','temu','shein'], category: 'Shopping' },
+    { for: 'expense', keywords: ['cinema','bet9ja','nairabet','sportybet','1xbet','betking','merrybet','gaming','event','ticket','lounge','concert','movie'], category: 'Entertainment' },
+    { for: 'expense', keywords: ['piggyvest','cowrywise','risevest','target savings',' ajo','esusu','thrift','vault'], category: 'Savings' },
+    { for: 'expense', keywords: ['atm withdrawal','atm cash','cash withdrawal',' atm '], category: 'ATM' },
+    { for: 'expense', keywords: ['stamp dut','stamp duty','vat','bank fee','maintenance fee','sms alert','commission','cot','levy','account maintenance','charge'], category: 'Bank Charges' },
+
+    // ── Catch-all transfer (either direction) ──
+    { for: 'both',    keywords: ['transfer','nip','neft',' trf','send money','pos transfer','opay','palmpay','moniepoint',' kuda','paystack'], category: 'Transfer' },
   ];
   for (const rule of rules) {
     if (rule.for !== 'both' && ((rule.for === 'expense') !== isExpense)) continue;
@@ -1119,10 +1135,13 @@ app.get('/api/alerts', auth, async (req, res) => {
   try {
     const alerts = [];
     const userId = req.user._id;
-    const budgets = await Budget.find({ userId });
+    // Only alert on the current month's budgets, scoped to that exact month.
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    const budgets = await Budget.find({ userId, month: thisMonth });
     const transactions = await Transaction.find({ userId, type: 'expense' });
+    const txMonth = (t) => new Date(t.date).toISOString().slice(0, 7);
     for (const budget of budgets) {
-      const spent = transactions.filter(t => t.category === budget.category && new Date(t.date).getMonth() === new Date(budget.month).getMonth()).reduce((sum, t) => sum + Math.abs(t.amount), 0);
+      const spent = transactions.filter(t => t.category === budget.category && txMonth(t) === budget.month).reduce((sum, t) => sum + Math.abs(t.amount), 0);
       const percentage = (spent / budget.amount) * 100;
       if (percentage >= 100) alerts.push({ id: `budget_over_${budget._id}`, type: 'danger', message: `Budget overrun: ${budget.category} exceeded by ₦${(spent - budget.amount).toFixed(2)}`, category: budget.category, amount: spent, timestamp: new Date() });
       else if (percentage >= 80) alerts.push({ id: `budget_warning_${budget._id}`, type: 'warning', message: `Budget warning: ${budget.category} is at ${percentage.toFixed(0)}%`, category: budget.category, amount: spent, timestamp: new Date() });

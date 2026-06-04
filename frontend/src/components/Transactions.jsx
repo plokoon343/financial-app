@@ -28,6 +28,14 @@ const Transactions = () => {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Click a column header to sort by it; click again to flip direction.
+  const toggleSort = (col) => {
+    if (sortBy === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortBy(col); setSortDir(col === 'date' || col === 'amount' ? 'desc' : 'asc'); }
+  };
 
   const flash = (text, type = 'success') => { setMessage({ text, type }); setTimeout(() => setMessage(null), 3500); };
 
@@ -40,6 +48,7 @@ const Transactions = () => {
       flash('Could not load transactions. The server may be waking up — try again.', 'error');
     } finally { setLoading(false); }
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchAll(); }, []);
 
   // distinct filter options
@@ -61,7 +70,7 @@ const Transactions = () => {
   }, [all]);
 
   const filtered = useMemo(() => {
-    let rows = all.filter(t => {
+    const rows = all.filter(t => {
       if (fMonth !== 'all' && monthKey(t.date) !== fMonth) return false;
       if (fBank !== 'all' && (t.bank || '') !== fBank) return false;
       if (fCategory !== 'all' && t.category !== fCategory) return false;
@@ -69,11 +78,19 @@ const Transactions = () => {
       if (search && !(`${t.description} ${t.category} ${t.bank}`.toLowerCase().includes(search.toLowerCase()))) return false;
       return true;
     });
-    rows = rows.sort((a, b) => {
-      const v = sortBy === 'amount' ? Math.abs(a.amount) - Math.abs(b.amount) : new Date(a.date) - new Date(b.date);
-      return sortDir === 'asc' ? v : -v;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return rows.sort((a, b) => {
+      let v;
+      switch (sortBy) {
+        case 'amount': v = Math.abs(a.amount) - Math.abs(b.amount); break;
+        case 'description': v = (a.description || '').localeCompare(b.description || ''); break;
+        case 'type': v = (a.type || '').localeCompare(b.type || ''); break;
+        case 'category': v = (a.category || '').localeCompare(b.category || ''); break;
+        case 'bank': v = (a.bank || '').localeCompare(b.bank || ''); break;
+        default: v = new Date(a.date) - new Date(b.date);
+      }
+      return v * dir;
     });
-    return rows;
   }, [all, fMonth, fBank, fCategory, fType, search, sortBy, sortDir]);
 
   const totals = useMemo(() => {
@@ -82,13 +99,19 @@ const Transactions = () => {
     return { income, expense };
   }, [filtered]);
 
+  // Pagination — reset to page 1 whenever the result set changes.
+  useEffect(() => { setPage(1); }, [fMonth, fBank, fCategory, fType, search, sortBy, sortDir, pageSize]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageStart = (page - 1) * pageSize;
+  const pageRows = filtered.slice(pageStart, pageStart + pageSize);
+
   // selection
   const toggleSel = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const allVisibleSelected = filtered.length > 0 && filtered.every(t => selected.has(t._id));
+  const allVisibleSelected = pageRows.length > 0 && pageRows.every(t => selected.has(t._id));
   const toggleSelAll = () => setSelected(prev => {
     const n = new Set(prev);
-    if (allVisibleSelected) filtered.forEach(t => n.delete(t._id));
-    else filtered.forEach(t => n.add(t._id));
+    if (allVisibleSelected) pageRows.forEach(t => n.delete(t._id));
+    else pageRows.forEach(t => n.add(t._id));
     return n;
   });
 
@@ -186,12 +209,6 @@ const Transactions = () => {
           <option value="expense">Expense</option>
         </select>
         <input type="text" placeholder="Search description…" value={search} onChange={e => setSearch(e.target.value)} />
-        <select value={`${sortBy}:${sortDir}`} onChange={e => { const [s, d] = e.target.value.split(':'); setSortBy(s); setSortDir(d); }}>
-          <option value="date:desc">Newest first</option>
-          <option value="date:asc">Oldest first</option>
-          <option value="amount:desc">Amount high → low</option>
-          <option value="amount:asc">Amount low → high</option>
-        </select>
         <button className="btn-secondary" onClick={resetFilters}>Reset</button>
       </div>
 
@@ -211,11 +228,20 @@ const Transactions = () => {
           <thead>
             <tr>
               <th><input type="checkbox" checked={allVisibleSelected} onChange={toggleSelAll} /></th>
-              <th>Date</th><th>Description</th><th>Amount</th><th>Type</th><th>Category</th><th>Bank</th><th></th>
+              {[
+                ['date', 'Date'], ['description', 'Description'], ['amount', 'Amount'],
+                ['type', 'Type'], ['category', 'Category'], ['bank', 'Bank'],
+              ].map(([col, label]) => (
+                <th key={col} className="sortable" onClick={() => toggleSort(col)} title={`Sort by ${label}`}>
+                  {label}
+                  <span className="arrow">{sortBy === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</span>
+                </th>
+              ))}
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map(t => editingId === t._id ? (
+            {pageRows.map(t => editingId === t._id ? (
               <tr key={t._id} className="editing">
                 <td></td>
                 <td><input type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} /></td>
@@ -264,6 +290,28 @@ const Transactions = () => {
         </table>
       </div>
 
+      {/* Pagination */}
+      {filtered.length > 0 && (
+        <div className="tx-pagination">
+          <div className="page-size">
+            Rows:
+            <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
+              {[25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <div className="page-range">
+            {pageStart + 1}–{Math.min(pageStart + pageSize, filtered.length)} of {filtered.length}
+          </div>
+          <div className="page-nav">
+            <button disabled={page === 1} onClick={() => setPage(1)} title="First">«</button>
+            <button disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))} title="Previous">‹</button>
+            <span>Page {page} of {totalPages}</span>
+            <button disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} title="Next">›</button>
+            <button disabled={page === totalPages} onClick={() => setPage(totalPages)} title="Last">»</button>
+          </div>
+        </div>
+      )}
+
       <style jsx="true">{`
         .tx-page { max-width: 1100px; margin: 0 auto; padding: 16px; }
         .tx-card { background: var(--card-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px; }
@@ -277,26 +325,40 @@ const Transactions = () => {
         .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
         .filters select, .filters input { padding: 8px 10px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); font-size: 0.85rem; }
         .filters input[type=text] { flex: 1; min-width: 160px; }
-        .tx-summary { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.85rem; color: var(--text-secondary); padding: 0 4px; }
-        .pos { color: #38a169; font-weight: 600; }
-        .neg { color: #e53e3e; font-weight: 600; }
+        .tx-summary { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.88rem; color: var(--text-primary); padding: 0 4px; }
+        .pos { color: #1f9d57; font-weight: 700; }
+        .neg { color: #d83a3a; font-weight: 700; }
+        .dark-theme .pos { color: #48bb78; }
+        .dark-theme .neg { color: #fc8181; }
         .table-wrap { overflow-x: auto; padding: 0; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
-        th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--glass-border); }
-        th { position: sticky; top: 0; background: var(--card-bg); font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--glass-border); color: var(--text-primary); }
+        th { position: sticky; top: 0; background: var(--card-bg); font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { color: var(--accent-primary, #6366f1); }
+        th .arrow { color: var(--accent-primary, #6366f1); font-size: 0.8em; }
+        td { font-weight: 500; }
         td.desc { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         td.nowrap { white-space: nowrap; }
-        tr.sel { background: rgba(99,102,241,0.08); }
+        tr.sel { background: rgba(99,102,241,0.12); }
         tr.editing td { background: rgba(99,102,241,0.05); }
         tr.editing input, tr.editing select { padding: 6px 8px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; color: var(--text-primary); width: 100%; }
-        .cat-select { padding: 4px 6px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; color: var(--text-primary); font-size: 0.78rem; max-width: 150px; cursor: pointer; }
+        .cat-select { padding: 5px 7px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; color: var(--text-primary); font-size: 0.82rem; font-weight: 600; max-width: 150px; cursor: pointer; }
         .row-actions { display: flex; gap: 6px; white-space: nowrap; }
         .icon-btn { background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; padding: 6px 8px; cursor: pointer; color: var(--text-primary); }
         .icon-btn.del:hover { color: #e53e3e; border-color: #e53e3e; }
         .icon-btn.save { color: #38a169; }
         .btn-danger-sm { background: rgba(229,62,62,0.1); color: #e53e3e; border: 1px solid rgba(229,62,62,0.3); border-radius: var(--radius-md); padding: 7px 12px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
         .btn-secondary { padding: 8px 14px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); cursor: pointer; font-size: 0.85rem; }
-        td.empty { text-align: center; color: var(--text-secondary); padding: 28px; }
+        td.empty { text-align: center; color: var(--text-primary); padding: 28px; }
+        .batch-meta { color: var(--text-primary); opacity: 0.75; }
+        .tx-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; font-size: 0.85rem; color: var(--text-primary); }
+        .tx-pagination select { padding: 6px 8px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; color: var(--text-primary); margin-left: 6px; }
+        .page-nav { display: flex; align-items: center; gap: 6px; }
+        .page-nav span { padding: 0 6px; }
+        .page-nav button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border-color, var(--glass-border)); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; font-size: 1rem; }
+        .page-nav button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .page-nav button:not(:disabled):hover { border-color: var(--accent-primary, #6366f1); color: var(--accent-primary, #6366f1); }
       `}</style>
     </div>
   );

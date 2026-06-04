@@ -127,6 +127,18 @@ const savingsRuleSchema = new mongoose.Schema({
 });
 const SavingsRule = mongoose.model('SavingsRule', savingsRuleSchema);
 
+// Learn-from-correction categorization: maps a per-user merchant "key" (a distilled
+// signature of a transaction description) to the category the user assigned. Future
+// imports look these up first, so categorization improves the more the app is used.
+const learnedCategorySchema = new mongoose.Schema({
+  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  key:      { type: String, required: true },
+  category: { type: String, required: true },
+  updatedAt:{ type: Date, default: Date.now },
+});
+learnedCategorySchema.index({ userId: 1, key: 1 }, { unique: true });
+const LearnedCategory = mongoose.model('LearnedCategory', learnedCategorySchema);
+
 // UPDATED: Added bank fields + recipient
 const recurringBillSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -826,6 +838,56 @@ const categorizeTransaction = (description, typeOrAmount) => {
   return isExpense ? 'Other' : 'Other Income';
 };
 
+// Words too generic to identify a merchant — stripped when building a learning key.
+const CATEGORY_KEY_STOPWORDS = new Set([
+  'transfer','transaction','nip','neft','trf','to','from','pos','pur','purchase','payment',
+  'pay','ref','via','self','the','for','and','inward','outward','debit','credit','value',
+  'date','bank','plc','ltd','limited','nigeria','mobile','app','online','web','intl','txn',
+  'session','charges','charge','vat','reversal','instant','outward','www','com',
+]);
+
+// Build a stable per-merchant signature from a description, used both when LEARNING a
+// correction and when LOOKING UP a learned category (so they match symmetrically).
+const deriveCategoryKey = (description) => {
+  const tokens = (description || '')
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')          // drop digits & punctuation
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !CATEGORY_KEY_STOPWORDS.has(w));
+  return tokens.slice(0, 3).join(' ');
+};
+
+// Override categories using what this user has taught the app previously.
+const applyLearnedCategories = async (userId, transactions) => {
+  const rules = await LearnedCategory.find({ userId }).lean();
+  if (!rules.length) return transactions;
+  const map = new Map(rules.map(r => [r.key, r.category]));
+  return transactions.map(t => {
+    const key = deriveCategoryKey(t.description);
+    return key && map.has(key) ? { ...t, category: map.get(key), learned: true } : t;
+  });
+};
+
+// Persist description -> category mappings so future imports auto-apply them.
+const learnCategories = async (userId, transactions) => {
+  const byKey = new Map(); // dedupe within this batch (last choice wins)
+  for (const t of transactions) {
+    if (!t.description || !t.category) continue;
+    const key = deriveCategoryKey(t.description);
+    if (key) byKey.set(key, t.category);
+  }
+  if (!byKey.size) return;
+  const ops = [...byKey].map(([key, category]) => ({
+    updateOne: {
+      filter: { userId, key },
+      update: { $set: { category, updatedAt: new Date() } },
+      upsert: true,
+    },
+  }));
+  try { await LearnedCategory.bulkWrite(ops, { ordered: false }); }
+  catch (e) { console.error('[learnCategories]', e.message); }
+};
+
 // --------------------------
 // Middleware
 // --------------------------
@@ -1214,6 +1276,9 @@ app.post('/api/upload-statement', auth, upload.single('file'), async (req, res) 
       return res.status(422).json({ message: 'No transactions found in this file. For PDFs, make sure the text is selectable (not a scanned image).', transactions: [] });
     }
 
+    // Apply categories the user has taught the app from previous corrections.
+    transactions = await applyLearnedCategories(req.user._id, transactions);
+
     const existing = await Transaction.find({ userId: req.user._id }, { date: 1, amount: 1, description: 1 }).lean();
     const existingKeys = new Set(existing.map(t => `${new Date(t.date).toISOString().split('T')[0]}|${Math.abs(t.amount)}|${t.description}`));
     const tagged = transactions.map(t => ({ ...t, duplicate: existingKeys.has(`${t.date}|${t.amount}|${t.description}`) }));
@@ -1242,6 +1307,9 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       category: t.category || 'Other', type: t.type,
     }));
     const inserted = await Transaction.insertMany(docs, { ordered: false });
+    // Learn description -> category from what the user chose to import (incl. any
+    // edits they made on the review screen), so future imports auto-apply them.
+    await learnCategories(req.user._id, valid);
     return res.json({ message: `Imported ${inserted.length} transaction(s) successfully.`, count: inserted.length });
   } catch (error) {
     if (error.result) return res.json({ message: `Imported ${error.result.nInserted} transaction(s).`, count: error.result.nInserted });

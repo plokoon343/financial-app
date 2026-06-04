@@ -16,6 +16,20 @@ const Budget = () => {
     month: new Date().toISOString().slice(0, 7)
   });
 
+  // Always send the auth token explicitly (don't rely on a global axios default).
+  const authConfig = () => ({
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+  });
+
+  // Turn an axios error into a human-readable message (covers cold-start timeouts).
+  const errMessage = (error, fallback) => {
+    if (error.response?.data?.message) return error.response.data.message;
+    if (error.code === 'ECONNABORTED' || error.message === 'Network Error') {
+      return 'Could not reach the server. It may be waking up — wait a few seconds and try again.';
+    }
+    return fallback;
+  };
+
   useEffect(() => {
     fetchBudgets();
     fetchTransactions();
@@ -24,7 +38,7 @@ const Budget = () => {
   const fetchBudgets = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/api/budgets`);
+      const response = await axios.get(`${API_URL}/api/budgets`, authConfig());
       setBudgets(response.data);
       setLoading(false);
     } catch (error) {
@@ -35,7 +49,7 @@ const Budget = () => {
 
   const fetchTransactions = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/transactions`);
+      const response = await axios.get(`${API_URL}/api/transactions`, authConfig());
       setTransactions(response.data);
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -48,24 +62,24 @@ const Budget = () => {
       await axios.post(`${API_URL}/api/budgets`, {
         ...formData,
         amount: parseFloat(formData.amount)
-      });
+      }, authConfig());
       fetchBudgets();
       setShowForm(false);
       setFormData({ category: '', amount: '', month: new Date().toISOString().slice(0, 7) });
     } catch (error) {
       console.error('Error adding budget:', error);
-      alert('Error adding budget. Please try again.');
+      alert(errMessage(error, 'Error adding budget. Please try again.'));
     }
   };
 
   const deleteBudget = async (id) => {
     if (window.confirm('Are you sure you want to delete this budget?')) {
       try {
-        await axios.delete(`${API_URL}/api/budgets/${id}`);
+        await axios.delete(`${API_URL}/api/budgets/${id}`, authConfig());
         fetchBudgets();
       } catch (error) {
         console.error('Error deleting budget:', error);
-        alert('Error deleting budget. Please try again.');
+        alert(errMessage(error, 'Error deleting budget. Please try again.'));
       }
     }
   };

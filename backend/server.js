@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const helmet = require('helmet');
+const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const XLSX = require('xlsx');
@@ -55,6 +56,7 @@ if (!JWT_SECRET) {
 const app = express();
 app.set('trust proxy', 1);             // behind Render's proxy — needed for correct client IPs
 app.use(helmet());                     // standard security headers
+app.use(compression());                // gzip responses
 
 // Restrict cross-origin requests to our own frontend(s). Non-browser callers
 // (curl, health checks) send no Origin and are allowed. Extra origins can be

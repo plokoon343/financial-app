@@ -18,6 +18,7 @@ import GoalTracker from './components/GoalTracker';
 import AutoSavings from './components/AutoSavings';
 import Transactions from './components/Transactions';
 import Profile from './components/Profile';
+import ServerWaker from './components/ServerWaker';
 
 function App() {
   return (
@@ -57,6 +58,7 @@ function AppContent() {
 
   return (
     <div className={`App ${darkMode ? 'dark-theme' : ''}`}>
+      <ServerWaker />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />

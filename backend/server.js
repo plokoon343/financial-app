@@ -23,7 +23,22 @@ if (!JWT_SECRET) {
 const app = express();
 app.set('trust proxy', 1);             // behind Render's proxy — needed for correct client IPs
 app.use(helmet());                     // standard security headers
-app.use(cors());
+
+// Restrict cross-origin requests to our own frontend(s). Non-browser callers
+// (curl, health checks) send no Origin and are allowed. Extra origins can be
+// added via the ALLOWED_ORIGINS env var (comma-separated).
+const allowedOrigins = [
+  'https://financial-app-fawn-nu.vercel.app',
+  'http://localhost:3000',
+  ...((process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)),
+];
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'));
+  },
+}));
+
 app.use(express.json({ limit: '5mb' })); // allow large statement imports (was 100kb)
 
 // Throttle auth endpoints to slow brute-force / credential stuffing.
@@ -962,12 +977,16 @@ const detectBank = (text = '') => {
 const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    if (!token) return res.status(401).json({ message: 'No token' });
+    if (!token) return res.status(401).json({ message: 'No token', authExpired: true });
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = await User.findById(decoded.userId);
-    if (!req.user) return res.status(401).json({ message: 'User not found' });
+    if (!req.user) return res.status(401).json({ message: 'User not found', authExpired: true });
     next();
-  } catch (error) { res.status(401).json({ message: 'Token invalid' }); }
+  } catch (error) {
+    // expired or invalid token — flag it so the client can send the user to login
+    const expired = error.name === 'TokenExpiredError';
+    res.status(401).json({ message: expired ? 'Session expired. Please log in again.' : 'Token invalid', authExpired: true });
+  }
 };
 
 const superAdminAuth = async (req, res, next) => {
@@ -1027,7 +1046,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
     user = new User({ name, email, password: hashedPassword });
     await user.save();
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET);
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -1038,7 +1057,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET);
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });

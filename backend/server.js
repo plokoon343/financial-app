@@ -11,7 +11,39 @@ const fs = require('fs');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
 const axios = require('axios');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
+
+// Where password-reset links point (the deployed frontend).
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://financial-app-fawn-nu.vercel.app';
+
+// Send a password-reset email if SMTP is configured; otherwise log the link so the
+// owner can still recover an account from the server logs during setup.
+const sendResetEmail = async (to, link) => {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.log(`[password-reset] (email not configured) reset link for ${to}: ${link}`);
+    return false;
+  }
+  const transporter = nodemailer.createTransport({
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: Number(process.env.EMAIL_PORT) || 587,
+    secure: false,
+    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+  });
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM || `FinPilot <${process.env.EMAIL_USER}>`,
+    to,
+    subject: 'Reset your FinPilot password',
+    text: `Reset your password using this link (valid for 1 hour):\n\n${link}\n\nIf you didn't request this, ignore this email.`,
+    html: `<p>Reset your FinPilot password using the link below (valid for 1 hour):</p>
+           <p><a href="${link}">Reset my password</a></p>
+           <p style="color:#888;font-size:12px">If you didn't request this, you can safely ignore this email.</p>`,
+  });
+  return true;
+};
+
+const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
 // Fail fast if the JWT secret is missing — never fall back to a public default.
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -1060,6 +1092,56 @@ app.post('/api/login', authLimiter, async (req, res) => {
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Request a password reset link. Always responds the same way (no account
+// enumeration). Stores a hashed, 1-hour token and emails the raw token's link.
+app.post('/api/forgot-password', authLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email is required' });
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    const generic = { message: 'If an account with that email exists, a reset link has been sent.' };
+
+    if (user) {
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      user.resetToken = hashToken(rawToken);
+      user.resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      await user.save();
+      const link = `${FRONTEND_URL}/reset-password?token=${rawToken}`;
+      const emailed = await sendResetEmail(user.email, link);
+      // Outside production (or when email isn't set up) return the link directly
+      // so it can be used without an inbox. Never leak it in production.
+      if (process.env.NODE_ENV !== 'production' && !emailed) return res.json({ ...generic, devLink: link });
+    }
+    return res.json(generic);
+  } catch (error) {
+    console.error('[forgot-password]', error.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Complete a reset using the token from the email link.
+app.post('/api/reset-password', authLimiter, async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ message: 'Token and new password are required' });
+    if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    const user = await User.findOne({
+      resetToken: hashToken(token),
+      resetTokenExpiry: { $gt: new Date() },
+    });
+    if (!user) return res.status(400).json({ message: 'This reset link is invalid or has expired.' });
+
+    user.password = await bcrypt.hash(password, await bcrypt.genSalt(10));
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+    await user.save();
+    res.json({ message: 'Password updated. You can now log in with your new password.' });
+  } catch (error) {
+    console.error('[reset-password]', error.message);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // Transactions

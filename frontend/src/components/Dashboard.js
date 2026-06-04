@@ -52,6 +52,20 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
   const [step,            setStep]            = useState('upload');
   const [message,         setMessage]         = useState(null);
   const [pdfPassword,     setPdfPassword]     = useState('');  // NEW
+  const [bank,            setBank]            = useState('');   // confirmed bank for this statement
+  const [banks,           setBanks]           = useState([]);   // Paystack bank list for override
+
+  // Load the Paystack bank list once for the confirm dropdown.
+  useEffect(() => {
+    const loadBanks = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API}/api/banks`, { headers: { Authorization: `Bearer ${token}` } });
+        setBanks(res.data || []);
+      } catch (err) { /* non-fatal: detected bank / free text still works */ }
+    };
+    loadBanks();
+  }, []);
 
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
@@ -86,6 +100,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
       const txns = res.data.transactions || [];
       setTransactions(txns);
       setMeta(res.data.meta || null);
+      setBank(res.data.meta?.detectedBank || '');
       setSelectedIndices(
         txns.reduce((acc, tx, i) => { if (!tx.duplicate) acc.push(i); return acc; }, [])
       );
@@ -134,7 +149,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
       const token = localStorage.getItem('token');
       const res = await axios.post(
         `${API}/api/import-transactions`,
-        { transactions: toImport },
+        { transactions: toImport, bank },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       onImportComplete(toImport);
@@ -145,6 +160,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
       setFile(null);
       setMeta(null);
       setPdfPassword('');
+      setBank('');
     } catch (err) {
       setMessage({ text: 'Import failed. Please try again.', type: 'error' });
       setStep('review');
@@ -159,6 +175,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
     setMessage(null);
     setMeta(null);
     setPdfPassword('');
+    setBank('');
   };
 
   return (
@@ -325,7 +342,20 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: theme.labelColor }}>
+                <FaWallet style={{ opacity: 0.7 }} /> Bank:
+                <input
+                  list="bank-options"
+                  value={bank}
+                  onChange={(e) => setBank(e.target.value)}
+                  placeholder="e.g. GTBank"
+                  style={{ padding: '0.4rem 0.6rem', borderRadius: '8px', border: `1px solid ${theme.inputBorder}`, background: theme.inputBg, color: theme.labelColor, fontSize: '0.8rem', minWidth: '140px' }}
+                />
+                <datalist id="bank-options">
+                  {banks.map((b) => <option key={b.code || b.name} value={b.name} />)}
+                </datalist>
+              </label>
               <button onClick={toggleAll} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', border: `1px solid ${theme.inputBorder}`, background: 'transparent', color: theme.labelColor, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>
                 {selectedIndices.length === transactions.length ? 'Deselect All' : 'Select All'}
               </button>

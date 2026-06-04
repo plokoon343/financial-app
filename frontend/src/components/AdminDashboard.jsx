@@ -7,6 +7,7 @@ const AdminDashboard = () => {
   const { user, darkMode } = useAuth();
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
+  const [tickets, setTickets] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -28,12 +29,14 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const [statsRes, usersRes] = await Promise.all([
+      const [statsRes, usersRes, ticketsRes] = await Promise.all([
         axios.get(`${API_URL}/api/admin/stats`, { headers }),
-        axios.get(`${API_URL}/api/admin/users`, { headers })
+        axios.get(`${API_URL}/api/admin/users`, { headers }),
+        axios.get(`${API_URL}/api/admin/tickets`, { headers })
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data);
+      setTickets(ticketsRes.data);
     } catch (error) { showMessage('Failed to load data', 'error'); }
     finally { setLoading(false); }
   };
@@ -77,6 +80,17 @@ const AdminDashboard = () => {
     finally { setActionLoading(null); }
   };
 
+  const handleTicketStatus = async (id, status) => {
+    setActionLoading(id + '_ticket');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.patch(`${API_URL}/api/admin/tickets/${id}`, { status }, { headers: { Authorization: `Bearer ${token}` } });
+      setTickets(prev => prev.map(t => t._id === id ? res.data : t));
+      showMessage(`Ticket marked ${status}`);
+    } catch (error) { showMessage(error.response?.data?.message || 'Failed', 'error'); }
+    finally { setActionLoading(null); }
+  };
+
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
       <div style={{ width: '40px', height: '40px', border: '4px solid #e2e8f0', borderTopColor: '#4299e1', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
@@ -92,7 +106,14 @@ const AdminDashboard = () => {
         <button onClick={fetchData} style={{ padding: '0.75rem 1.5rem', background: '#4299e1', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>Refresh</button>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
-        {['overview', 'users'].map(tab => <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? '#4299e1' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>{tab}</button>)}
+        {['overview', 'users', 'tickets'].map(tab => {
+          const openCount = tab === 'tickets' ? tickets.filter(t => t.status === 'open').length : 0;
+          return (
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? '#4299e1' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>
+              {tab}{openCount > 0 && <span style={{ marginLeft: '0.4rem', background: '#e53e3e', color: 'white', borderRadius: '10px', padding: '0 0.45rem', fontSize: '0.72rem' }}>{openCount}</span>}
+            </button>
+          );
+        })}
       </div>
 
       {activeTab === 'overview' && stats && (
@@ -126,6 +147,41 @@ const AdminDashboard = () => {
               <tbody>{users.map(u => <tr key={u._id} style={{ opacity: u.isActive ? 1 : 0.6 }}><td style={{ ...textPrimary, padding: '0.75rem', fontWeight: '600' }}>{u.name}{u._id === user.id && <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: '#4299e1' }}>(you)</span>}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{u.email}</td><td style={{ padding: '0.75rem' }}><span style={{ padding: '0.25rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '600', background: u.role === 'superadmin' ? '#553c9a' : '#2b6cb0', color: 'white' }}>{u.role}</span></td><td style={{ padding: '0.75rem' }}><span style={{ padding: '0.25rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '600', background: u.isActive ? '#276749' : '#742a2a', color: u.isActive ? '#c6f6d5' : '#fed7d7' }}>{u.isActive ? 'Active' : 'Inactive'}</span></td><td style={{ ...textSecondary, padding: '0.75rem' }}>{u.stats?.transactionCount || 0}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(u.createdAt).toLocaleDateString()}</td><td style={{ padding: '0.75rem' }}>{u._id !== user.id && <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}><button onClick={() => handleRoleChange(u._id, u.role === 'superadmin' ? 'user' : 'superadmin')} disabled={actionLoading === u._id + '_role'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: '#805ad5', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_role' ? '...' : (u.role === 'superadmin' ? 'Demote' : 'Promote')}</button><button onClick={() => handleToggleStatus(u._id)} disabled={actionLoading === u._id + '_status'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: u.isActive ? '#dd6b20' : '#38a169', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_status' ? '...' : (u.isActive ? 'Deactivate' : 'Activate')}</button><button onClick={() => handleDeleteUser(u._id, u.name)} disabled={actionLoading === u._id + '_delete'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: '#e53e3e', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_delete' ? '...' : 'Delete'}</button></div>}</td></tr>)}</tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'tickets' && (
+        <div style={cardStyle}>
+          <h3 style={{ ...textPrimary, marginBottom: '1.5rem' }}>Support Tickets ({tickets.length})</h3>
+          {tickets.length === 0 ? (
+            <p style={textSecondary}>No tickets yet.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {tickets.map(t => (
+                <div key={t._id} style={{ border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, borderRadius: '10px', padding: '1rem', opacity: t.status === 'resolved' ? 0.7 : 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                      <div style={{ ...textPrimary, fontWeight: 700 }}>{t.subject}</div>
+                      <div style={{ ...textSecondary, fontSize: '0.8rem', margin: '0.15rem 0 0.6rem' }}>
+                        {t.name || 'Unknown'} · {t.email} · {new Date(t.createdAt).toLocaleString()}
+                      </div>
+                      <div style={{ ...textPrimary, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{t.message}</div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
+                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '20px', fontSize: '0.78rem', fontWeight: 700, textTransform: 'capitalize', background: t.status === 'open' ? '#744210' : '#22543d', color: t.status === 'open' ? '#faf089' : '#c6f6d5' }}>{t.status}</span>
+                      <button
+                        onClick={() => handleTicketStatus(t._id, t.status === 'open' ? 'resolved' : 'open')}
+                        disabled={actionLoading === t._id + '_ticket'}
+                        style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: t.status === 'open' ? '#38a169' : '#dd6b20', color: 'white', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}
+                      >
+                        {actionLoading === t._id + '_ticket' ? '...' : (t.status === 'open' ? 'Mark resolved' : 'Reopen')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

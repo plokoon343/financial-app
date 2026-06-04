@@ -53,6 +53,7 @@ const Sidebar = () => {
   // Items that go inside the "More" dropdown
   const moreItems = [
     { path: '/auto-savings', label: 'Auto‑Savings', icon: 'fa-robot' },
+    { path: '/support', label: 'Support & FAQ', icon: 'fa-life-ring' },
   ];
 
   // Add Admin link only for superadmin
@@ -142,6 +143,14 @@ const Sidebar = () => {
 
         {/* Footer with theme toggle and logout */}
         <div className="sidebar-footer">
+          <button
+            className="sidebar-link"
+            style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '0.5rem' }}
+            onClick={() => { window.dispatchEvent(new Event('finpilot:start-tour')); setIsOpen(false); }}
+          >
+            <i className="fas fa-circle-question"></i>
+            <span>Take a tour</span>
+          </button>
           <div className="sidebar-actions">
             <button className="sidebar-dark-toggle" onClick={toggleDarkMode}>
               <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>

@@ -4,6 +4,7 @@ import { Pie } from 'react-chartjs-2';
 import { Chart, registerables } from 'chart.js';
 import { API_URL } from '../config';
 import { EXPENSE_CATEGORIES } from '../constants/categories';
+import { FeatureTip } from './FeatureTip';
 Chart.register(...registerables);
 
 const Budget = () => {
@@ -203,6 +204,11 @@ const Budget = () => {
           </button>
         </div>
       </div>
+
+      <FeatureTip tipKey="page:budget" title="Set monthly spending limits">
+        Pick a month, then add a budget per category. As your transactions for that month
+        come in, each budget shows spent vs. limit and warns you at 80% and 100%.
+      </FeatureTip>
 
       {/* Budget Summary Cards */}
       <div className="budget-summary-grid">

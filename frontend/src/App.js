@@ -21,6 +21,7 @@ import Profile from './components/Profile';
 import Support from './components/Support';
 import ServerWaker from './components/ServerWaker';
 import Walkthrough from './components/Walkthrough';
+import Onboarding from './components/Onboarding';
 
 function App() {
   return (
@@ -115,6 +116,7 @@ const ProtectedLayout = ({ ...props }) => {
   if (!user) return <Navigate to="/login" replace />;
   return (
     <div className="app-layout">
+      <Onboarding />
       <Walkthrough />
       <Sidebar />
       <main className="main-content">

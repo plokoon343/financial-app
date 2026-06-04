@@ -106,6 +106,12 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: { type: String, enum: ['user', 'superadmin'], default: 'user' },
   isActive: { type: Boolean, default: true },
+  // Profile / onboarding
+  phone:         { type: String, default: '' },
+  monthlyIncome: { type: Number, default: 0 },
+  primaryGoal:   { type: String, default: '' },
+  emailAlerts:   { type: Boolean, default: true },
+  onboarded:     { type: Boolean, default: false },
   bankDetails: {
     bankName:        { type: String, default: '' },
     bankCode:        { type: String, default: '' },
@@ -1095,7 +1101,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
     user = new User({ name, email, password: hashedPassword });
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 app.post('/api/login', authLimiter, async (req, res) => {
@@ -1106,8 +1112,49 @@ app.post('/api/login', authLimiter, async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Current user's profile
+app.get('/api/me', auth, async (req, res) => {
+  const u = req.user;
+  res.json({
+    id: u._id, name: u.name, email: u.email, role: u.role,
+    phone: u.phone || '', monthlyIncome: u.monthlyIncome || 0,
+    primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
+    onboarded: !!u.onboarded,
+  });
+});
+
+// Update profile / onboarding fields
+app.put('/api/me', auth, async (req, res) => {
+  try {
+    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, onboarded } = req.body;
+    const u = req.user;
+    if (name !== undefined && name.trim()) u.name = name.trim();
+    if (phone !== undefined) u.phone = phone.toString().slice(0, 20);
+    if (monthlyIncome !== undefined) u.monthlyIncome = Math.max(0, parseFloat(monthlyIncome) || 0);
+    if (primaryGoal !== undefined) u.primaryGoal = primaryGoal.toString().slice(0, 100);
+    if (emailAlerts !== undefined) u.emailAlerts = !!emailAlerts;
+    if (onboarded !== undefined) u.onboarded = !!onboarded;
+    await u.save();
+    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, onboarded: u.onboarded });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Change password (while logged in)
+app.post('/api/change-password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ message: 'Current and new password are required' });
+    if (newPassword.length < 6) return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    const ok = await bcrypt.compare(currentPassword, req.user.password);
+    if (!ok) return res.status(400).json({ message: 'Current password is incorrect' });
+    req.user.password = await bcrypt.hash(newPassword, await bcrypt.genSalt(10));
+    await req.user.save();
+    res.json({ message: 'Password changed successfully.' });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // Request a password reset link. Always responds the same way (no account
@@ -2006,15 +2053,26 @@ app.get('/api/admin/stats', auth, superAdminAuth, async (req, res) => {
     res.json({ totalUsers, activeUsers, inactiveUsers: totalUsers - activeUsers, totalTransactions, totalBudgets, platformIncome: incomeAgg[0]?.total || 0, platformExpenses: Math.abs(expenseAgg[0]?.total || 0), recentUsers });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
-app.post('/api/admin/setup', async (req, res) => {
+// Idempotent: with the correct setup key, creates a superadmin — or, if the email
+// already exists, promotes that account and resets its password to the one given.
+app.post('/api/admin/setup', authLimiter, async (req, res) => {
   try {
     const { setupKey, name, email, password } = req.body;
-    if (setupKey !== process.env.ADMIN_SETUP_KEY) return res.status(403).json({ message: 'Invalid setup key' });
-    const existing = await User.findOne({ role: 'superadmin' });
-    if (existing) return res.status(400).json({ message: 'Superadmin already exists' });
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-    const superAdmin = new User({ name, email, password: hashedPassword, role: 'superadmin' });
+    if (!process.env.ADMIN_SETUP_KEY || setupKey !== process.env.ADMIN_SETUP_KEY) {
+      return res.status(403).json({ message: 'Invalid setup key' });
+    }
+    if (!email || !password) return res.status(400).json({ message: 'email and password are required' });
+    if (password.length < 6) return res.status(400).json({ message: 'password must be at least 6 characters' });
+    const hashedPassword = await bcrypt.hash(password, await bcrypt.genSalt(10));
+    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existing) {
+      existing.role = 'superadmin';
+      existing.password = hashedPassword;
+      existing.isActive = true;
+      await existing.save();
+      return res.json({ message: 'Existing account promoted to superadmin', email: existing.email });
+    }
+    const superAdmin = new User({ name: name || 'Admin', email: email.toLowerCase().trim(), password: hashedPassword, role: 'superadmin' });
     await superAdmin.save();
     res.status(201).json({ message: 'Superadmin created', email: superAdmin.email });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }

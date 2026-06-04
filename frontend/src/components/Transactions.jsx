@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { categoriesFor, ALL_CATEGORIES } from '../constants/categories';
+import { FeatureTip, InfoTip } from './FeatureTip';
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 const money = (n) => `₦${Math.abs(Number(n)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -168,12 +169,18 @@ const Transactions = () => {
         <p>View, edit, group and delete every transaction across your statements.</p>
       </div>
 
+      <FeatureTip tipKey="page:transactions" title="Your full ledger">
+        Filter by month, bank, category or search; click any column header to sort.
+        Edit a category inline (it teaches the app), edit or delete a row, or tick
+        several and batch-delete. Each uploaded statement can be removed in one click.
+      </FeatureTip>
+
       {message && <div className={`tx-msg ${message.type}`}>{message.text}</div>}
 
       {/* Statements (import batches) */}
       {batches.length > 0 && (
         <div className="tx-card">
-          <h3>Imported statements</h3>
+          <h3>Imported statements<InfoTip text="Each bank statement you upload becomes one group. Deleting a statement removes only its transactions — the rest of the month stays." /></h3>
           <div className="batch-list">
             {batches.map(b => (
               <div className="batch-chip" key={b.id}>

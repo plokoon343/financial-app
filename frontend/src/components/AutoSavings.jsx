@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
+import { FeatureTip } from './FeatureTip';
 const AutoSavings = () => {
   //const { darkMode } = useAuth();
   const [rule, setRule] = useState(null);
@@ -98,6 +99,11 @@ const AutoSavings = () => {
         <h1><i className="fas fa-robot"></i> Auto‑Savings</h1>
         <p>Automatically save money from every income or expense</p>
       </div>
+
+      <FeatureTip tipKey="page:auto-savings" title="Save without thinking">
+        Choose a fixed amount to move to savings from each income, or a round‑up rule on
+        expenses. Optionally link it to a savings goal and FinPilot does the rest.
+      </FeatureTip>
 
       <div className="savings-card glass-effect">
         <div className="card-header">

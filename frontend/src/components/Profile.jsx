@@ -1,8 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { tipsEnabled, setTipsEnabled, resetTips } from '../utils/tips';
+
+const GOAL_OPTIONS = ['Build an emergency fund', 'Save for rent', 'Pay off debt', 'Save for a big purchase', 'Track my spending', 'Grow my investments', 'Other'];
+const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
 const Profile = () => {
+  // Profile details
+  const [profile, setProfile] = useState({ name: '', phone: '', monthlyIncome: '', primaryGoal: '', emailAlerts: true });
+  const [savingProfile, setSavingProfile] = useState(false);
+  // Change password
+  const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
+  const [savingPw, setSavingPw] = useState(false);
+  // Tips toggle
+  const [tipsOn, setTipsOn] = useState(tipsEnabled());
   const [method, setMethod] = useState('card'); // 'card' | 'titan'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -16,6 +28,53 @@ const Profile = () => {
   // Paystack-Titan account fields
   const [titan, setTitan] = useState({ accountNumber: '', accountName: '' });
   const [titanBank, setTitanBank] = useState({ code: '100039', name: 'Titan-Paystack' }); // sensible fallback
+
+  // Load profile details
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await axios.get(`${API_URL}/api/me`, authHeader());
+        const p = res.data;
+        setProfile({ name: p.name || '', phone: p.phone || '', monthlyIncome: p.monthlyIncome || '', primaryGoal: p.primaryGoal || '', emailAlerts: p.emailAlerts !== false });
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
+
+  const saveProfile = async () => {
+    setSavingProfile(true);
+    try {
+      await axios.put(`${API_URL}/api/me`, {
+        name: profile.name,
+        phone: profile.phone,
+        monthlyIncome: profile.monthlyIncome === '' ? 0 : Number(profile.monthlyIncome),
+        primaryGoal: profile.primaryGoal,
+        emailAlerts: profile.emailAlerts,
+      }, authHeader());
+      setMessage({ text: 'Profile saved!', type: 'success' });
+    } catch (err) {
+      setMessage({ text: err.response?.data?.message || 'Failed to save profile', type: 'error' });
+    } finally { setSavingProfile(false); setTimeout(() => setMessage(null), 3000); }
+  };
+
+  const changePassword = async () => {
+    if (pw.next.length < 6) return setMessage({ text: 'New password must be at least 6 characters', type: 'error' });
+    if (pw.next !== pw.confirm) return setMessage({ text: 'New passwords do not match', type: 'error' });
+    setSavingPw(true);
+    try {
+      await axios.post(`${API_URL}/api/change-password`, { currentPassword: pw.current, newPassword: pw.next }, authHeader());
+      setPw({ current: '', next: '', confirm: '' });
+      setMessage({ text: 'Password changed successfully!', type: 'success' });
+    } catch (err) {
+      setMessage({ text: err.response?.data?.message || 'Failed to change password', type: 'error' });
+    } finally { setSavingPw(false); setTimeout(() => setMessage(null), 3000); }
+  };
+
+  const toggleTips = () => {
+    const next = !tipsOn;
+    setTipsOn(next);
+    setTipsEnabled(next);
+    if (next) resetTips(); // re-enable: let first-time tips show again
+  };
 
   // Find the Titan-Paystack bank code from Paystack's bank list
   useEffect(() => {
@@ -156,8 +215,77 @@ const Profile = () => {
   return (
     <div className="profile-page">
       <div className="section-header">
-        <h2><i className="fas fa-user-circle"></i> Profile & Payout</h2>
-        <p>Choose how you want to withdraw money from your wallet</p>
+        <h2><i className="fas fa-user-circle"></i> Profile &amp; Settings</h2>
+        <p>Manage your details, security, payout method and preferences</p>
+      </div>
+
+      {message && <div className={`message ${message.type}`} style={{ marginBottom: '16px' }}>{message.text}</div>}
+
+      {/* Profile details */}
+      <div className="profile-card glass-effect">
+        <h3>Your Details</h3>
+        <div className="form-row">
+          <div className="form-group">
+            <label>Full Name</label>
+            <input type="text" value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} />
+          </div>
+          <div className="form-group">
+            <label>Phone</label>
+            <input type="text" value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} placeholder="optional" />
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label>Monthly Income (₦)</label>
+            <input type="number" min="0" value={profile.monthlyIncome} onChange={e => setProfile({ ...profile, monthlyIncome: e.target.value })} placeholder="optional" />
+          </div>
+          <div className="form-group">
+            <label>Primary Goal</label>
+            <select value={profile.primaryGoal} onChange={e => setProfile({ ...profile, primaryGoal: e.target.value })}>
+              <option value="">Select a goal</option>
+              {GOAL_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+        </div>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={profile.emailAlerts} onChange={e => setProfile({ ...profile, emailAlerts: e.target.checked })} />
+          Send me email alerts
+        </label>
+        <button className="btn-primary" onClick={saveProfile} disabled={savingProfile}>
+          {savingProfile ? 'Saving...' : 'Save Details'}
+        </button>
+      </div>
+
+      {/* Change password */}
+      <div className="profile-card glass-effect">
+        <h3>Change Password</h3>
+        <div className="form-group">
+          <label>Current Password</label>
+          <input type="password" value={pw.current} onChange={e => setPw({ ...pw, current: e.target.value })} />
+        </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label>New Password</label>
+            <input type="password" value={pw.next} onChange={e => setPw({ ...pw, next: e.target.value })} placeholder="At least 6 characters" />
+          </div>
+          <div className="form-group">
+            <label>Confirm New Password</label>
+            <input type="password" value={pw.confirm} onChange={e => setPw({ ...pw, confirm: e.target.value })} />
+          </div>
+        </div>
+        <button className="btn-primary" onClick={changePassword} disabled={savingPw || !pw.current || !pw.next}>
+          {savingPw ? 'Updating...' : 'Update Password'}
+        </button>
+      </div>
+
+      {/* Preferences */}
+      <div className="profile-card glass-effect">
+        <h3>Preferences</h3>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={tipsOn} onChange={toggleTips} />
+          Show feature tips &amp; first-time hints
+        </label>
+        <small>Turn this back on to see the in-app tips again as you use each feature.</small>
       </div>
 
       <div className="profile-card glass-effect">
@@ -262,8 +390,6 @@ const Profile = () => {
           </>
         )}
 
-        {message && <div className={`message ${message.type}`}>{message.text}</div>}
-
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Saving...' : 'Save Payout Method'}
         </button>
@@ -332,6 +458,11 @@ const Profile = () => {
         .message.success { background: rgba(56,161,105,0.1); color: #38a169; }
         .message.error { background: rgba(229,62,62,0.1); color: #e53e3e; }
         small { font-size: 0.75rem; color: var(--text-secondary); display: block; margin-top: 5px; }
+        .profile-card { margin-bottom: 18px; }
+        .checkbox-row { display: flex; align-items: center; gap: 10px; font-weight: 500; margin-bottom: 14px; cursor: pointer; }
+        .checkbox-row input { width: auto; }
+        .dark-theme select option { background: #26263a; color: #f8f9fa; }
+        .dark-theme select { color-scheme: dark; }
       `}</style>
     </div>
   );

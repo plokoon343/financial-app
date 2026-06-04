@@ -6,14 +6,16 @@ import { API_URL } from '../config';
 Chart.register(...registerables);
 
 const Budget = () => {
+  const currentMonth = new Date().toISOString().slice(0, 7);
   const [budgets, setBudgets] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [formData, setFormData] = useState({
     category: '',
     amount: '',
-    month: new Date().toISOString().slice(0, 7)
+    month: currentMonth
   });
 
   // Always send the auth token explicitly (don't rely on a global axios default).
@@ -31,14 +33,19 @@ const Budget = () => {
   };
 
   useEffect(() => {
-    fetchBudgets();
     fetchTransactions();
   }, []);
+
+  // Refetch budgets whenever the viewed month changes
+  useEffect(() => {
+    fetchBudgets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMonth]);
 
   const fetchBudgets = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/api/budgets`, authConfig());
+      const response = await axios.get(`${API_URL}/api/budgets?month=${selectedMonth}`, authConfig());
       setBudgets(response.data);
       setLoading(false);
     } catch (error) {
@@ -63,9 +70,12 @@ const Budget = () => {
         ...formData,
         amount: parseFloat(formData.amount)
       }, authConfig());
-      fetchBudgets();
+      const addedMonth = formData.month;
       setShowForm(false);
-      setFormData({ category: '', amount: '', month: new Date().toISOString().slice(0, 7) });
+      setFormData({ category: '', amount: '', month: addedMonth });
+      // Show the month the budget was added to (refetches via the selectedMonth effect)
+      if (addedMonth !== selectedMonth) setSelectedMonth(addedMonth);
+      else fetchBudgets();
     } catch (error) {
       console.error('Error adding budget:', error);
       alert(errMessage(error, 'Error adding budget. Please try again.'));
@@ -163,13 +173,28 @@ const Budget = () => {
   <i className="fas fa-chart-pie"></i> Budget Management
 </h1>
         <p className="page-subtitle">Track and manage your spending across categories</p>
-        <button 
-          className="btn-primary add-budget-btn"
-          onClick={() => setShowForm(!showForm)}
-        >
-          <i className={`fas ${showForm ? 'fa-times' : 'fa-plus'}`}></i>
-          {showForm ? 'Cancel' : 'Add New Budget'}
-        </button>
+        <div className="budget-header-actions">
+          <label className="month-picker">
+            <i className="fas fa-calendar-alt"></i>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value || currentMonth)}
+              aria-label="View budgets for month"
+            />
+          </label>
+          <button
+            className="btn-primary add-budget-btn"
+            onClick={() => {
+              // Default the new budget to the month currently being viewed
+              if (!showForm) setFormData(f => ({ ...f, month: selectedMonth }));
+              setShowForm(!showForm);
+            }}
+          >
+            <i className={`fas ${showForm ? 'fa-times' : 'fa-plus'}`}></i>
+            {showForm ? 'Cancel' : 'Add New Budget'}
+          </button>
+        </div>
       </div>
 
       {/* Budget Summary Cards */}
@@ -281,7 +306,7 @@ const Budget = () => {
                 type="button" 
                 onClick={() => {
                   setShowForm(false);
-                  setFormData({ category: '', amount: '', month: new Date().toISOString().slice(0, 7) });
+                  setFormData({ category: '', amount: '', month: selectedMonth });
                 }} 
                 className="btn-cancel"
               >
@@ -445,6 +470,32 @@ const Budget = () => {
           margin-right: auto;
         }
         
+        .budget-header-actions {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+        .month-picker {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 14px;
+          background: var(--glass-bg);
+          border: 1px solid var(--border-color, var(--glass-border));
+          border-radius: var(--radius-md);
+          color: var(--text-primary);
+        }
+        .month-picker input {
+          border: none;
+          background: transparent;
+          color: var(--text-primary);
+          font-family: var(--font-body);
+          font-size: 0.95rem;
+          outline: none;
+        }
+
         /* Button Base Styles */
         .btn-primary {
           background: var(--gradient-primary);

@@ -51,12 +51,32 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('token');
     const userData = localStorage.getItem('user');
-    
+
     if (token && userData) {
       setUser(JSON.parse(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
     setLoading(false);
+  }, []);
+
+  // Global handler: when the backend reports an expired/invalid session
+  // (authExpired), clear it and send the user to login. PDF-password 401s
+  // (passwordRequired/wrongPassword) are NOT flagged, so they're left alone.
+  useEffect(() => {
+    const id = axios.interceptors.response.use(
+      (res) => res,
+      (error) => {
+        if (error.response?.status === 401 && error.response?.data?.authExpired) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          delete axios.defaults.headers.common['Authorization'];
+          setUser(null);
+          if (window.location.pathname !== '/login') window.location.assign('/login');
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => axios.interceptors.response.eject(id);
   }, []);
 
   const login = async (email, password) => {

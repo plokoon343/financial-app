@@ -18,7 +18,9 @@ import GoalTracker from './components/GoalTracker';
 import AutoSavings from './components/AutoSavings';
 import Transactions from './components/Transactions';
 import Profile from './components/Profile';
+import Support from './components/Support';
 import ServerWaker from './components/ServerWaker';
+import Walkthrough from './components/Walkthrough';
 
 function App() {
   return (
@@ -95,6 +97,7 @@ function AppContent() {
           <Route path="wallet" element={<Wallet />} />
           <Route path="goals" element={<GoalTracker goals={goals} setGoals={setGoals} />} />
           <Route path="auto-savings" element={<AutoSavings />} />
+          <Route path="support" element={<Support />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="admin" element={
             <SuperAdminRoute>
@@ -112,6 +115,7 @@ const ProtectedLayout = ({ ...props }) => {
   if (!user) return <Navigate to="/login" replace />;
   return (
     <div className="app-layout">
+      <Walkthrough />
       <Sidebar />
       <main className="main-content">
         <div className="container">

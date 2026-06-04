@@ -14,6 +14,7 @@ import './responsive.css';  // at the top with other CSS imports
 import Wallet from './components/Wallet';
 import GoalTracker from './components/GoalTracker';
 import AutoSavings from './components/AutoSavings';
+import Transactions from './components/Transactions';
 import Profile from './components/Profile';
 
 function App() {
@@ -72,6 +73,7 @@ function AppContent() {
           />
         }>
           <Route index element={<Dashboard transactions={transactions} setTransactions={setTransactions} />} />
+          <Route path="transactions" element={<Transactions />} />
           <Route path="budget" element={<Budget budgets={budgets} setBudgets={setBudgets} transactions={transactions} />} />
           <Route path="financial-health" element={
             <FinancialHealth

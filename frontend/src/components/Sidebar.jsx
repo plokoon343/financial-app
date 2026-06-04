@@ -44,6 +44,7 @@ const Sidebar = () => {
   // Main navigation items (always visible)
   const mainNavItems = [
     { path: '/', label: 'Dashboard', icon: 'fa-chart-line' },
+    { path: '/transactions', label: 'Transactions', icon: 'fa-receipt' },
     { path: '/budget', label: 'Budget', icon: 'fa-chart-pie' },
     { path: '/financial-health', label: 'Financial Health', icon: 'fa-heart-pulse' },
     { path: '/wallet', label: 'Wallet', icon: 'fa-wallet' },

@@ -68,7 +68,12 @@ const transactionSchema = new mongoose.Schema({
   description: { type: String, required: true },
   amount: { type: Number, required: true },
   category: { type: String, required: true },
-  type: { type: String, enum: ['income', 'expense'], required: true }
+  type: { type: String, enum: ['income', 'expense'], required: true },
+  // Origin tracking so transactions can be grouped/deleted by bank statement.
+  source: { type: String, enum: ['manual', 'import'], default: 'manual' },
+  bank: { type: String, default: '' },           // e.g. 'GTBank', 'Union', 'Kuda'
+  importBatch: { type: String, default: '' },     // one id per uploaded statement
+  importedAt: { type: Date },
 }, { timestamps: true });
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
@@ -368,6 +373,7 @@ const parseCSV = (filePath) => {
             category: categorizeTransaction(description, type), reference, balance: balance || null });
         }
         console.log(`[parseCSV] Header at line ${headerLineIdx}, parsed ${transactions.length} transactions`);
+        transactions.bank = detectBank(rawContent);
         resolve(transactions);
       })
       .on('error', reject);
@@ -447,6 +453,7 @@ const parseExcel = (filePath) => {
   }
 
   console.log(`[parseExcel] Header at row ${headerIdx}, parsed ${transactions.length} transactions`);
+  transactions.bank = detectBank(rows.slice(0, 15).map(r => r.join(' ')).join(' '));
   return transactions;
 };
 
@@ -647,6 +654,7 @@ const parsePDF = async (filePath, password = '') => {
   const balanceParsed = parseStatementByBalance(rawText);
   if (balanceParsed.length > 0) {
     console.log(`[parsePDF] Balance-aware parser found ${balanceParsed.length} transactions`);
+    balanceParsed.bank = detectBank(rawText);
     return balanceParsed;
   }
   console.log('[parsePDF] Balance-aware parser found nothing — trying generic strategies…');
@@ -784,6 +792,7 @@ const parsePDF = async (filePath, password = '') => {
   }
 
   console.log(`[parsePDF] Parsed ${transactions.length} transactions`);
+  transactions.bank = detectBank(rawText);
   return transactions;
 };
 const inferTransactionType = (description) => {
@@ -888,6 +897,41 @@ const learnCategories = async (userId, transactions) => {
   catch (e) { console.error('[learnCategories]', e.message); }
 };
 
+// Best-effort detection of the issuing bank from statement text. List order is the
+// priority (so a statement that merely *mentions* another bank in a narration still
+// resolves to its real issuer). Keywords are specific phrases to avoid false hits
+// (e.g. bare "uba" would match "Abuja"). The user confirms/overrides on review.
+const BANK_SIGNATURES = [
+  ['Union Bank', ['union bank']],
+  ['GTBank', ['gtbank', 'guaranty trust', 'gtworld', 'gt bank']],
+  ['Kuda', ['kuda']],
+  ['Access Bank', ['access bank', 'diamond bank']],
+  ['Zenith Bank', ['zenith bank']],
+  ['First Bank', ['first bank', 'firstbank']],
+  ['UBA', ['united bank for africa']],
+  ['Wema Bank', ['wema bank', 'alat']],
+  ['Fidelity Bank', ['fidelity bank']],
+  ['FCMB', ['fcmb', 'first city monument']],
+  ['Sterling Bank', ['sterling bank']],
+  ['Stanbic IBTC', ['stanbic']],
+  ['Polaris Bank', ['polaris bank']],
+  ['Ecobank', ['ecobank']],
+  ['Keystone Bank', ['keystone bank']],
+  ['Unity Bank', ['unity bank']],
+  ['Providus Bank', ['providus']],
+  ['Opay', ['opay']],
+  ['PalmPay', ['palmpay']],
+  ['Moniepoint', ['moniepoint']],
+  ['Paystack-Titan', ['titan-paystack', 'paystack titan']],
+];
+const detectBank = (text = '') => {
+  const l = (text || '').toLowerCase();
+  for (const [name, kws] of BANK_SIGNATURES) {
+    if (kws.some(kw => l.includes(kw))) return name;
+  }
+  return '';
+};
+
 // --------------------------
 // Middleware
 // --------------------------
@@ -955,8 +999,23 @@ app.post('/api/login', async (req, res) => {
 
 // Transactions
 app.get('/api/transactions', auth, async (req, res) => {
-  const transactions = await Transaction.find({ userId: req.user._id }).sort({ date: -1 });
-  res.json(transactions);
+  try {
+    const { month, bank, category, type, q: search, sort, order } = req.query;
+    const query = { userId: req.user._id };
+    if (/^\d{4}-\d{2}$/.test(month || '')) {
+      const start = new Date(`${month}-01T00:00:00.000Z`);
+      const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1);
+      query.date = { $gte: start, $lt: end };
+    }
+    if (bank) query.bank = bank;
+    if (category) query.category = category;
+    if (type === 'income' || type === 'expense') query.type = type;
+    if (search) query.description = { $regex: search.trim(), $options: 'i' };
+    const sortField = sort === 'amount' ? 'amount' : 'date';
+    const sortOrder = order === 'asc' ? 1 : -1;
+    const transactions = await Transaction.find(query).sort({ [sortField]: sortOrder });
+    res.json(transactions);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 app.post('/api/transactions', auth, async (req, res) => {
   const { date, description, amount, category, type } = req.body;
@@ -966,6 +1025,50 @@ app.post('/api/transactions', auth, async (req, res) => {
   await applySavingsRule(req.user._id, transaction.amount, transaction.type);
   res.status(201).json(transaction);
 });
+// Edit a transaction (also teaches the categorizer when the category changes).
+app.put('/api/transactions/:id', auth, async (req, res) => {
+  try {
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+    const { date, description, amount, category, type } = req.body;
+    const categoryChanged = category !== undefined && category.trim() !== txn.category;
+    if (date !== undefined) txn.date = new Date(date);
+    if (description !== undefined) txn.description = description.trim();
+    if (type !== undefined) txn.type = type;
+    if (category !== undefined) txn.category = category.trim();
+    const newType = type !== undefined ? type : txn.type;
+    if (amount !== undefined) {
+      const a = Math.abs(parseFloat(amount));
+      txn.amount = newType === 'expense' ? -a : a;
+    } else if (type !== undefined) {
+      // Type flipped but amount unchanged — fix the sign.
+      const a = Math.abs(txn.amount);
+      txn.amount = newType === 'expense' ? -a : a;
+    }
+    await txn.save();
+    if (categoryChanged) await learnCategories(req.user._id, [{ description: txn.description, category: txn.category }]);
+    res.json(txn);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Batch delete by id list.
+app.post('/api/transactions/batch-delete', auth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: 'No transactions selected' });
+    const r = await Transaction.deleteMany({ _id: { $in: ids }, userId: req.user._id });
+    res.json({ message: `Deleted ${r.deletedCount} transaction(s)`, count: r.deletedCount });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Delete an entire imported statement (one upload = one importBatch).
+app.delete('/api/transactions/batch/:batchId', auth, async (req, res) => {
+  try {
+    const r = await Transaction.deleteMany({ userId: req.user._id, importBatch: req.params.batchId });
+    res.json({ message: `Deleted ${r.deletedCount} transaction(s)`, count: r.deletedCount });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
 app.delete('/api/transactions/:id', auth, async (req, res) => {
   const transaction = await Transaction.findOne({ _id: req.params.id, userId: req.user._id });
   if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
@@ -1276,6 +1379,9 @@ app.post('/api/upload-statement', auth, upload.single('file'), async (req, res) 
       return res.status(422).json({ message: 'No transactions found in this file. For PDFs, make sure the text is selectable (not a scanned image).', transactions: [] });
     }
 
+    // Bank detected from the statement text (attached by the parser); user confirms it.
+    const detectedBank = (transactions && transactions.bank) || '';
+
     // Apply categories the user has taught the app from previous corrections.
     transactions = await applyLearnedCategories(req.user._id, transactions);
 
@@ -1285,7 +1391,7 @@ app.post('/api/upload-statement', auth, upload.single('file'), async (req, res) 
     const dupCount = tagged.filter(t => t.duplicate).length;
     return res.json({
       transactions: tagged,
-      meta: { totalFound: tagged.length, duplicateCount: dupCount, warnings: dupCount > 0 ? [`${dupCount} transaction(s) already exist and are pre‑marked.`] : [] },
+      meta: { totalFound: tagged.length, duplicateCount: dupCount, detectedBank, warnings: dupCount > 0 ? [`${dupCount} transaction(s) already exist and are pre‑marked.`] : [] },
     });
   } catch (error) {
     console.error('Upload error:', error);
@@ -1297,14 +1403,19 @@ app.post('/api/upload-statement', auth, upload.single('file'), async (req, res) 
 // Import selected transactions
 app.post('/api/import-transactions', auth, async (req, res) => {
   try {
-    const { transactions } = req.body;
+    const { transactions, bank } = req.body;
     if (!Array.isArray(transactions) || transactions.length === 0) return res.status(400).json({ message: 'No transactions to import' });
     const valid = transactions.filter(t => t.date && t.amount && t.description && t.type);
     if (valid.length === 0) return res.status(400).json({ message: 'All transactions are missing required fields' });
+    // Each upload becomes one deletable group (importBatch), tagged with its bank.
+    const importBatch = new mongoose.Types.ObjectId().toString();
+    const importedAt = new Date();
+    const bankLabel = (bank || '').toString().trim();
     const docs = valid.map(t => new Transaction({
       userId: req.user._id, date: new Date(t.date), description: t.description,
       amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
       category: t.category || 'Other', type: t.type,
+      source: 'import', bank: bankLabel, importBatch, importedAt,
     }));
     const inserted = await Transaction.insertMany(docs, { ordered: false });
     // Learn description -> category from what the user chose to import (incl. any

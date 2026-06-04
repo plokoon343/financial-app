@@ -118,6 +118,11 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
       prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]
     );
 
+  // Edit a transaction's category on the review screen. The chosen category is saved
+  // (and learned by the backend) when the user imports.
+  const updateTxCategory = (idx, category) =>
+    setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, category } : t)));
+
   const handleImport = async () => {
     const toImport = selectedIndices.map((i) => transactions[i]);
     if (!toImport.length) {
@@ -350,7 +355,26 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                     </td>
                     <td style={{ padding: '0.5rem 0.7rem', fontWeight: 700, color: tx.type === 'income' ? '#38a169' : '#e53e3e', whiteSpace: 'nowrap' }}>₦{Number(tx.amount).toLocaleString()}</td>
                     <td style={{ padding: '0.5rem 0.7rem', color: tx.type === 'income' ? '#38a169' : '#e53e3e', fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{tx.type === 'income' ? '↑' : '↓'} {tx.type}</td>
-                    <td style={{ padding: '0.5rem 0.7rem' }}><span style={{ background: darkMode ? '#4a5568' : '#edf2f7', padding: '2px 7px', borderRadius: '10px', fontSize: '0.73rem', color: darkMode ? '#e2e8f0' : '#4a5568', whiteSpace: 'nowrap' }}>{tx.category}</span></td>
+                    <td style={{ padding: '0.5rem 0.7rem' }} onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={tx.category || 'Other'}
+                        onChange={(e) => updateTxCategory(idx, e.target.value)}
+                        title={tx.learned ? 'Category you taught the app' : 'Auto-categorized — change to teach the app'}
+                        style={{
+                          background: tx.learned ? (darkMode ? '#2c5282' : '#ebf8ff') : (darkMode ? '#4a5568' : '#edf2f7'),
+                          color: darkMode ? '#e2e8f0' : '#4a5568',
+                          border: `1px solid ${theme.inputBorder}`, borderRadius: '8px',
+                          padding: '3px 6px', fontSize: '0.73rem', cursor: 'pointer', maxWidth: '140px',
+                        }}
+                      >
+                        {categoriesFor(tx.type).map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                        {tx.category && !categoriesFor(tx.type).includes(tx.category) && (
+                          <option value={tx.category}>{tx.category}</option>
+                        )}
+                      </select>
+                    </td>
                   </tr>
                 ))}
               </tbody>

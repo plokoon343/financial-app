@@ -87,6 +87,15 @@ const authLimiter = rateLimit({
   message: { message: 'Too many attempts. Please try again in a few minutes.' },
 });
 
+// Looser limiter for authenticated write actions (change password, support tickets).
+const sensitiveLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests. Please slow down and try again shortly.' },
+});
+
 // --------------------------
 // MongoDB Connection
 // --------------------------
@@ -1144,7 +1153,7 @@ app.put('/api/me', auth, async (req, res) => {
 });
 
 // Change password (while logged in)
-app.post('/api/change-password', auth, async (req, res) => {
+app.post('/api/change-password', sensitiveLimiter, auth, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ message: 'Current and new password are required' });
@@ -1211,7 +1220,7 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
 // --------------------------
 // Support tickets
 // --------------------------
-app.post('/api/support/tickets', auth, async (req, res) => {
+app.post('/api/support/tickets', sensitiveLimiter, auth, async (req, res) => {
   try {
     const { subject, message } = req.body;
     if (!subject || !message) return res.status(400).json({ message: 'Subject and message are required' });
@@ -2057,6 +2066,12 @@ app.get('/api/admin/stats', auth, superAdminAuth, async (req, res) => {
 // already exists, promotes that account and resets its password to the one given.
 app.post('/api/admin/setup', authLimiter, async (req, res) => {
   try {
+    // Disabled by default. Because the original setup key leaked via git history,
+    // the endpoint stays off unless ALLOW_ADMIN_SETUP=true is set in the env
+    // (set it temporarily only when you need to create/promote an admin).
+    if (process.env.ALLOW_ADMIN_SETUP !== 'true') {
+      return res.status(403).json({ message: 'Admin setup is disabled.' });
+    }
     const { setupKey, name, email, password } = req.body;
     if (!process.env.ADMIN_SETUP_KEY || setupKey !== process.env.ADMIN_SETUP_KEY) {
       return res.status(403).json({ message: 'Invalid setup key' });

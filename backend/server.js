@@ -484,15 +484,34 @@ const extractPdfText = async (buffer, password = '') => {
 const MONTH_MAP = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
 // Money: 1,234.56 / 50.00 / .75  (comma thousands optional, leading digits optional)
 const STMT_MONEY_RE = /(?:\d{1,3}(?:,\d{3})+|\d+)?\.\d{2}/g;
-const STMT_DATE_START_RE = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})/;
+// A line that *starts* a transaction record begins with a date in one of these forms:
+//   30-APR-2026 / 01-Apr-2026   (DD-Mon-YYYY, Union/GTBank)
+//   09/05/26 / 09/05/2026 / 30-04-2026   (DD/MM/YY[YY], Kuda etc.)
+//   2026-05-09   (YYYY-MM-DD)
+const STMT_DATE_START_RE = /^(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2})/;
 
-const normalizeMonName = (d, mon, y) => {
-  const m = MONTH_MAP[mon.toLowerCase().slice(0, 3)];
-  if (!m) return null;
-  let year = y;
-  // Some statements render a malformed year like "0026" — repair to 20xx.
-  if (year.length === 4 && year.startsWith('0')) year = '20' + year.slice(2);
-  return `${year}-${m}-${d.padStart(2, '0')}`;
+// Normalise any supported date token to YYYY-MM-DD (returns null if unrecognised).
+const normalizeAnyDate = (raw) => {
+  const s = (raw || '').trim();
+  let m;
+  // DD-Mon-YYYY (also DD/Mon/YYYY)
+  if ((m = s.match(/^(\d{1,2})[\/-]([A-Za-z]{3})[\/-](\d{2,4})$/))) {
+    const mon = MONTH_MAP[m[2].toLowerCase()];
+    if (!mon) return null;
+    let y = m[3];
+    if (y.length === 2) y = '20' + y;
+    else if (y.length === 4 && y.startsWith('0')) y = '20' + y.slice(2); // repair "0026" -> 2026
+    return `${y}-${mon}-${m[1].padStart(2, '0')}`;
+  }
+  // YYYY-MM-DD
+  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/))) return `${m[1]}-${m[2]}-${m[3]}`;
+  // DD/MM/YY or DD/MM/YYYY (also DD-MM-YYYY)
+  if ((m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/))) {
+    let y = m[3];
+    if (y.length === 2) y = '20' + y;
+    return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  return null;
 };
 
 // Balance-aware parser for Nigerian bank statement PDFs (Union Bank, GTBank, etc.).
@@ -504,8 +523,9 @@ const parseStatementByBalance = (rawText) => {
   const lines = rawText.split('\n').map(l => l.replace(/ /g, ' ').trim()).filter(Boolean);
 
   // Opening balance = first money figure appearing after the words "opening balance".
+  // Collapse all whitespace first so tab-separated labels ("Opening\tBalance") match.
   let prevBalance = null;
-  const joined = lines.join('\n');
+  const joined = lines.join(' ').replace(/\s+/g, ' ');
   const oi = joined.toLowerCase().indexOf('opening balance');
   if (oi !== -1) {
     const m = joined.slice(oi + 'opening balance'.length).match(/(?:\d{1,3}(?:,\d{3})+|\d+)?\.\d{2}/);
@@ -527,11 +547,15 @@ const parseStatementByBalance = (rawText) => {
 
   const transactions = [];
   for (const rec of records) {
-    const block = rec.join(' ');
+    const block = rec.join(' ').replace(/\s+/g, ' ');
     const dm = block.match(STMT_DATE_START_RE);
     if (!dm) continue;
-    const date = normalizeMonName(dm[1], dm[2], dm[3]);
+    const date = normalizeAnyDate(dm[1]);
     if (!date) continue;
+
+    // Skip summary/header blocks that merely start with a date (e.g. the statement
+    // period line "03/05/2026 - 01/06/2026" followed by the opening/closing summary).
+    if (/opening balance|closing balance/i.test(block)) continue;
 
     const monies = (block.match(STMT_MONEY_RE) || [])
       .map(s => parseFloat(s.replace(/,/g, '')))
@@ -552,10 +576,14 @@ const parseStatementByBalance = (rawText) => {
     prevBalance = balance;
     if (!amount || amount < 0.005) continue;
 
-    // Build a readable description: drop dates, money, long reference numbers, footers.
+    // Build a readable description: drop dates, times, money, long refs, footers.
     const description = (block
-      .replace(/\d{1,2}-[A-Za-z]{3}-\d{4}/g, ' ')
+      .replace(/\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}/g, ' ')
+      .replace(/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/g, ' ')
+      .replace(/\d{4}-\d{2}-\d{2}/g, ' ')
+      .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, ' ')   // timestamps
       .replace(STMT_MONEY_RE, ' ')
+      .replace(/₦|NGN/gi, ' ')
       .replace(/'?\b\d{6,}\b/g, ' ')
       .replace(/\*{2,}\d*/g, ' ')
       .replace(/\bPage\s+\d+\s+of\s+\d+\b/gi, ' ')
@@ -869,8 +897,11 @@ app.delete('/api/transactions/:id', auth, async (req, res) => {
 
 // Budgets
 app.get('/api/budgets', auth, async (req, res) => {
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const budgets = await Budget.find({ userId: req.user._id, month: currentMonth });
+  // Optional ?month=YYYY-MM filter; defaults to the current month.
+  const month = /^\d{4}-\d{2}$/.test(req.query.month || '')
+    ? req.query.month
+    : new Date().toISOString().slice(0, 7);
+  const budgets = await Budget.find({ userId: req.user._id, month });
   res.json(budgets);
 });
 app.post('/api/budgets', auth, async (req, res) => {

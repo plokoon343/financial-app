@@ -16,11 +16,8 @@ const Walkthrough = () => {
   const [show, setShow] = useState(false);
   const [step, setStep] = useState(0);
 
-  // Auto-open once per user (first login), unless already completed/skipped.
-  useEffect(() => {
-    if (!storageKey) return;
-    if (!localStorage.getItem(storageKey)) { setStep(0); setShow(true); }
-  }, [storageKey]);
+  // First-run is handled by the detailed Onboarding flow; this quick tour now only
+  // opens on demand via the "Take a tour" button.
 
   // Allow replay from anywhere via a custom event.
   const startTour = useCallback(() => { setStep(0); setShow(true); }, []);

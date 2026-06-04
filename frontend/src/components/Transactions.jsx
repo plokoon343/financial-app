@@ -359,6 +359,11 @@ const Transactions = () => {
         .page-nav button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border-color, var(--glass-border)); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; font-size: 1rem; }
         .page-nav button:disabled { opacity: 0.4; cursor: not-allowed; }
         .page-nav button:not(:disabled):hover { border-color: var(--accent-primary, #6366f1); color: var(--accent-primary, #6366f1); }
+        /* Make native dropdowns readable in dark mode (popup list + closed control). */
+        .tx-page select { color: var(--text-primary); }
+        .tx-page select option { background: var(--card-bg); color: var(--text-primary); }
+        .dark-theme .tx-page select { color-scheme: dark; }
+        .dark-theme .tx-page select option { background: #26263a; color: #f8f9fa; }
       `}</style>
     </div>
   );

@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const fs = require('fs');
@@ -11,9 +13,27 @@ const { Readable } = require('stream');
 const axios = require('axios');
 require('dotenv').config();
 
+// Fail fast if the JWT secret is missing — never fall back to a public default.
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
+  process.exit(1);
+}
+
 const app = express();
+app.set('trust proxy', 1);             // behind Render's proxy — needed for correct client IPs
+app.use(helmet());                     // standard security headers
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '5mb' })); // allow large statement imports (was 100kb)
+
+// Throttle auth endpoints to slow brute-force / credential stuffing.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many attempts. Please try again in a few minutes.' },
+});
 
 // --------------------------
 // MongoDB Connection
@@ -75,6 +95,9 @@ const transactionSchema = new mongoose.Schema({
   importBatch: { type: String, default: '' },     // one id per uploaded statement
   importedAt: { type: Date },
 }, { timestamps: true });
+// Indexes for the common per-user queries (date listing & statement grouping).
+transactionSchema.index({ userId: 1, date: -1 });
+transactionSchema.index({ userId: 1, importBatch: 1 });
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
 const budgetSchema = new mongoose.Schema({
@@ -83,6 +106,7 @@ const budgetSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   month: { type: String, required: true },
 }, { timestamps: true });
+budgetSchema.index({ userId: 1, month: 1 });
 const Budget = mongoose.model('Budget', budgetSchema);
 
 const goalSchema = new mongoose.Schema({
@@ -939,7 +963,7 @@ const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ message: 'No token' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = await User.findById(decoded.userId);
     if (!req.user) return res.status(401).json({ message: 'User not found' });
     next();
@@ -956,7 +980,29 @@ const superAdminAuth = async (req, res, next) => {
 // --------------------------
 // Multer configuration
 // --------------------------
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({
+  dest: 'uploads/',
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB cap
+  fileFilter: (req, file, cb) => {
+    const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+    if (['csv', 'pdf', 'xls', 'xlsx'].includes(ext)) cb(null, true);
+    else cb(new Error('Unsupported file type. Please upload a CSV, Excel, or PDF file.'));
+  },
+});
+
+// Run multer for a single "file" field and turn its errors into clean 400s
+// (otherwise size/type errors fall through to the generic 500 handler).
+const uploadSingle = (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? 'File too large. Maximum size is 15 MB.'
+        : (err.message || 'File upload failed.');
+      return res.status(400).json({ message: msg });
+    }
+    next();
+  });
+};
 
 // --------------------------
 // API Routes
@@ -972,7 +1018,7 @@ app.get('/api/health', async (req, res) => {
 app.get('/api/test', (req, res) => res.json({ message: 'Backend is working!' }));
 
 // Auth
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', authLimiter, async (req, res) => {
   try {
     const { name, email, password } = req.body;
     let user = await User.findOne({ email });
@@ -981,18 +1027,18 @@ app.post('/api/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
     user = new User({ name, email, password: hashedPassword });
     await user.save();
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'fallback_secret');
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET);
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'fallback_secret');
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET);
     res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -1010,7 +1056,7 @@ app.get('/api/transactions', auth, async (req, res) => {
     if (bank) query.bank = bank;
     if (category) query.category = category;
     if (type === 'income' || type === 'expense') query.type = type;
-    if (search) query.description = { $regex: search.trim(), $options: 'i' };
+    if (search) query.description = { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
     const sortField = sort === 'amount' ? 'amount' : 'date';
     const sortOrder = order === 'asc' ? 1 : -1;
     const transactions = await Transaction.find(query).sort({ [sortField]: sortOrder });
@@ -1330,7 +1376,7 @@ app.get('/api/alerts', auth, async (req, res) => {
 });
 
 // Bank statement upload
-app.post('/api/upload-statement', auth, upload.single('file'), async (req, res) => {
+app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
   const filePath = req.file.path;
   const ext = req.file.originalname.split('.').pop().toLowerCase();
@@ -1814,16 +1860,24 @@ app.post('/api/admin/setup', async (req, res) => {
 // --------------------------
 // Bank & Profile routes
 // --------------------------
+// Bank list is effectively static — cache it in memory for 24h to avoid hitting
+// Paystack on every page load.
+let banksCache = { data: null, ts: 0 };
 app.get('/api/banks', auth, async (req, res) => {
   try {
+    if (banksCache.data && Date.now() - banksCache.ts < 24 * 60 * 60 * 1000) {
+      return res.json(banksCache.data);
+    }
     const response = await axios.get('https://api.paystack.co/bank', {
       headers: {
         Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`
       }
     });
+    banksCache = { data: response.data.data, ts: Date.now() };
     res.json(response.data.data);
   } catch (err) {
     console.error('Error fetching banks from Paystack:', err.message);
+    if (banksCache.data) return res.json(banksCache.data); // serve stale on failure
     res.status(500).json({ message: 'Failed to fetch bank list' });
   }
 });

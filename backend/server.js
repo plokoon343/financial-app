@@ -31,6 +31,9 @@ const sendResetEmail = async (to, link) => {
     port: Number(process.env.EMAIL_PORT) || 587,
     secure: false,
     auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
   await transporter.sendMail({
     from: process.env.EMAIL_FROM || `FinPilot <${process.env.EMAIL_USER}>`,
@@ -1111,10 +1114,11 @@ app.post('/api/forgot-password', authLimiter, async (req, res) => {
       user.resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       await user.save();
       const link = `${FRONTEND_URL}/reset-password?token=${rawToken}`;
-      const emailed = await sendResetEmail(user.email, link);
-      // Outside production (or when email isn't set up) return the link directly
-      // so it can be used without an inbox. Never leak it in production.
-      if (process.env.NODE_ENV !== 'production' && !emailed) return res.json({ ...generic, devLink: link });
+      // Fire-and-forget: never block the response on SMTP, never surface email
+      // errors to the client (avoids slow requests / 500s when mail is slow).
+      sendResetEmail(user.email, link).catch(e => console.error('[forgot-password] email send failed:', e.message));
+      // Outside production return the link directly so it works without an inbox.
+      if (process.env.NODE_ENV !== 'production') return res.json({ ...generic, devLink: link });
     }
     return res.json(generic);
   } catch (error) {

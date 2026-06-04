@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { categoriesFor } from '../constants/categories';
 
 const TransactionForm = ({ onSubmit, onCancel }) => {
   const [formData, setFormData] = useState({
@@ -8,11 +9,6 @@ const TransactionForm = ({ onSubmit, onCancel }) => {
     category: '',
     type: 'expense'
   });
-
-  const categories = {
-    expense: ['Food', 'Transport', 'Entertainment', 'Utilities', 'Shopping', 'Healthcare', 'Other'],
-    income: ['Salary', 'Freelance', 'Investment', 'Gift', 'Other']
-  };
 
   const handleChange = (e) => {
     setFormData({
@@ -104,7 +100,7 @@ const TransactionForm = ({ onSubmit, onCancel }) => {
         <label>Category</label>
         <select name="category" value={formData.category} onChange={handleChange} required>
           <option value="">Select a category</option>
-          {categories[formData.type].map(category => (
+          {categoriesFor(formData.type).map(category => (
             <option key={category} value={category}>{category}</option>
           ))}
         </select>

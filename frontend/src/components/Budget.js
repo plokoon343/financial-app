@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Pie } from 'react-chartjs-2';
 import { Chart, registerables } from 'chart.js';
 import { API_URL } from '../config';
+import { EXPENSE_CATEGORIES } from '../constants/categories';
 Chart.register(...registerables);
 
 const Budget = () => {
@@ -94,10 +95,16 @@ const Budget = () => {
     }
   };
 
-  // Calculate budget vs actual
+  // Month key (YYYY-MM) for a transaction, so spend is scoped to the budget's month.
+  const txMonth = (t) => {
+    const d = new Date(t.date);
+    return isNaN(d) ? '' : d.toISOString().slice(0, 7);
+  };
+
+  // Calculate budget vs actual — only counting THIS month's expenses in the category.
   const budgetData = budgets.map(budget => {
     const actualSpent = transactions
-      .filter(t => t.type === 'expense' && t.category === budget.category)
+      .filter(t => t.type === 'expense' && t.category === budget.category && txMonth(t) === budget.month)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
     
     const remaining = budget.amount - actualSpent;
@@ -248,15 +255,18 @@ const Budget = () => {
                 </label>
                 <div className="input-with-icon">
                   <i className="fas fa-tag input-icon"></i>
-                  <input
+                  <select
                     id="category"
-                    type="text"
                     value={formData.category}
                     onChange={(e) => setFormData({...formData, category: e.target.value})}
                     required
-                    placeholder="e.g., Food, Transport, Entertainment"
                     className="form-control"
-                  />
+                  >
+                    <option value="">Select a category</option>
+                    {EXPENSE_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               

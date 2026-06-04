@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { categoriesFor } from '../constants/categories';
 import {
   FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
   FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
@@ -692,11 +693,7 @@ const Dashboard = () => {
                         style={{ ...getInput(), appearance: 'none', cursor: 'pointer' }}
                       >
                         <option value="">Select category</option>
-                        {[
-                          'Food', 'Transport', 'Housing', 'Entertainment', 'Shopping', 'Salary',
-                          'Freelance', 'Utilities', 'Healthcare', 'Education', 'ATM', 'Bank Charges',
-                          'Transfer', 'Other',
-                        ].map((c) => (
+                        {categoriesFor(formData.type).map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>

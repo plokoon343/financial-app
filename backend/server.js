@@ -220,6 +220,17 @@ const learnedCategorySchema = new mongoose.Schema({
 learnedCategorySchema.index({ userId: 1, key: 1 }, { unique: true });
 const LearnedCategory = mongoose.model('LearnedCategory', learnedCategorySchema);
 
+// Support tickets submitted from the Support/FAQ page; superadmins review them.
+const supportTicketSchema = new mongoose.Schema({
+  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  name:    { type: String, default: '' },
+  email:   { type: String, default: '' },
+  subject: { type: String, required: true },
+  message: { type: String, required: true },
+  status:  { type: String, enum: ['open', 'resolved'], default: 'open' },
+}, { timestamps: true });
+const SupportTicket = mongoose.model('SupportTicket', supportTicketSchema);
+
 // UPDATED: Added bank fields + recipient
 const recurringBillSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -1148,6 +1159,51 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
     console.error('[reset-password]', error.message);
     res.status(500).json({ message: 'Server error' });
   }
+});
+
+// --------------------------
+// Support tickets
+// --------------------------
+app.post('/api/support/tickets', auth, async (req, res) => {
+  try {
+    const { subject, message } = req.body;
+    if (!subject || !message) return res.status(400).json({ message: 'Subject and message are required' });
+    const ticket = await SupportTicket.create({
+      userId: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      subject: subject.toString().slice(0, 150),
+      message: message.toString().slice(0, 4000),
+    });
+    res.status(201).json(ticket);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// A user's own tickets
+app.get('/api/support/tickets', auth, async (req, res) => {
+  try {
+    const tickets = await SupportTicket.find({ userId: req.user._id }).sort({ createdAt: -1 });
+    res.json(tickets);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Superadmin: all tickets
+app.get('/api/admin/tickets', auth, superAdminAuth, async (req, res) => {
+  try {
+    const tickets = await SupportTicket.find({}).sort({ createdAt: -1 });
+    res.json(tickets);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Superadmin: update ticket status
+app.patch('/api/admin/tickets/:id', auth, superAdminAuth, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['open', 'resolved'].includes(status)) return res.status(400).json({ message: 'Invalid status' });
+    const ticket = await SupportTicket.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+    res.json(ticket);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // Transactions

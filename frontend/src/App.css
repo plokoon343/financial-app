@@ -177,7 +177,7 @@ body {
   .sidebar { transform: translateX(0) !important; box-shadow: none; }
   .sidebar-overlay { display: none !important; }
   .sidebar-hamburger { display: none !important; }
-  .main-content { margin-left: 280px; padding-top: 28px; }
+  .main-content { margin-left: 280px; width: calc(100% - 280px); padding-top: 28px; }
   .container { max-width: 1280px; padding: 8px 24px; }
 }
 

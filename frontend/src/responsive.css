@@ -318,34 +318,3 @@
     width: 100%;
   }
 }
-/* ===== Mobile bottom-nav + newer pages (added in mobile pass) ===== */
-@media (max-width: 768px) {
-  /* Clear the fixed bottom tab bar so content/buttons aren't hidden behind it */
-  .main-content { padding-bottom: 88px !important; }
-
-  /* Stack two-column form rows */
-  .form-row { flex-direction: column; gap: 0 !important; }
-
-  /* Tighter padding on the newer pages */
-  .tx-page, .settings-page, .support-page, .profile-page,
-  .auto-savings-page, .budget-page { padding: 14px 12px !important; }
-
-  /* Smooth horizontal scrolling for wide tables */
-  .table-wrap, .transactions-table, .tx-page .table-wrap {
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* Filter controls: two-up instead of cramped single row */
-  .filters select, .filters input { flex: 1 1 calc(50% - 8px); min-width: 0; }
-
-  /* Notification dropdown never wider than the screen */
-  .nb-panel { max-width: calc(100vw - 1rem); }
-
-  /* Method toggle (payout) stacks on very small screens */
-  .method-toggle { flex-wrap: wrap; }
-}
-
-/* Hide the bottom nav on desktop (belt-and-braces; component also guards this) */
-@media (min-width: 769px) {
-  .bottom-nav { display: none !important; }
-}

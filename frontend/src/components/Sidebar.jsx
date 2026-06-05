@@ -54,6 +54,7 @@ const Sidebar = () => {
   const moreItems = [
     { path: '/auto-savings', label: 'Auto‑Savings', icon: 'fa-robot' },
     { path: '/support', label: 'Support & FAQ', icon: 'fa-life-ring' },
+    { path: '/settings', label: 'Settings', icon: 'fa-gear' },
   ];
 
   // Add Admin link only for superadmin

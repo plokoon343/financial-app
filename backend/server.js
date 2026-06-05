@@ -246,6 +246,23 @@ const supportTicketSchema = new mongoose.Schema({
 }, { timestamps: true });
 const SupportTicket = mongoose.model('SupportTicket', supportTicketSchema);
 
+// In-app notifications (app alerts).
+const notificationSchema = new mongoose.Schema({
+  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type:    { type: String, default: 'info' }, // 'info' | 'success' | 'ticket'
+  title:   { type: String, required: true },
+  message: { type: String, default: '' },
+  link:    { type: String, default: '' },
+  read:    { type: Boolean, default: false },
+}, { timestamps: true });
+notificationSchema.index({ userId: 1, createdAt: -1 });
+const Notification = mongoose.model('Notification', notificationSchema);
+
+const createNotification = async (userId, { type = 'info', title, message = '', link = '' }) => {
+  try { await Notification.create({ userId, type, title, message, link }); }
+  catch (e) { console.error('[createNotification]', e.message); }
+};
+
 // UPDATED: Added bank fields + recipient
 const recurringBillSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -1231,6 +1248,12 @@ app.post('/api/support/tickets', sensitiveLimiter, auth, async (req, res) => {
       subject: subject.toString().slice(0, 150),
       message: message.toString().slice(0, 4000),
     });
+    // Notify superadmins of the new ticket (in-app).
+    const admins = await User.find({ role: 'superadmin' }, { _id: 1 }).lean();
+    await Promise.all(admins.map(a => createNotification(a._id, {
+      type: 'ticket', title: 'New support ticket',
+      message: `${req.user.name}: ${ticket.subject}`, link: '/admin',
+    })));
     res.status(201).json(ticket);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -1256,9 +1279,47 @@ app.patch('/api/admin/tickets/:id', auth, superAdminAuth, async (req, res) => {
   try {
     const { status } = req.body;
     if (!['open', 'resolved'].includes(status)) return res.status(400).json({ message: 'Invalid status' });
-    const ticket = await SupportTicket.findByIdAndUpdate(req.params.id, { status }, { new: true });
-    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
-    res.json(ticket);
+    const before = await SupportTicket.findById(req.params.id);
+    if (!before) return res.status(404).json({ message: 'Ticket not found' });
+    before.status = status;
+    await before.save();
+    // App alert to the ticket owner when it's resolved.
+    if (status === 'resolved') {
+      await createNotification(before.userId, {
+        type: 'success', title: 'Your support ticket was resolved',
+        message: `"${before.subject}" has been marked resolved.`, link: '/support',
+      });
+    }
+    res.json(before);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// --------------------------
+// Notifications (in-app alerts)
+// --------------------------
+app.get('/api/notifications', auth, async (req, res) => {
+  try {
+    const items = await Notification.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(50);
+    const unread = await Notification.countDocuments({ userId: req.user._id, read: false });
+    res.json({ items, unread });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+app.patch('/api/notifications/:id/read', auth, async (req, res) => {
+  try {
+    await Notification.updateOne({ _id: req.params.id, userId: req.user._id }, { read: true });
+    res.json({ message: 'ok' });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+app.post('/api/notifications/read-all', auth, async (req, res) => {
+  try {
+    await Notification.updateMany({ userId: req.user._id, read: false }, { read: true });
+    res.json({ message: 'ok' });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+app.delete('/api/notifications/:id', auth, async (req, res) => {
+  try {
+    await Notification.deleteOne({ _id: req.params.id, userId: req.user._id });
+    res.json({ message: 'ok' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 

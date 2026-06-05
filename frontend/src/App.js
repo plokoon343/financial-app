@@ -18,7 +18,9 @@ import GoalTracker from './components/GoalTracker';
 import AutoSavings from './components/AutoSavings';
 import Transactions from './components/Transactions';
 import Profile from './components/Profile';
+import Settings from './components/Settings';
 import Support from './components/Support';
+import NotificationBell from './components/NotificationBell';
 import ServerWaker from './components/ServerWaker';
 import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
@@ -100,6 +102,7 @@ function AppContent() {
           <Route path="auto-savings" element={<AutoSavings />} />
           <Route path="support" element={<Support />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="admin" element={
             <SuperAdminRoute>
               <AdminDashboard />
@@ -118,6 +121,7 @@ const ProtectedLayout = ({ ...props }) => {
     <div className="app-layout">
       <Onboarding />
       <Walkthrough />
+      <NotificationBell />
       <Sidebar />
       <main className="main-content">
         <div className="container">

@@ -21,6 +21,20 @@ const AdminDashboard = () => {
   };
   const textPrimary = { color: darkMode ? '#f7fafc' : '#1a365d' };
   const textSecondary = { color: darkMode ? '#a0aec0' : '#718096' };
+
+  // Compact currency for big platform totals so they never overflow the card
+  // (e.g. ₦50.5B). Full value shown on hover.
+  const compactNaira = (n) => {
+    const v = Number(n) || 0;
+    const abs = Math.abs(v);
+    const fmt = (x, s) => `₦${x.toFixed(x >= 100 ? 0 : x >= 10 ? 1 : 2)}${s}`;
+    if (abs >= 1e12) return fmt(v / 1e12, 'T');
+    if (abs >= 1e9) return fmt(v / 1e9, 'B');
+    if (abs >= 1e6) return fmt(v / 1e6, 'M');
+    if (abs >= 1e3) return fmt(v / 1e3, 'K');
+    return `₦${v.toLocaleString()}`;
+  };
+  const fullNaira = (n) => `₦${(Number(n) || 0).toLocaleString()}`;
 // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchData(); }, []);
 
@@ -124,9 +138,9 @@ const AdminDashboard = () => {
               { label: 'Active Users', value: stats.activeUsers, color: '#38a169' },
               { label: 'Inactive Users', value: stats.inactiveUsers, color: '#e53e3e' },
               { label: 'Total Transactions', value: stats.totalTransactions, color: '#805ad5' },
-              { label: 'Platform Income', value: `₦${stats.platformIncome.toLocaleString()}`, color: '#38a169' },
-              { label: 'Platform Expenses', value: `₦${stats.platformExpenses.toLocaleString()}`, color: '#e53e3e' }
-            ].map(stat => <div key={stat.label} style={cardStyle}><p style={{ ...textSecondary, fontSize: '0.85rem', fontWeight: '600', margin: '0 0 0.5rem' }}>{stat.label}</p><p style={{ color: stat.color, fontSize: '1.75rem', fontWeight: '700', margin: 0 }}>{stat.value}</p></div>)}
+              { label: 'Platform Income', value: compactNaira(stats.platformIncome), title: fullNaira(stats.platformIncome), color: '#38a169' },
+              { label: 'Platform Expenses', value: compactNaira(stats.platformExpenses), title: fullNaira(stats.platformExpenses), color: '#e53e3e' }
+            ].map(stat => <div key={stat.label} style={{ ...cardStyle, minWidth: 0 }}><p style={{ ...textSecondary, fontSize: '0.85rem', fontWeight: '600', margin: '0 0 0.5rem' }}>{stat.label}</p><p title={stat.title || undefined} style={{ color: stat.color, fontSize: '1.6rem', fontWeight: '700', margin: 0, overflowWrap: 'anywhere' }}>{stat.value}</p></div>)}
           </div>
           <div style={cardStyle}>
             <h3 style={{ ...textPrimary, marginBottom: '1rem' }}>Recently Registered Users</h3>

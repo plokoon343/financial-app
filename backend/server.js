@@ -121,6 +121,9 @@ const userSchema = new mongoose.Schema({
   primaryGoal:   { type: String, default: '' },
   emailAlerts:   { type: Boolean, default: true },
   onboarded:     { type: Boolean, default: false },
+  lastLogin:     { type: Date },
+  // Tokens issued before this time are rejected (used by "log out of all devices").
+  sessionsValidFrom: { type: Date },
   bankDetails: {
     bankName:        { type: String, default: '' },
     bankCode:        { type: String, default: '' },
@@ -1061,6 +1064,10 @@ const auth = async (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = await User.findById(decoded.userId);
     if (!req.user) return res.status(401).json({ message: 'User not found', authExpired: true });
+    // "Log out of all devices": reject tokens issued before the cutoff.
+    if (req.user.sessionsValidFrom && decoded.iat && decoded.iat * 1000 < req.user.sessionsValidFrom.getTime()) {
+      return res.status(401).json({ message: 'Session ended. Please log in again.', authExpired: true });
+    }
     next();
   } catch (error) {
     // expired or invalid token — flag it so the client can send the user to login
@@ -1137,6 +1144,8 @@ app.post('/api/login', authLimiter, async (req, res) => {
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+    user.lastLogin = new Date();
+    await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
@@ -1149,7 +1158,7 @@ app.get('/api/me', auth, async (req, res) => {
     id: u._id, name: u.name, email: u.email, role: u.role,
     phone: u.phone || '', monthlyIncome: u.monthlyIncome || 0,
     primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
-    onboarded: !!u.onboarded,
+    onboarded: !!u.onboarded, lastLogin: u.lastLogin || null,
   });
 });
 
@@ -1178,8 +1187,84 @@ app.post('/api/change-password', sensitiveLimiter, auth, async (req, res) => {
     const ok = await bcrypt.compare(currentPassword, req.user.password);
     if (!ok) return res.status(400).json({ message: 'Current password is incorrect' });
     req.user.password = await bcrypt.hash(newPassword, await bcrypt.genSalt(10));
+    req.user.sessionsValidFrom = new Date(); // sign out other sessions on password change
     await req.user.save();
     res.json({ message: 'Password changed successfully.' });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Change email (requires current password; enforces uniqueness)
+app.post('/api/change-email', sensitiveLimiter, auth, async (req, res) => {
+  try {
+    const { password, newEmail } = req.body;
+    const email = (newEmail || '').toLowerCase().trim();
+    if (!password || !email) return res.status(400).json({ message: 'Password and new email are required' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ message: 'Enter a valid email address' });
+    const ok = await bcrypt.compare(password, req.user.password);
+    if (!ok) return res.status(400).json({ message: 'Password is incorrect' });
+    const taken = await User.findOne({ email, _id: { $ne: req.user._id } });
+    if (taken) return res.status(400).json({ message: 'That email is already in use' });
+    req.user.email = email;
+    await req.user.save();
+    res.json({ message: 'Email updated.', email });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Log out of all devices (invalidate every existing token)
+app.post('/api/logout-all', auth, async (req, res) => {
+  try {
+    req.user.sessionsValidFrom = new Date();
+    await req.user.save();
+    res.json({ message: 'Logged out of all devices.' });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Export all of the user's data as JSON
+app.get('/api/me/export', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const [transactions, budgets, goals, subscriptions, debts, bills, walletTx, tickets] = await Promise.all([
+      Transaction.find({ userId: uid }).lean(),
+      Budget.find({ userId: uid }).lean(),
+      Goal.find({ userId: uid }).lean(),
+      Subscription.find({ userId: uid }).lean(),
+      Debt.find({ userId: uid }).lean(),
+      RecurringBill.find({ userId: uid }).lean(),
+      WalletTransaction.find({ userId: uid }).lean(),
+      SupportTicket.find({ userId: uid }).lean(),
+    ]);
+    res.json({
+      exportedAt: new Date().toISOString(),
+      profile: { name: req.user.name, email: req.user.email, phone: req.user.phone, monthlyIncome: req.user.monthlyIncome, primaryGoal: req.user.primaryGoal },
+      transactions, budgets, goals, subscriptions, debts, bills, walletTransactions: walletTx, supportTickets: tickets,
+    });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Delete account and all associated data (requires current password)
+app.delete('/api/me', sensitiveLimiter, auth, async (req, res) => {
+  try {
+    const { password } = req.body || {};
+    if (!password) return res.status(400).json({ message: 'Password is required to delete your account' });
+    const ok = await bcrypt.compare(password, req.user.password);
+    if (!ok) return res.status(400).json({ message: 'Password is incorrect' });
+    const uid = req.user._id;
+    await Promise.all([
+      Transaction.deleteMany({ userId: uid }),
+      Budget.deleteMany({ userId: uid }),
+      Goal.deleteMany({ userId: uid }),
+      Subscription.deleteMany({ userId: uid }),
+      Debt.deleteMany({ userId: uid }),
+      RecurringBill.deleteMany({ userId: uid }),
+      Wallet.deleteMany({ userId: uid }),
+      WalletTransaction.deleteMany({ userId: uid }),
+      SavingsRule.deleteMany({ userId: uid }),
+      LearnedCategory.deleteMany({ userId: uid }),
+      SupportTicket.deleteMany({ userId: uid }),
+      Notification.deleteMany({ userId: uid }),
+    ]);
+    await User.deleteOne({ _id: uid });
+    res.json({ message: 'Your account and all data have been deleted.' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 

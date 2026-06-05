@@ -8,7 +8,6 @@ const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState(0);
 
   // Listen for wallet updates from other components
@@ -41,26 +40,31 @@ const Sidebar = () => {
     navigate('/login');
   };
 
-  // Main navigation items (always visible)
-  const mainNavItems = [
-    { path: '/', label: 'Dashboard', icon: 'fa-chart-line' },
-    { path: '/transactions', label: 'Transactions', icon: 'fa-receipt' },
-    { path: '/budget', label: 'Budget', icon: 'fa-chart-pie' },
-    { path: '/financial-health', label: 'Financial Health', icon: 'fa-heart-pulse' },
-    { path: '/wallet', label: 'Wallet', icon: 'fa-wallet' },
+  // Grouped navigation
+  const navGroups = [
+    { title: 'Money', items: [
+      { path: '/', label: 'Dashboard', icon: 'fa-chart-line' },
+      { path: '/transactions', label: 'Transactions', icon: 'fa-receipt' },
+      { path: '/budget', label: 'Budget', icon: 'fa-chart-pie' },
+      { path: '/wallet', label: 'Wallet', icon: 'fa-wallet' },
+    ]},
+    { title: 'Plan', items: [
+      { path: '/goals', label: 'Goals', icon: 'fa-flag-checkered' },
+      { path: '/auto-savings', label: 'Auto‑Savings', icon: 'fa-robot' },
+      { path: '/debt', label: 'Debt', icon: 'fa-credit-card' },
+      { path: '/subscriptions', label: 'Subscriptions', icon: 'fa-calendar-alt' },
+      { path: '/bills', label: 'Bills', icon: 'fa-file-invoice' },
+      { path: '/networth', label: 'Net Worth', icon: 'fa-coins' },
+    ]},
+    { title: 'Insights', items: [
+      { path: '/financial-health', label: 'Financial Health', icon: 'fa-heart-pulse' },
+    ]},
+    { title: 'Help', items: [
+      { path: '/support', label: 'Support & FAQ', icon: 'fa-life-ring' },
+      { path: '/settings', label: 'Settings', icon: 'fa-gear' },
+      ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'fa-shield-halved' }] : []),
+    ]},
   ];
-
-  // Items that go inside the "More" dropdown
-  const moreItems = [
-    { path: '/auto-savings', label: 'Auto‑Savings', icon: 'fa-robot' },
-    { path: '/support', label: 'Support & FAQ', icon: 'fa-life-ring' },
-    { path: '/settings', label: 'Settings', icon: 'fa-gear' },
-  ];
-
-  // Add Admin link only for superadmin
-  if (user?.role === 'superadmin') {
-    moreItems.push({ path: '/admin', label: 'Admin', icon: 'fa-shield-halved' });
-  }
 
   const toggleSidebar = () => setIsOpen(!isOpen);
 
@@ -100,46 +104,22 @@ const Sidebar = () => {
         </div>
 
         <nav className="sidebar-nav">
-          {/* Main navigation items */}
-          {mainNavItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
-              onClick={toggleSidebar}
-            >
-              <i className={`fas ${item.icon}`}></i>
-              <span>{item.label}</span>
-            </Link>
-          ))}
-
-          {/* Dropdown "More" section */}
-          <div className="sidebar-dropdown">
-            <button
-              className="sidebar-dropdown-btn"
-              onClick={() => setIsMoreOpen(!isMoreOpen)}
-            >
-              <i className="fas fa-ellipsis-h"></i>
-              <span>More</span>
-              <i className={`fas fa-chevron-${isMoreOpen ? 'up' : 'down'} dropdown-arrow`}></i>
-            </button>
-            <div className={`sidebar-dropdown-content ${isMoreOpen ? 'open' : ''}`}>
-              {moreItems.map((item) => (
+          {navGroups.map((group) => (
+            <div key={group.title} className="sidebar-group">
+              <div className="sidebar-group-title">{group.title}</div>
+              {group.items.map((item) => (
                 <Link
                   key={item.path}
                   to={item.path}
                   className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
-                  onClick={() => {
-                    setIsMoreOpen(false);
-                    toggleSidebar();
-                  }}
+                  onClick={toggleSidebar}
                 >
                   <i className={`fas ${item.icon}`}></i>
                   <span>{item.label}</span>
                 </Link>
               ))}
             </div>
-          </div>
+          ))}
         </nav>
 
         {/* Footer with theme toggle and logout */}

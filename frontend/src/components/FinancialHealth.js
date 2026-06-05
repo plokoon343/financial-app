@@ -1,21 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import FinancialTrends from './FinancialTrends';
-import DebtManager from './DebtManager';
-import GoalTracker from './GoalTracker';
 import SpendingAlerts from './SpendingAlerts';
-import NetWorthCalculator from './NetWorthCalculator';
-import SubscriptionManager from './SubscriptionManager';
-import BillsManager from './BillsManager';
-//import { API_URL } from '../config';
-const FinancialHealth = ({ 
-  transactions = [], 
-  debts = [], 
-  goals = [], 
-  subscriptions = [],
-  setDebts,
-  setGoals, 
-  setSubscriptions 
-}) => {
+const FinancialHealth = ({ transactions = [] }) => {
   const [healthData, setHealthData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
@@ -111,47 +97,12 @@ const FinancialHealth = ({
             <i className="fas fa-chart-line"></i>
             <span>Overview</span>
           </button>
-          <button 
+          <button
             className={`tab-btn ${activeTab === 'trends' ? 'active' : ''}`}
             onClick={() => setActiveTab('trends')}
           >
             <i className="fas fa-chart-bar"></i>
             <span>Trends</span>
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'debt' ? 'active' : ''}`}
-            onClick={() => setActiveTab('debt')}
-          >
-            <i className="fas fa-credit-card"></i>
-            <span>Debt Management</span>
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'goals' ? 'active' : ''}`}
-            onClick={() => setActiveTab('goals')}
-          >
-            <i className="fas fa-flag-checkered"></i>
-            <span>Goals</span>
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'networth' ? 'active' : ''}`}
-            onClick={() => setActiveTab('networth')}
-          >
-            <i className="fas fa-coins"></i>
-            <span>Net Worth</span>
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'subscriptions' ? 'active' : ''}`}
-            onClick={() => setActiveTab('subscriptions')}
-          >
-            <i className="fas fa-calendar-alt"></i>
-            <span>Subscriptions</span>
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'bills' ? 'active' : ''}`}
-            onClick={() => setActiveTab('bills')}
-          >
-            <i className="fas fa-receipt"></i>
-            <span>Bills</span>
           </button>
         </div>
       </div>
@@ -230,11 +181,6 @@ const FinancialHealth = ({
       )}
 
       {activeTab === 'trends' && <FinancialTrends transactions={transactions} />}
-      {activeTab === 'debt' && <DebtManager debts={debts} setDebts={setDebts} />}
-      {activeTab === 'goals' && <GoalTracker goals={goals} setGoals={setGoals} />}
-      {activeTab === 'networth' && <NetWorthCalculator />}
-      {activeTab === 'subscriptions' && <SubscriptionManager subscriptions={subscriptions} setSubscriptions={setSubscriptions} />}
-      {activeTab === 'bills' && <BillsManager />}  {/* ← UPDATED: now uses BillsManager */}
 
       <style jsx="true">{`
         /* Financial Health Page Styles */

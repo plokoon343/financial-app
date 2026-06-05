@@ -21,6 +21,7 @@ import Profile from './components/Profile';
 import Settings from './components/Settings';
 import Support from './components/Support';
 import NotificationBell from './components/NotificationBell';
+import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
 import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
@@ -128,6 +129,7 @@ const ProtectedLayout = ({ ...props }) => {
           <Outlet context={props} />
         </div>
       </main>
+      <BottomNav />
     </div>
   );
 };

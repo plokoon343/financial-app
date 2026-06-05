@@ -19,6 +19,13 @@ const Sidebar = () => {
     return () => window.removeEventListener('wallet-updated', handleWalletUpdate);
   }, []);
 
+  // Open the drawer when the mobile bottom-nav "Menu" button is tapped
+  useEffect(() => {
+    const openMenu = () => setIsOpen(true);
+    window.addEventListener('finpilot:open-menu', openMenu);
+    return () => window.removeEventListener('finpilot:open-menu', openMenu);
+  }, []);
+
   // Fetch wallet balance on first mount
   useEffect(() => {
     const fetchWallet = async () => {
@@ -43,26 +50,26 @@ const Sidebar = () => {
   // Grouped navigation
   const navGroups = [
     { title: 'Money', items: [
-      { path: '/', label: 'Dashboard', icon: 'fa-chart-line' },
-      { path: '/transactions', label: 'Transactions', icon: 'fa-receipt' },
-      { path: '/budget', label: 'Budget', icon: 'fa-chart-pie' },
-      { path: '/wallet', label: 'Wallet', icon: 'fa-wallet' },
+      { path: '/', label: 'Dashboard', icon: 'dashboard' },
+      { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
+      { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
+      { path: '/wallet', label: 'Wallet', icon: 'wallet' },
     ]},
     { title: 'Plan', items: [
-      { path: '/goals', label: 'Goals', icon: 'fa-flag-checkered' },
-      { path: '/auto-savings', label: 'Auto‑Savings', icon: 'fa-robot' },
-      { path: '/debt', label: 'Debt', icon: 'fa-credit-card' },
-      { path: '/subscriptions', label: 'Subscriptions', icon: 'fa-calendar-alt' },
-      { path: '/bills', label: 'Bills', icon: 'fa-file-invoice' },
-      { path: '/networth', label: 'Net Worth', icon: 'fa-coins' },
+      { path: '/goals', label: 'Goals', icon: 'track_changes' },
+      { path: '/auto-savings', label: 'Auto‑Savings', icon: 'savings' },
+      { path: '/debt', label: 'Debt', icon: 'credit_card' },
+      { path: '/subscriptions', label: 'Subscriptions', icon: 'subscriptions' },
+      { path: '/bills', label: 'Bills', icon: 'receipt' },
+      { path: '/networth', label: 'Net Worth', icon: 'show_chart' },
     ]},
     { title: 'Insights', items: [
-      { path: '/financial-health', label: 'Financial Health', icon: 'fa-heart-pulse' },
+      { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
     ]},
     { title: 'Help', items: [
-      { path: '/support', label: 'Support & FAQ', icon: 'fa-life-ring' },
-      { path: '/settings', label: 'Settings', icon: 'fa-gear' },
-      ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'fa-shield-halved' }] : []),
+      { path: '/support', label: 'Support & FAQ', icon: 'help' },
+      { path: '/settings', label: 'Settings', icon: 'settings' },
+      ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'shield' }] : []),
     ]},
   ];
 
@@ -71,7 +78,7 @@ const Sidebar = () => {
   return (
     <>
       <button className="sidebar-hamburger" onClick={toggleSidebar}>
-        <i className="fas fa-bars"></i>
+        <span className="material-symbols-outlined">menu</span>
       </button>
 
       {isOpen && <div className="sidebar-overlay" onClick={toggleSidebar}></div>}
@@ -79,7 +86,7 @@ const Sidebar = () => {
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <Link to="/" className="sidebar-logo" onClick={toggleSidebar}>
-            <i className="fas fa-chart-simple"></i>
+            <span className="material-symbols-outlined">rocket_launch</span>
             <span>FINPILOT</span>
           </Link>
         </div>
@@ -99,7 +106,7 @@ const Sidebar = () => {
 
         {/* Wallet balance */}
         <div className="sidebar-wallet">
-          <i className="fas fa-wallet"></i>
+          <span className="material-symbols-outlined">account_balance_wallet</span>
           <span>₦{walletBalance.toLocaleString()}</span>
         </div>
 
@@ -114,7 +121,7 @@ const Sidebar = () => {
                   className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
                   onClick={toggleSidebar}
                 >
-                  <i className={`fas ${item.icon}`}></i>
+                  <span className="material-symbols-outlined">{item.icon}</span>
                   <span>{item.label}</span>
                 </Link>
               ))}
@@ -129,15 +136,15 @@ const Sidebar = () => {
             style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '0.5rem' }}
             onClick={() => { window.dispatchEvent(new Event('finpilot:start-tour')); setIsOpen(false); }}
           >
-            <i className="fas fa-circle-question"></i>
+            <span className="material-symbols-outlined">help</span>
             <span>Take a tour</span>
           </button>
           <div className="sidebar-actions">
             <button className="sidebar-dark-toggle" onClick={toggleDarkMode}>
-              <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
+              <span className="material-symbols-outlined">{darkMode ? 'light_mode' : 'dark_mode'}</span>
             </button>
             <button className="sidebar-logout" onClick={handleLogout}>
-              <i className="fas fa-sign-out-alt"></i>
+              <span className="material-symbols-outlined">logout</span>
               <span>Logout</span>
             </button>
           </div>

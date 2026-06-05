@@ -318,3 +318,10 @@
     width: 100%;
   }
 }
+/* ===== Mobile bottom nav clearance (cockpit shell) ===== */
+@media (max-width: 768px) {
+  .main-content { padding-bottom: 88px !important; }
+}
+@media (min-width: 769px) {
+  .bottom-nav { display: none !important; }
+}

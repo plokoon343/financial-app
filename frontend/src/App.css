@@ -92,6 +92,38 @@
   --shadow-glow: 0 0 40px rgba(102, 126, 234, 0.2);
 }
 
+/* ===== FinPilot "cockpit" theme — overrides the tokens above ===== */
+:root {
+  --accent-primary: #008751;
+  --gradient-primary: linear-gradient(135deg, #008751 0%, #00a862 100%);
+  --gradient-secondary: linear-gradient(135deg, #00a862 0%, #70db9d 100%);
+  --income-color: #22C55E;
+  --expense-color: #EF4444;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+}
+.dark-theme {
+  --primary-bg: radial-gradient(circle at 0% 0%, #131b2e 0%, #0b1326 60%);
+  --secondary-bg: #131b2e;
+  --card-bg: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.012) 100%);
+  --glass-bg: rgba(255,255,255,0.04);
+  --glass-border: rgba(255,255,255,0.10);
+  --border-color: rgba(255,255,255,0.12);
+  --text-primary: #dae2fd;
+  --text-secondary: #95a3bd;
+  --accent-primary: #70db9d;        /* mint accent for icons/active/links */
+  --gradient-primary: linear-gradient(135deg, #008751 0%, #00b76a 100%);
+}
+
+/* Material Symbols sizing default */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-size: 1.4rem;
+  line-height: 1;
+  vertical-align: middle;
+}
+
 /* ===== BASE STYLES ===== */
 * {
   margin: 0;
@@ -138,6 +170,15 @@ body {
   margin: 0 auto;
   padding: 14px 12px;
   position: relative;
+}
+
+/* ===== Persistent sidebar on desktop (new cockpit shell) ===== */
+@media (min-width: 769px) {
+  .sidebar { transform: translateX(0) !important; box-shadow: none; }
+  .sidebar-overlay { display: none !important; }
+  .sidebar-hamburger { display: none !important; }
+  .main-content { margin-left: 280px; padding-top: 28px; }
+  .container { max-width: 1280px; padding: 8px 24px; }
 }
 
 /* ===== SIDEBAR (DRAWER – HIDDEN BY DEFAULT) ===== */

@@ -20,6 +20,13 @@ const Sidebar = () => {
     return () => window.removeEventListener('wallet-updated', handleWalletUpdate);
   }, []);
 
+  // Open the drawer when the mobile bottom-nav "Menu" button is tapped.
+  useEffect(() => {
+    const openMenu = () => setIsOpen(true);
+    window.addEventListener('finpilot:open-menu', openMenu);
+    return () => window.removeEventListener('finpilot:open-menu', openMenu);
+  }, []);
+
   // Fetch wallet balance on first mount
   useEffect(() => {
     const fetchWallet = async () => {

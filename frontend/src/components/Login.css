@@ -425,3 +425,7 @@
 [data-theme="light"] .theme-toggle {
   background: #e2e8f0;   /* even darker gray for more contrast */
 }
+/* Ensure auth-page labels/inputs stay readable regardless of global CSS leaks */
+.login-card .form-label { color: var(--text-primary) !important; opacity: 1 !important; }
+.login-card .form-input { color: var(--input-text); background: var(--input-bg); border: 1px solid var(--input-border); }
+.login-card .form-input::placeholder { color: var(--input-placeholder); opacity: 1; }

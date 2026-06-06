@@ -1,34 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import './App.css';
+import './responsive.css';  // at the top with other CSS imports
+// Eager: auth pages + the persistent shell (needed on first paint)
 import Login from './components/Login';
 import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
-import Dashboard from './components/Dashboard';
-import Budget from './components/Budget';
-import FinancialHealth from './components/FinancialHealth';
 import Sidebar from './components/Sidebar';
 import SuperAdminRoute from './components/SuperAdminRoute';
-import AdminDashboard from './components/AdminDashboard';
-import './App.css';
-import './responsive.css';  // at the top with other CSS imports
-import Wallet from './components/Wallet';
-import GoalTracker from './components/GoalTracker';
-import DebtManager from './components/DebtManager';
-import SubscriptionManager from './components/SubscriptionManager';
-import BillsManager from './components/BillsManager';
-import NetWorthCalculator from './components/NetWorthCalculator';
-import AutoSavings from './components/AutoSavings';
-import Transactions from './components/Transactions';
-import Profile from './components/Profile';
-import Settings from './components/Settings';
-import Support from './components/Support';
 import NotificationBell from './components/NotificationBell';
 import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
 import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
+
+// Lazy: page bodies are loaded on demand to shrink the initial bundle.
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const Budget = lazy(() => import('./components/Budget'));
+const FinancialHealth = lazy(() => import('./components/FinancialHealth'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const Wallet = lazy(() => import('./components/Wallet'));
+const GoalTracker = lazy(() => import('./components/GoalTracker'));
+const DebtManager = lazy(() => import('./components/DebtManager'));
+const SubscriptionManager = lazy(() => import('./components/SubscriptionManager'));
+const BillsManager = lazy(() => import('./components/BillsManager'));
+const NetWorthCalculator = lazy(() => import('./components/NetWorthCalculator'));
+const AutoSavings = lazy(() => import('./components/AutoSavings'));
+const Transactions = lazy(() => import('./components/Transactions'));
+const Profile = lazy(() => import('./components/Profile'));
+const Settings = lazy(() => import('./components/Settings'));
+const Support = lazy(() => import('./components/Support'));
+
+const PageLoader = () => (
+  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+    <div style={{ width: 38, height: 38, border: '3px solid var(--glass-border)', borderTopColor: 'var(--accent-primary, #70db9d)', borderRadius: '50%', animation: 'spin 0.9s linear infinite' }} />
+    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+  </div>
+);
 
 function App() {
   return (
@@ -124,7 +134,9 @@ const ProtectedLayout = ({ ...props }) => {
       <Sidebar />
       <main className="main-content">
         <div className="container">
-          <Outlet context={props} />
+          <Suspense fallback={<PageLoader />}>
+            <Outlet context={props} />
+          </Suspense>
         </div>
       </main>
       <BottomNav />

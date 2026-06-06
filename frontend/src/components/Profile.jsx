@@ -95,7 +95,7 @@ const Profile = () => {
         .btn-primary { width: 100%; padding: 12px; background: var(--gradient-primary); color: white; border: none; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; }
         .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
         .settings-link { margin-top: 18px; text-align: center; font-size: 0.85rem; color: var(--text-secondary); }
-        .settings-link a { color: var(--accent-primary, #6366f1); font-weight: 600; }
+        .settings-link a { color: var(--accent-primary, var(--accent-primary)); font-weight: 600; }
         .message { padding: 10px; border-radius: var(--radius-md); margin-bottom: 16px; text-align: center; }
         .message.success { background: rgba(56,161,105,0.1); color: #38a169; }
         .message.error { background: rgba(229,62,62,0.1); color: #e53e3e; }

@@ -28,7 +28,7 @@ export const FeatureTip = ({ tipKey, title, children }) => {
       <style jsx="true">{`
         .feature-tip { display: flex; align-items: flex-start; gap: 12px; background: rgba(99,102,241,0.10);
           border: 1px solid rgba(99,102,241,0.35); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px; }
-        .ft-bulb { color: #6366f1; margin-top: 2px; }
+        .ft-bulb { color: var(--accent-primary); margin-top: 2px; }
         .ft-body { flex: 1; color: var(--text-primary); font-size: 0.88rem; line-height: 1.5; }
         .ft-body strong { display: block; margin-bottom: 2px; }
         .ft-actions { display: flex; flex-direction: column; gap: 6px; white-space: nowrap; }

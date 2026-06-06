@@ -426,7 +426,7 @@ const DebtManager = () => {
         /* Strategy Card */
         .strategy-card {
           margin-bottom: 30px;
-          border-left: 5px solid #667eea;
+          border-left: 5px solid var(--accent-primary);
         }
 
         .strategy-header {
@@ -437,7 +437,7 @@ const DebtManager = () => {
         }
 
         .strategy-header i {
-          color: #667eea;
+          color: var(--accent-primary);
           font-size: 1.5rem;
         }
 
@@ -540,7 +540,7 @@ const DebtManager = () => {
         .add-toggle-btn:hover {
           transform: translateY(-2px);
           box-shadow: var(--shadow-sm);
-          border-color: #667eea;
+          border-color: var(--accent-primary);
         }
 
         .add-toggle-btn.active {
@@ -635,7 +635,7 @@ const DebtManager = () => {
         }
 
         .debt-name i {
-          color: #667eea;
+          color: var(--accent-primary);
         }
 
         .debt-actions {
@@ -748,7 +748,7 @@ const DebtManager = () => {
         }
 
         .form-header h3 i {
-          color: #667eea;
+          color: var(--accent-primary);
         }
 
         .form-subtitle {
@@ -779,7 +779,7 @@ const DebtManager = () => {
         }
 
         .input-group label i {
-          color: #667eea;
+          color: var(--accent-primary);
         }
 
         /* Glass Input */
@@ -797,7 +797,7 @@ const DebtManager = () => {
 
         .glass-input:focus {
           outline: none;
-          border-color: #667eea;
+          border-color: var(--accent-primary);
           box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 

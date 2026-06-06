@@ -47,7 +47,7 @@ const ServerWaker = () => {
       }}>
         <div style={{
           width: '46px', height: '46px', margin: '0 auto 16px',
-          border: '4px solid rgba(255,255,255,0.18)', borderTopColor: '#6366f1',
+          border: '4px solid rgba(255,255,255,0.18)', borderTopColor: 'var(--accent-primary)',
           borderRadius: '50%', animation: 'sw-spin 1s linear infinite',
         }} />
         <h3 style={{ margin: '0 0 8px', fontSize: '1.1rem' }}>Waking up the server…</h3>

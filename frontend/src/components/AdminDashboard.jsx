@@ -94,6 +94,19 @@ const AdminDashboard = () => {
     finally { setActionLoading(null); }
   };
 
+  const testEmail = async () => {
+    setActionLoading('email');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/api/admin/test-email`, { headers: { Authorization: `Bearer ${token}` } });
+      showMessage(res.data.message || 'Test email sent — check inbox & spam');
+    } catch (error) {
+      const d = error.response?.data;
+      showMessage(`Email failed: ${d?.message || 'error'}${d?.code ? ' (' + d.code + ')' : ''}`, 'error');
+      console.log('Email diagnostic:', d);
+    } finally { setActionLoading(null); }
+  };
+
   const handleTicketStatus = async (id, status) => {
     setActionLoading(id + '_ticket');
     try {
@@ -117,7 +130,10 @@ const AdminDashboard = () => {
       {message && <div style={{ position: 'fixed', top: '1rem', right: '1rem', padding: '1rem 1.5rem', background: message.type === 'error' ? '#e53e3e' : '#38a169', color: 'white', borderRadius: '8px', zIndex: 9999, fontWeight: '600' }}>{message.text}</div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <div><h1 style={{ ...textPrimary, fontSize: '2rem', fontWeight: '700', margin: 0 }}>Admin Dashboard</h1><p style={{ ...textSecondary, marginTop: '0.25rem' }}>Welcome back, {user?.name}</p></div>
-        <button onClick={fetchData} style={{ padding: '0.75rem 1.5rem', background: 'var(--gradient-primary)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>Refresh</button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button onClick={testEmail} disabled={actionLoading === 'email'} style={{ padding: '0.75rem 1.25rem', background: 'transparent', color: 'var(--accent-primary)', border: '1px solid var(--accent-primary)', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>{actionLoading === 'email' ? 'Sending…' : 'Test email'}</button>
+          <button onClick={fetchData} style={{ padding: '0.75rem 1.5rem', background: 'var(--gradient-primary)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>Refresh</button>
+        </div>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
         {['overview', 'users', 'tickets'].map(tab => {

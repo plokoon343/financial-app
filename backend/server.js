@@ -19,24 +19,35 @@ require('dotenv').config();
 // Where password-reset links point (the deployed frontend).
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://financial-app-fawn-nu.vercel.app';
 
+const emailConfigured = () => !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+
+// Build the SMTP transport. Gmail app passwords are shown as "abcd efgh ijkl mnop";
+// users often paste them with spaces (or stray quotes), which Gmail rejects (535).
+// Strip those defensively so a correctly-generated app password always works.
+const makeTransport = () => nodemailer.createTransport({
+  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+  port: Number(process.env.EMAIL_PORT) || 587,
+  secure: Number(process.env.EMAIL_PORT) === 465,
+  auth: {
+    user: (process.env.EMAIL_USER || '').trim(),
+    pass: (process.env.EMAIL_PASS || '').replace(/\s+/g, '').replace(/^["']|["']$/g, ''),
+  },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
+});
+
+const mailFrom = () => process.env.EMAIL_FROM || `FinPilot <${(process.env.EMAIL_USER || '').trim()}>`;
+
 // Send a password-reset email if SMTP is configured; otherwise log the link so the
 // owner can still recover an account from the server logs during setup.
 const sendResetEmail = async (to, link) => {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+  if (!emailConfigured()) {
     console.log(`[password-reset] (email not configured) reset link for ${to}: ${link}`);
     return false;
   }
-  const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: Number(process.env.EMAIL_PORT) || 587,
-    secure: false,
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-  });
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM || `FinPilot <${process.env.EMAIL_USER}>`,
+  await makeTransport().sendMail({
+    from: mailFrom(),
     to,
     subject: 'Reset your FinPilot password',
     text: `Reset your password using this link (valid for 1 hour):\n\n${link}\n\nIf you didn't request this, ignore this email.`,
@@ -2207,6 +2218,31 @@ app.get('/api/admin/stats', auth, superAdminAuth, async (req, res) => {
     const expenseAgg = await Transaction.aggregate([{ $match: { type: 'expense' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
     res.json({ totalUsers, activeUsers, inactiveUsers: totalUsers - activeUsers, totalTransactions, totalBudgets, platformIncome: incomeAgg[0]?.total || 0, platformExpenses: Math.abs(expenseAgg[0]?.total || 0), recentUsers });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Email diagnostics (superadmin): verifies SMTP and sends a test mail, returning
+// the real error so misconfiguration is obvious. Visit while logged in as admin:
+//   GET /api/admin/test-email            -> sends to your own account email
+//   GET /api/admin/test-email?to=x@y.com -> sends to a specific address
+app.get('/api/admin/test-email', auth, superAdminAuth, async (req, res) => {
+  const diag = {
+    EMAIL_USER_set: !!process.env.EMAIL_USER,
+    EMAIL_PASS_set: !!process.env.EMAIL_PASS,
+    EMAIL_PASS_length: (process.env.EMAIL_PASS || '').replace(/\s+/g, '').length, // app passwords are 16
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: Number(process.env.EMAIL_PORT) || 587,
+    from: process.env.EMAIL_USER ? mailFrom() : null,
+  };
+  if (!emailConfigured()) return res.status(400).json({ ok: false, message: 'EMAIL_USER / EMAIL_PASS not set on the server', diag });
+  try {
+    const t = makeTransport();
+    await t.verify(); // authenticates with the SMTP server
+    const to = (req.query.to || req.user.email);
+    await t.sendMail({ from: mailFrom(), to, subject: 'FinPilot SMTP test ✅', text: 'If you can read this, email sending works.' });
+    res.json({ ok: true, message: `Test email sent to ${to}. Check inbox and spam.`, diag });
+  } catch (err) {
+    res.status(502).json({ ok: false, message: err.message, code: err.code || err.responseCode || null, diag });
+  }
 });
 // Idempotent: with the correct setup key, creates a superadmin — or, if the email
 // already exists, promotes that account and resets its password to the one given.

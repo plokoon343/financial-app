@@ -9,7 +9,6 @@ const ForgotPassword = () => {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
-  const [devLink, setDevLink] = useState('');
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -22,7 +21,6 @@ const ForgotPassword = () => {
     try {
       const res = await axios.post(`${API_URL}/api/forgot-password`, { email });
       setSent(true);
-      if (res.data.devLink) setDevLink(res.data.devLink);
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong. Please try again.');
     } finally {
@@ -52,11 +50,6 @@ const ForgotPassword = () => {
             <div className="error-message" style={{ background: 'rgba(56,161,105,0.12)', color: '#38a169', border: '1px solid #38a169' }}>
               <span className="error-icon">✅</span> If an account with that email exists, a reset link has been sent. It expires in 1 hour.
             </div>
-            {devLink && (
-              <p style={{ fontSize: '0.8rem', wordBreak: 'break-all', marginTop: '1rem' }}>
-                Dev link: <a href={devLink}>{devLink}</a>
-              </p>
-            )}
             <div className="signup-section" style={{ marginTop: '1.5rem' }}>
               <Link to="/login" className="signup-link">← Back to login</Link>
             </div>

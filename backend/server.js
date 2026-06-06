@@ -1331,8 +1331,8 @@ app.post('/api/forgot-password', authLimiter, async (req, res) => {
       // Fire-and-forget: never block the response on SMTP, never surface email
       // errors to the client (avoids slow requests / 500s when mail is slow).
       sendResetEmail(user.email, link).catch(e => console.error('[forgot-password] email send failed:', e.message));
-      // Outside production return the link directly so it works without an inbox.
-      if (process.env.NODE_ENV !== 'production') return res.json({ ...generic, devLink: link });
+      // Never return the link in the API response — that would let anyone reset
+      // any account. If email isn't configured, sendResetEmail logs it server-side.
     }
     return res.json(generic);
   } catch (error) {

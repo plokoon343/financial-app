@@ -17,7 +17,7 @@ export const EXPENSE_CATEGORIES = [
   'Education',
   'Insurance',
   'Bank Charges',
-  'ATM',
+  'ATM/POS',
   'Transfer',
   'Savings',
   'Family & Friends',

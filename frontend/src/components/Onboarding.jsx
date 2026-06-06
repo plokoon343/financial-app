@@ -130,7 +130,7 @@ const Onboarding = () => {
         .ob-goal.on { background: var(--gradient-primary); color: #fff; border-color: transparent; }
         .ob-dots { display: flex; gap: 6px; justify-content: center; margin: 20px 0 16px; }
         .ob-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--border-color, var(--glass-border)); }
-        .ob-dots span.on { background: var(--accent-primary, #6366f1); width: 22px; border-radius: 4px; }
+        .ob-dots span.on { background: var(--accent-primary, var(--accent-primary)); width: 22px; border-radius: 4px; }
         .ob-actions { display: flex; justify-content: space-between; gap: 10px; }
         .ob-actions button { flex: 1; padding: 11px; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; }
         .ob-primary { background: var(--gradient-primary); color: #fff; border: none; }

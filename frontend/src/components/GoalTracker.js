@@ -107,7 +107,7 @@ const GoalTracker = () => {
 
   const getCategoryColor = (category) => {
     const colors = {
-      'General': '#667eea', 'Housing': '#4ECDC4', 'Travel': '#FF6B8B', 'Electronics': '#45B7D1',
+      'General': 'var(--accent-primary)', 'Housing': '#4ECDC4', 'Travel': '#FF6B8B', 'Electronics': '#45B7D1',
       'Education': '#FFA07A', 'Vehicle': '#98D8C8', 'Emergency Fund': '#C9C9C9',
       'Retirement': '#FFD700', 'Savings': '#27ae60', 'Debt': '#e74c3c'
     };
@@ -443,7 +443,7 @@ const GoalTracker = () => {
         .overview-card { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 16px; display: flex; align-items: center; gap: 20px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); transition: all var(--transition-base); }
         .overview-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lg); }
         .overview-icon { width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; color: white; }
-        .overview-icon.total-goals { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .overview-icon.total-goals { background: var(--gradient-primary); }
         .overview-icon.completed-goals { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
         .overview-icon.total-saved { background: linear-gradient(135deg, #ff6b8b 0%, #ffa62e 100%); }
         .overview-icon.overall-progress { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
@@ -457,7 +457,7 @@ const GoalTracker = () => {
         .empty-state-icon { font-size: 80px; margin-bottom: 20px; opacity: 0.5; color: var(--text-secondary); }
         .empty-state h4 { font-family: var(--font-heading); font-size: 1.6rem; margin-bottom: 10px; color: var(--text-primary); }
         .empty-state p { color: var(--text-secondary); max-width: 400px; margin: 0 auto 25px; font-size: 1.1rem; line-height: 1.6; }
-        .btn-primary { padding: 14px 32px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: var(--radius-full); font-weight: 600; cursor: pointer; transition: all var(--transition-base); display: inline-flex; align-items: center; gap: 10px; font-size: 1rem; box-shadow: var(--shadow-md); }
+        .btn-primary { padding: 14px 32px; background: var(--gradient-primary); color: white; border: none; border-radius: var(--radius-full); font-weight: 600; cursor: pointer; transition: all var(--transition-base); display: inline-flex; align-items: center; gap: 10px; font-size: 1rem; box-shadow: var(--shadow-md); }
         .btn-primary:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
         .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px; }
         .goal-card { background: var(--glass-bg); border-radius: var(--radius-lg); padding: 16px; transition: all var(--transition-base); border: 1px solid var(--glass-border); position: relative; overflow: hidden; }
@@ -527,7 +527,7 @@ const GoalTracker = () => {
         .tips-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
         .tip-item { background: var(--glass-bg); border-radius: var(--radius-md); padding: 16px; display: flex; gap: 20px; transition: all var(--transition-base); }
         .tip-item:hover { transform: translateY(-5px); background: rgba(255, 255, 255, 0.05); }
-        .tip-icon { width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; flex-shrink: 0; }
+        .tip-icon { width: 60px; height: 60px; border-radius: 50%; background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; flex-shrink: 0; }
         .tip-content h4 { font-size: 1.1rem; color: var(--text-primary); margin-bottom: 10px; font-weight: 600; }
         .tip-content p { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; }
         @media (max-width: 768px) { .overview-grid { grid-template-columns: repeat(2, 1fr); } .goals-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: repeat(2, 1fr); } .quick-add-buttons { grid-template-columns: repeat(2, 1fr); } .custom-add { grid-column: span 2; } .form-grid { grid-template-columns: 1fr; } .tips-list { grid-template-columns: 1fr; } }

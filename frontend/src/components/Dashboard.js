@@ -34,7 +34,7 @@ const categoryIcons = {
   Salary:        <FaMoneyBillWave style={{ color: '#38a169' }} />,
   Housing:       <FaHome          style={{ color: '#e53e3e' }} />,
   Shopping:      <FaShoppingCart  style={{ color: '#d69e2e' }} />,
-  Transport:     <FaCar           style={{ color: '#4299e1' }} />,
+  Transport:     <FaCar           style={{ color: 'var(--accent-primary)' }} />,
   Food:          <FaUtensils      style={{ color: '#ed8936' }} />,
   Utilities:     <FaLightbulb    style={{ color: '#805ad5' }} />,
   Freelance:     <FaBriefcase     style={{ color: '#0bc5ea' }} />,
@@ -219,13 +219,13 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
               marginBottom: '1rem',
               transition: 'border-color 0.2s',
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#4299e1')}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent-primary)')}
             onMouseLeave={(e) => (e.currentTarget.style.borderColor = theme.inputBorder)}
           >
             <FaCloudUploadAlt
               style={{
                 fontSize: '2.5rem',
-                color: '#4299e1',
+                color: 'var(--accent-primary)',
                 marginBottom: '0.75rem',
                 display: 'block',
                 margin: '0 auto 0.75rem',
@@ -245,7 +245,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
               style={{ display: 'none' }}
             />
             {file && (
-              <p style={{ marginTop: '0.75rem', color: '#4299e1', fontWeight: 600, fontSize: '0.9rem' }}>
+              <p style={{ marginTop: '0.75rem', color: 'var(--accent-primary)', fontWeight: 600, fontSize: '0.9rem' }}>
                 <FaPaperclip style={{ marginRight: '0.4rem' }} />
                 {file.name}
               </p>
@@ -309,7 +309,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                 ? darkMode
                   ? '#4a5568'
                   : '#e2e8f0'
-                : 'linear-gradient(135deg, #4299e1, #3182ce)',
+                : 'var(--gradient-primary)',
               color: !file ? (darkMode ? '#718096' : '#a0aec0') : 'white',
               fontWeight: 600,
               cursor: file ? 'pointer' : 'not-allowed',
@@ -425,7 +425,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
 
       {step === 'importing' && (
         <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-          <FaSpinner style={{ fontSize: '2rem', color: '#4299e1', marginBottom: '1rem', display: 'block', margin: '0 auto 1rem' }} />
+          <FaSpinner style={{ fontSize: '2rem', color: 'var(--accent-primary)', marginBottom: '1rem', display: 'block', margin: '0 auto 1rem' }} />
           <p style={{ color: theme.labelColor, fontWeight: 600 }}>Importing transactions…</p>
         </div>
       )}
@@ -459,7 +459,7 @@ const Dashboard = () => {
     labelColor: '#e2e8f0', cardBg: '#2d3748', cardBorder: '#4a5568', modalBg: '#1a202c',
   } : {
     inputBg: '#f8fafc', inputBorder: '#e2e8f0', inputText: '#2d3748',
-    focusBorder: '#4299e1', focusShadow: '0 0 0 3px rgba(66,153,225,0.15)',
+    focusBorder: 'var(--accent-primary)', focusShadow: '0 0 0 3px rgba(66,153,225,0.15)',
     labelColor: '#4a5568', cardBg: 'white', cardBorder: 'rgba(0,82,204,0.1)', modalBg: 'white',
   };
 
@@ -546,7 +546,7 @@ const Dashboard = () => {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
         <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          style={{ width: 60, height: 60, border: `4px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, borderTopColor: '#4299e1', borderRadius: '50%', marginBottom: '1.5rem' }} />
+          style={{ width: 60, height: 60, border: `4px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, borderTopColor: 'var(--accent-primary)', borderRadius: '50%', marginBottom: '1.5rem' }} />
         <p style={{ color: darkMode ? '#e2e8f0' : '#4a5568' }}>Loading your dashboard…</p>
       </div>
     );
@@ -562,7 +562,7 @@ const Dashboard = () => {
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 className="dashboard-title" style={{ color: darkMode ? '#f7fafc' : '#1a365d', fontSize: '2.5rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <FaChartPie style={{ color: '#4299e1' }} /> Financial Dashboard
+            <FaChartPie style={{ color: 'var(--accent-primary)' }} /> Financial Dashboard
           </h1>
           <p className="dashboard-subtitle" style={{ color: darkMode ? '#cbd5e0' : '#4a5568', marginTop: '0.5rem', fontSize: '1.1rem' }}>
             <FaWallet style={{ color: '#38a169', marginRight: '0.4rem' }} /> Welcome back, {user?.name || 'User'}!
@@ -589,7 +589,7 @@ const Dashboard = () => {
           </motion.button>
           <motion.button onClick={() => { setShowModal(true); setActiveTab('single'); setFormMsg(null); }}
             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            style={{ background: 'linear-gradient(135deg, #4299e1, #3182ce)', color: 'white', border: 'none',
+            style={{ background: 'var(--gradient-primary)', color: 'white', border: 'none',
               padding: '0.875rem 1.75rem', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: '0.75rem', boxShadow: '0 4px 12px rgba(66,153,225,0.3)' }}>
             <FaPlus /> Add / Import Transactions
@@ -832,7 +832,7 @@ const Dashboard = () => {
         <motion.div className="card overview-card" variants={cardVariants} whileHover="hover"
           style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
           <h2 style={{ color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FaChartPie style={{ color: '#4299e1' }} /> Financial Overview
+            <FaChartPie style={{ color: 'var(--accent-primary)' }} /> Financial Overview
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', background: darkMode ? '#4a5568' : '#f8fafc', borderRadius: '12px' }}>
@@ -853,13 +853,13 @@ const Dashboard = () => {
           style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
             <h2 style={{ color: darkMode ? '#f7fafc' : '#1a365d', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <FaListAlt style={{ color: '#4299e1' }} /> Recent Transactions
+              <FaListAlt style={{ color: 'var(--accent-primary)' }} /> Recent Transactions
             </h2>
             <div style={{ display: 'flex', gap: '0.25rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.2rem', borderRadius: '8px' }}>
               {[{ val: 'all', label: 'All' }, { val: 'income', label: '↑' }, { val: 'expense', label: '↓' }].map(f => (
                 <button key={f.val} onClick={() => setFilter(f.val)}
                   style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px',
-                    background: filter === f.val ? '#4299e1' : 'transparent',
+                    background: filter === f.val ? 'var(--accent-primary)' : 'transparent',
                     color: filter === f.val ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'),
                     fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', transition: 'all 0.2s' }}>
                   {f.label}
@@ -902,7 +902,7 @@ const Dashboard = () => {
               <h3 style={{ color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '0.4rem' }}>No Transactions Yet</h3>
               <p style={{ color: darkMode ? '#a0aec0' : '#718096', marginBottom: '1.25rem', fontSize: '0.9rem' }}>Add one or import a bank statement.</p>
               <button onClick={() => { setShowModal(true); setActiveTab('single'); }}
-                style={{ background: 'linear-gradient(135deg,#4299e1,#3182ce)', color: 'white', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem' }}>
+                style={{ background: 'var(--gradient-primary)', color: 'white', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem' }}>
                 <FaPlus /> Add Transaction
               </button>
             </div>

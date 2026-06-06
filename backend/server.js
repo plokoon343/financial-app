@@ -953,10 +953,10 @@ const categorizeTransaction = (description, typeOrAmount) => {
     { for: 'expense', keywords: ['pharmacy','hospital','clinic','medplus','health','chemist','hmo','drugs','medical','dental'], category: 'Healthcare' },
     { for: 'expense', keywords: ['school fees','tuition','waec','jamb','neco','coursera','udemy','university','college','exam','lecture','textbook'], category: 'Education' },
     { for: 'expense', keywords: ['insurance','assurance','leadway','aiico','axa mansard','cornerstone'], category: 'Insurance' },
-    { for: 'expense', keywords: ['amazon','jumia','konga','slot','pos purchase','pos debit','purchase','boutique','fashion','clothing','shopping','mall','aliexpress','temu','shein'], category: 'Shopping' },
+    { for: 'expense', keywords: ['amazon','jumia','konga','slot','purchase','boutique','fashion','clothing','shopping','mall','aliexpress','temu','shein'], category: 'Shopping' },
     { for: 'expense', keywords: ['cinema','bet9ja','nairabet','sportybet','1xbet','betking','merrybet','gaming','event','ticket','lounge','concert','movie'], category: 'Entertainment' },
     { for: 'expense', keywords: ['piggyvest','cowrywise','risevest','target savings',' ajo','esusu','thrift','vault'], category: 'Savings' },
-    { for: 'expense', keywords: ['atm withdrawal','atm cash','cash withdrawal',' atm '], category: 'ATM' },
+    { for: 'expense', keywords: ['atm withdrawal','atm cash','cash withdrawal',' atm ','pos purchase','pos debit','pos withdrawal',' pos ','point of sale'], category: 'ATM/POS' },
     { for: 'expense', keywords: ['stamp dut','stamp duty','vat','bank fee','maintenance fee','sms alert','commission','cot','levy','account maintenance','charge'], category: 'Bank Charges' },
 
     // ── Catch-all transfer (either direction) ──

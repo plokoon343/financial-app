@@ -305,7 +305,7 @@ const Settings = () => {
         .method-toggle button.active { background: var(--gradient-primary); color: #fff; border-color: transparent; }
         .saved-hint { background: rgba(56,161,105,0.1); color: #38a169; padding: 9px 12px; border-radius: var(--radius-md); margin-bottom: 14px; font-size: 0.84rem; }
         .switch { width: 46px; height: 26px; border-radius: 14px; border: none; background: var(--border-color, #cbd5e0); position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.2s; }
-        .switch.on { background: var(--accent-primary, #6366f1); }
+        .switch.on { background: var(--accent-primary, var(--accent-primary)); }
         .switch span { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left 0.2s; }
         .switch.on span { left: 23px; }
         .switch:disabled { opacity: 0.7; cursor: not-allowed; }

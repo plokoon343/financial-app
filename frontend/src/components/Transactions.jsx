@@ -342,8 +342,8 @@ const Transactions = () => {
         th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--glass-border); color: var(--text-primary); }
         th { position: sticky; top: 0; background: var(--card-bg); font-weight: 700; color: var(--text-primary); white-space: nowrap; }
         th.sortable { cursor: pointer; user-select: none; }
-        th.sortable:hover { color: var(--accent-primary, #6366f1); }
-        th .arrow { color: var(--accent-primary, #6366f1); font-size: 0.8em; }
+        th.sortable:hover { color: var(--accent-primary, var(--accent-primary)); }
+        th .arrow { color: var(--accent-primary, var(--accent-primary)); font-size: 0.8em; }
         td { font-weight: 500; }
         td.desc { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         td.nowrap { white-space: nowrap; }
@@ -365,7 +365,7 @@ const Transactions = () => {
         .page-nav span { padding: 0 6px; }
         .page-nav button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border-color, var(--glass-border)); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; font-size: 1rem; }
         .page-nav button:disabled { opacity: 0.4; cursor: not-allowed; }
-        .page-nav button:not(:disabled):hover { border-color: var(--accent-primary, #6366f1); color: var(--accent-primary, #6366f1); }
+        .page-nav button:not(:disabled):hover { border-color: var(--accent-primary, var(--accent-primary)); color: var(--accent-primary, var(--accent-primary)); }
         /* Make native dropdowns readable in dark mode (popup list + closed control). */
         .tx-page select { color: var(--text-primary); }
         .tx-page select option { background: var(--card-bg); color: var(--text-primary); }

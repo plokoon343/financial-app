@@ -372,7 +372,7 @@ const SubscriptionManager = () => {
           font-size: 2.5rem;
           font-weight: 700;
           margin-bottom: 10px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: var(--gradient-primary);
           -webkit-background-clip: text;
           background-clip: text;
           -webkit-text-fill-color: transparent;
@@ -427,7 +427,7 @@ const SubscriptionManager = () => {
         }
         
         .overview-icon.monthly-cost {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: var(--gradient-primary);
         }
         
         .overview-icon.yearly-cost {
@@ -847,7 +847,7 @@ const SubscriptionManager = () => {
         
         .btn-submit {
           padding: 16px 40px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: var(--gradient-primary);
           color: white;
           border: none;
           border-radius: var(--radius-full);
@@ -919,7 +919,7 @@ const SubscriptionManager = () => {
           width: 60px;
           height: 60px;
           border-radius: 50%;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: var(--gradient-primary);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -944,7 +944,7 @@ const SubscriptionManager = () => {
         /* Primary Button */
         .btn-primary {
           padding: 14px 32px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: var(--gradient-primary);
           color: white;
           border: none;
           border-radius: var(--radius-full);

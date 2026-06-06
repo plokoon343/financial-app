@@ -68,7 +68,7 @@ const Walkthrough = () => {
         .wt-card p { margin: 0 0 18px; color: var(--text-primary); opacity: 0.85; line-height: 1.55; font-size: 0.92rem; }
         .wt-dots { display: flex; gap: 6px; justify-content: center; margin-bottom: 18px; }
         .wt-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--border-color, var(--glass-border)); transition: all 0.2s; }
-        .wt-dots span.on { background: var(--accent-primary, #6366f1); width: 22px; border-radius: 4px; }
+        .wt-dots span.on { background: var(--accent-primary, var(--accent-primary)); width: 22px; border-radius: 4px; }
         .wt-actions { display: flex; gap: 10px; }
         .wt-actions button { flex: 1; padding: 11px; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; }
         .wt-primary { background: var(--gradient-primary); color: #fff; border: none; }

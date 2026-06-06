@@ -1,7 +1,7 @@
 /* CSS Variables for Theme */
 :root {
-  --primary-color: #6366f1;
-  --primary-hover: #4f46e5;
+  --primary-color: #008751;
+  --primary-hover: #00a862;
   --success-color: #10b981;
   --error-color: #ef4444;
   --warning-color: #f59e0b;
@@ -19,7 +19,7 @@
   /* Input Colors (Light) */
   --input-bg: #ffffff;
   --input-border: #cbd5e1;
-  --input-focus: #6366f1;
+  --input-focus: #008751;
   --input-text: #0f172a;
   --input-placeholder: #94a3b8;
 }

@@ -649,7 +649,7 @@ const Budget = () => {
         }
         
         .summary-icon.total-budget {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: var(--gradient-primary);
         }
         
         .summary-icon.total-spent {

@@ -1,18 +1,25 @@
-/* Kill-switch service worker.
-   The previous build registered a service worker; this replacement unregisters
-   itself and clears all caches so no stale shell is served. It is intentionally
-   NOT registered by the app anymore — it only runs for browsers that still have
-   the old worker, to clean them up. */
-self.addEventListener('install', () => self.skipWaiting());
+/* Minimal service worker for PWA installability.
+   Network-first for page navigations with an offline fallback to the cached
+   shell; everything else (static assets, API calls) uses the browser default,
+   so nothing goes stale and API requests are never intercepted. */
+const CACHE = 'finpilot-shell-v2';
+
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE).then((c) => c.add('/')).catch(() => {}));
+});
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    try {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-      await self.registration.unregister();
-      const clients = await self.clients.matchAll({ type: 'window' });
-      clients.forEach((c) => c.navigate(c.url));
-    } catch (e) { /* ignore */ }
-  })());
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  if (req.mode === 'navigate') {
+    event.respondWith(fetch(req).catch(() => caches.match('/')));
+  }
 });

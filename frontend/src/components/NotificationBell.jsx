@@ -100,19 +100,19 @@ const NotificationBell = () => {
           background: var(--card-bg); border: 1px solid var(--glass-border); border-radius: 14px;
           box-shadow: var(--shadow-lg); overflow: hidden; }
         .nb-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--glass-border); color: var(--text-primary); }
-        .nb-mark { background: none; border: none; color: var(--accent-primary, #6366f1); cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+        .nb-mark { background: none; border: none; color: var(--accent-primary, var(--accent-primary)); cursor: pointer; font-size: 0.8rem; font-weight: 600; }
         .nb-list { max-height: 60vh; overflow-y: auto; }
         .nb-empty { padding: 28px 14px; text-align: center; color: var(--text-secondary); font-size: 0.88rem; }
         .nb-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: none;
           border: none; border-bottom: 1px solid var(--glass-border); padding: 12px 14px; cursor: pointer; color: var(--text-primary); }
         .nb-item.unread { background: rgba(99,102,241,0.08); }
         .nb-item:hover { background: var(--glass-bg); }
-        .nb-ic { color: var(--accent-primary, #6366f1); margin-top: 2px; }
+        .nb-ic { color: var(--accent-primary, var(--accent-primary)); margin-top: 2px; }
         .nb-text { display: flex; flex-direction: column; gap: 2px; flex: 1; }
         .nb-title { font-weight: 600; font-size: 0.86rem; }
         .nb-msg { font-size: 0.8rem; color: var(--text-secondary); }
         .nb-time { font-size: 0.72rem; color: var(--text-secondary); }
-        .nb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-primary, #6366f1); margin-top: 6px; }
+        .nb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-primary, var(--accent-primary)); margin-top: 6px; }
       `}</style>
     </div>
   );

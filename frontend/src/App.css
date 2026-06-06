@@ -124,6 +124,11 @@
   vertical-align: middle;
 }
 
+/* Global dropdown readability in both themes (the option popup is OS-drawn) */
+select option { background: #ffffff; color: #0f172a; }
+.dark-theme select { color-scheme: dark; }
+.dark-theme select option { background: #131b2e; color: #dae2fd; }
+
 /* ===== BASE STYLES ===== */
 * {
   margin: 0;

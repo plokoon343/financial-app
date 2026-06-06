@@ -9,7 +9,7 @@ const FinancialTrends = ({ transactions = [] }) => {
   const [trendMetrics, setTrendMetrics] = useState({});
 
   const timeframes = [
-    { value: '3months', label: '3 Months', color: '#667eea' },
+    { value: '3months', label: '3 Months', color: 'var(--accent-primary)' },
     { value: '6months', label: '6 Months', color: '#4facfe' },
     { value: '1year', label: '1 Year', color: '#43e97b' }
   ];
@@ -66,7 +66,7 @@ const FinancialTrends = ({ transactions = [] }) => {
 
     const totalExpenses = Object.values(categories).reduce((sum, amount) => sum + amount, 0);
     const categoryData = Object.entries(categories).map(([name, amount], index) => {
-      const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#667eea', '#764ba2', '#f093fb', '#f5576c', '#fee140'];
+      const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', 'var(--accent-primary)', 'var(--accent-primary)', '#f093fb', '#f5576c', '#fee140'];
       return {
         name,
         amount,
@@ -175,7 +175,7 @@ const FinancialTrends = ({ transactions = [] }) => {
       <div className="trend-overview">
         <div className="trend-card glass-card">
           <div className="trend-header">
-            <div className="trend-icon" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+            <div className="trend-icon" style={{ background: 'var(--gradient-primary)' }}>
               <i className="fas fa-money-bill-wave"></i>
             </div>
             <div className="trend-info">
@@ -424,7 +424,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           ) : (
             <div className="metrics-grid">
               <div className="metric-item">
-                <div className="metric-icon" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                <div className="metric-icon" style={{ background: 'var(--gradient-primary)' }}>
                   <i className="fas fa-money-bill-wave"></i>
                 </div>
                 <div className="metric-content">
@@ -609,11 +609,11 @@ const FinancialTrends = ({ transactions = [] }) => {
 
         .chart-btn:hover {
           transform: translateY(-2px);
-          border-color: #667eea;
+          border-color: var(--accent-primary);
         }
 
         .chart-btn.active {
-          background: #667eea;
+          background: var(--gradient-primary);
           color: white;
           border-color: transparent;
         }

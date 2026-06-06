@@ -19,7 +19,14 @@ require('dotenv').config();
 // Where password-reset links point (the deployed frontend).
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://financial-app-fawn-nu.vercel.app';
 
-const emailConfigured = () => !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+// Email can be sent two ways:
+//   1. Brevo HTTP API (port 443) — preferred on Render, whose free/starter tiers
+//      BLOCK outbound SMTP (you get ETIMEDOUT to smtp.gmail.com). HTTPS isn't blocked.
+//   2. SMTP via nodemailer — fallback for local dev or hosts that allow SMTP.
+// Set BREVO_API_KEY to use the API path; otherwise it falls back to EMAIL_USER/PASS.
+const brevoConfigured = () => !!process.env.BREVO_API_KEY;
+const smtpConfigured = () => !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+const emailConfigured = () => brevoConfigured() || smtpConfigured();
 
 // Build the SMTP transport. Gmail app passwords are shown as "abcd efgh ijkl mnop";
 // users often paste them with spaces (or stray quotes), which Gmail rejects (535).
@@ -37,17 +44,44 @@ const makeTransport = () => nodemailer.createTransport({
   socketTimeout: 15000,
 });
 
-const mailFrom = () => process.env.EMAIL_FROM || `FinPilot <${(process.env.EMAIL_USER || '').trim()}>`;
+// The "from" identity. Brevo requires a verified sender; we reuse EMAIL_USER (your
+// Gmail) as both the SMTP login and the Brevo sender so one address drives both.
+const senderEmail = () => (process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER || '').trim();
+const senderName = () => process.env.EMAIL_FROM_NAME || 'FinPilot';
+const mailFrom = () => process.env.EMAIL_FROM || `${senderName()} <${senderEmail()}>`;
 
-// Send a password-reset email if SMTP is configured; otherwise log the link so the
+// Send one email via whichever transport is configured. Brevo wins if its key is set.
+// Returns nothing on success; throws on failure (callers decide how to handle).
+const sendEmail = async ({ to, subject, text, html }) => {
+  if (brevoConfigured()) {
+    await axios.post(
+      'https://api.brevo.com/v3/smtp/email',
+      {
+        sender: { name: senderName(), email: senderEmail() },
+        to: [{ email: to }],
+        subject,
+        textContent: text,
+        htmlContent: html || `<p>${text}</p>`,
+      },
+      {
+        headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
+        timeout: 15000,
+      }
+    );
+    return;
+  }
+  // SMTP fallback
+  await makeTransport().sendMail({ from: mailFrom(), to, subject, text, html });
+};
+
+// Send a password-reset email if email is configured; otherwise log the link so the
 // owner can still recover an account from the server logs during setup.
 const sendResetEmail = async (to, link) => {
   if (!emailConfigured()) {
     console.log(`[password-reset] (email not configured) reset link for ${to}: ${link}`);
     return false;
   }
-  await makeTransport().sendMail({
-    from: mailFrom(),
+  await sendEmail({
     to,
     subject: 'Reset your FinPilot password',
     text: `Reset your password using this link (valid for 1 hour):\n\n${link}\n\nIf you didn't request this, ignore this email.`,
@@ -2225,23 +2259,30 @@ app.get('/api/admin/stats', auth, superAdminAuth, async (req, res) => {
 //   GET /api/admin/test-email            -> sends to your own account email
 //   GET /api/admin/test-email?to=x@y.com -> sends to a specific address
 app.get('/api/admin/test-email', auth, superAdminAuth, async (req, res) => {
+  const transport = brevoConfigured() ? 'brevo-api' : (smtpConfigured() ? 'smtp' : 'none');
   const diag = {
+    transport, // which path will actually be used
+    BREVO_API_KEY_set: brevoConfigured(),
     EMAIL_USER_set: !!process.env.EMAIL_USER,
     EMAIL_PASS_set: !!process.env.EMAIL_PASS,
     EMAIL_PASS_length: (process.env.EMAIL_PASS || '').replace(/\s+/g, '').length, // app passwords are 16
+    sender: senderEmail() || null,
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: Number(process.env.EMAIL_PORT) || 587,
-    from: process.env.EMAIL_USER ? mailFrom() : null,
+    from: emailConfigured() ? mailFrom() : null,
   };
-  if (!emailConfigured()) return res.status(400).json({ ok: false, message: 'EMAIL_USER / EMAIL_PASS not set on the server', diag });
+  if (!emailConfigured()) return res.status(400).json({ ok: false, message: 'No email transport configured. Set BREVO_API_KEY (recommended) or EMAIL_USER/EMAIL_PASS.', diag });
+  if (brevoConfigured() && !senderEmail()) {
+    return res.status(400).json({ ok: false, message: 'BREVO_API_KEY is set but no sender address. Set EMAIL_FROM_ADDRESS (or EMAIL_USER) to your Brevo-verified sender.', diag });
+  }
   try {
-    const t = makeTransport();
-    await t.verify(); // authenticates with the SMTP server
     const to = (req.query.to || req.user.email);
-    await t.sendMail({ from: mailFrom(), to, subject: 'FinPilot SMTP test ✅', text: 'If you can read this, email sending works.' });
-    res.json({ ok: true, message: `Test email sent to ${to}. Check inbox and spam.`, diag });
+    await sendEmail({ to, subject: `FinPilot email test ✅ (${transport})`, text: 'If you can read this, email sending works.' });
+    res.json({ ok: true, message: `Test email sent to ${to} via ${transport}. Check inbox and spam.`, diag });
   } catch (err) {
-    res.status(502).json({ ok: false, message: err.message, code: err.code || err.responseCode || null, diag });
+    // Brevo errors carry the real reason in the HTTP response body.
+    const apiMsg = err.response?.data?.message || err.response?.data?.code;
+    res.status(502).json({ ok: false, message: apiMsg || err.message, code: err.code || err.response?.status || err.responseCode || null, diag });
   }
 });
 // Idempotent: with the correct setup key, creates a superadmin — or, if the email

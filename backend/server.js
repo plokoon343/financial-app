@@ -676,27 +676,77 @@ const STMT_MONEY_RE = /(?:\d{1,3}(?:,\d{3})+|\d+)?\.\d{2}/g;
 //   2026-05-09   (YYYY-MM-DD)
 const STMT_DATE_START_RE = /^(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2})/;
 
-// Normalise any supported date token to YYYY-MM-DD (returns null if unrecognised).
+// Repair a year token to a 4-digit year. Bank-statement PDFs have no column
+// delimiters, so the text extractor glues the date to the next column. A 2-digit
+// year ("26") then absorbs the following day ("29") and arrives here as "2629".
+// A 4-digit year ("2026") can absorb a day and arrive as "202629". Recover the
+// real year for each case instead of trusting the raw digits.
+const fixYear = (raw) => {
+  const y = String(raw || '');
+  if (y.length === 2) return '20' + y;                                  // 26 -> 2026
+  if (y.length === 4) {
+    if (/^(?:19|20)\d{2}$/.test(y)) return y;                           // 2026 -> 2026
+    if (y.startsWith('0')) return '20' + y.slice(2);                    // 0026 -> 2026
+    return '20' + y.slice(0, 2);                                        // 2629 -> 2026 (glued 2-digit yr)
+  }
+  if (y.length > 4) {
+    if (/^(?:19|20)/.test(y)) return y.slice(0, 4);                     // 202629 -> 2026 (glued 4-digit yr)
+    return '20' + y.slice(0, 2);                                        // 262912 -> 2026
+  }
+  return y;
+};
+
+// Reject dates that parsed to something impossible — a wrong year/month/day means
+// the row was mis-read and should be skipped rather than saved with bad data.
+const isSaneDate = (y, mo, dy) => {
+  const yr = parseInt(y, 10), m = parseInt(mo, 10), d = parseInt(dy, 10);
+  if (yr < 2000 || yr > new Date().getFullYear() + 1) return false;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  return true;
+};
+
+// Normalise any supported date token to YYYY-MM-DD (returns null if unrecognised
+// or implausible).
 const normalizeAnyDate = (raw) => {
   const s = (raw || '').trim();
-  let m;
+  let m, y, mon, day;
   // DD-Mon-YYYY (also DD/Mon/YYYY)
   if ((m = s.match(/^(\d{1,2})[\/-]([A-Za-z]{3})[\/-](\d{2,4})$/))) {
-    const mon = MONTH_MAP[m[2].toLowerCase()];
+    mon = MONTH_MAP[m[2].toLowerCase()];
     if (!mon) return null;
-    let y = m[3];
-    if (y.length === 2) y = '20' + y;
-    else if (y.length === 4 && y.startsWith('0')) y = '20' + y.slice(2); // repair "0026" -> 2026
-    return `${y}-${mon}-${m[1].padStart(2, '0')}`;
-  }
+    y = fixYear(m[3]); day = m[1].padStart(2, '0');
   // YYYY-MM-DD
-  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/))) return `${m[1]}-${m[2]}-${m[3]}`;
+  } else if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/))) {
+    y = m[1]; mon = m[2]; day = m[3];
   // DD/MM/YY or DD/MM/YYYY (also DD-MM-YYYY)
-  if ((m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/))) {
-    let y = m[3];
-    if (y.length === 2) y = '20' + y;
-    return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  } else if ((m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/))) {
+    y = fixYear(m[3]); mon = m[2].padStart(2, '0'); day = m[1].padStart(2, '0');
+  } else {
+    return null;
   }
+  if (!isSaneDate(y, mon, day)) return null;
+  return `${y}-${mon}-${day}`;
+};
+
+// Broader date normaliser for the generic fallback strategies, which also see
+// "2 May 2024" and "02.05.2024" / "2024/05/02" forms. Returns YYYY-MM-DD or null.
+const genericToISO = (token) => {
+  const t = (token || '').trim();
+  // Numeric / and - forms (incl. dotted, after normalising "." to "-").
+  let iso = normalizeAnyDate(t.replace(/\./g, '-'));
+  if (iso) return iso;
+  // DD Mon YYYY (e.g. "2 May 2024")
+  let m = t.match(/^(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{2,4})$/);
+  if (m) {
+    const mon = MONTH_MAP[m[2].toLowerCase()];
+    if (mon) {
+      const y = fixYear(m[3]), day = m[1].padStart(2, '0');
+      if (isSaneDate(y, mon, day)) return `${y}-${mon}-${day}`;
+    }
+  }
+  // YYYY/MM/DD (slash form not covered above)
+  m = t.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  if (m && isSaneDate(m[1], m[2], m[3])) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
   return null;
 };
 
@@ -887,16 +937,9 @@ const parsePDF = async (filePath, password = '') => {
       balance = null;
     }
 
-    // Format the date
-    let formattedDate = dateMatch[1] || dateMatch[0];
-    const parts = formattedDate.split(/[\/\-\.]/);
-    if (parts.length === 3 && parts[2].length === 4) {
-      // DD/MM/YYYY or DD-MM-YYYY
-      formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-    } else if (parts.length === 3 && parts[0].length === 4) {
-      // YYYY-MM-DD
-      formattedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-    }
+    // Normalise + validate the date (repairs glued years, rejects bad rows).
+    const formattedDate = genericToISO(dateMatch[1] || dateMatch[0]);
+    if (!formattedDate) continue;
 
     const type = inferTransactionType(description);
     transactions.push({
@@ -935,13 +978,8 @@ const parsePDF = async (filePath, password = '') => {
       const description = line1.replace(dateMatch[0], '').trim() || line2.replace(AMOUNT_PATTERN, '').trim();
       if (description.length < 2) continue;
 
-      let formattedDate = dateMatch[1] || dateMatch[0];
-      const parts = formattedDate.split(/[\/\-\.]/);
-      if (parts.length === 3 && parts[2].length === 4) {
-        formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      } else if (parts.length === 3 && parts[0].length === 4) {
-        formattedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-      }
+      const formattedDate = genericToISO(dateMatch[1] || dateMatch[0]);
+      if (!formattedDate) continue;
 
       const type = inferTransactionType(description);
       transactions.push({

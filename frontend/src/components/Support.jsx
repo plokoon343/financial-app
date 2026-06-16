@@ -55,6 +55,18 @@ const Support = () => {
 
       {message && <div className={`sp-msg ${message.type}`}>{message.text}</div>}
 
+      {/* Organization contact details */}
+      <div className="sp-card" style={{ marginBottom: '1.25rem' }}>
+        <h3>Contact us directly</h3>
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.6rem' }}>
+          <li><i className="fas fa-envelope" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="mailto:support@finpilot.app">support@finpilot.app</a></li>
+          <li><i className="fas fa-phone" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="tel:+2348000000000">+234 800 000 0000</a></li>
+          <li><i className="fab fa-whatsapp" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="https://wa.me/2348000000000" target="_blank" rel="noreferrer">Chat on WhatsApp</a></li>
+          <li><i className="fas fa-clock" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Mon–Fri, 9:00am–5:00pm WAT</li>
+          <li><i className="fas fa-location-dot" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Lagos, Nigeria</li>
+        </ul>
+      </div>
+
       <div className="sp-grid">
         {/* FAQ */}
         <div className="sp-card">

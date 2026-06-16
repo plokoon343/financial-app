@@ -115,15 +115,38 @@ const Sidebar = () => {
             <div key={group.title} className="sidebar-group">
               <div className="sidebar-group-title">{group.title}</div>
               {group.items.map((item) => (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
-                  onClick={toggleSidebar}
-                >
-                  <span className="material-symbols-outlined">{item.icon}</span>
-                  <span>{item.label}</span>
-                </Link>
+                item.path === '/wallet' ? (
+                  <div key={item.path} style={{ display: 'flex', alignItems: 'center' }}>
+                    <Link
+                      to={item.path}
+                      className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
+                      onClick={toggleSidebar}
+                      style={{ flex: 1 }}
+                    >
+                      <span className="material-symbols-outlined">{item.icon}</span>
+                      <span>{item.label}</span>
+                    </Link>
+                    <Link
+                      to="/wallet?action=deposit"
+                      className="sidebar-wallet-add"
+                      title="Deposit to wallet"
+                      onClick={toggleSidebar}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 0.65rem', color: 'var(--accent-primary)' }}
+                    >
+                      <span className="material-symbols-outlined">add_circle</span>
+                    </Link>
+                  </div>
+                ) : (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
+                    onClick={toggleSidebar}
+                  >
+                    <span className="material-symbols-outlined">{item.icon}</span>
+                    <span>{item.label}</span>
+                  </Link>
+                )
               ))}
             </div>
           ))}

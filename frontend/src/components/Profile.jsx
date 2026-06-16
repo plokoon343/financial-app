@@ -26,6 +26,10 @@ const Profile = () => {
   }, []);
 
   const save = async () => {
+    if (profile.phone.replace(/\D/g, '').length < 7) {
+      flash('A valid phone number is required', 'error');
+      return;
+    }
     setSaving(true);
     try {
       await axios.put(`${API_URL}/api/me`, {
@@ -61,8 +65,8 @@ const Profile = () => {
         <div className="form-row">
           <div className="form-group"><label>Full Name</label>
             <input type="text" value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} /></div>
-          <div className="form-group"><label>Phone</label>
-            <input type="text" value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} placeholder="optional" /></div>
+          <div className="form-group"><label>Phone *</label>
+            <input type="tel" value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} placeholder="Required" required /></div>
         </div>
         <div className="form-row">
           <div className="form-group"><label>Monthly Income (₦)</label>

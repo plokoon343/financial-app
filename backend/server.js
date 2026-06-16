@@ -2042,6 +2042,59 @@ app.get('/api/subscriptions', auth, async (req, res) => {
     res.json(subs);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
+
+// Auto-detect likely subscriptions from the user's transactions: recurring
+// charges to the same merchant, similar amount, across multiple months.
+app.get('/api/subscriptions/detect', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const [txns, existing] = await Promise.all([
+      Transaction.find({ userId, type: 'expense' }, { description: 1, amount: 1, date: 1, category: 1 }).lean(),
+      Subscription.find({ userId }, { name: 1 }).lean(),
+    ]);
+    const existingKeys = new Set(existing.map(s => deriveCategoryKey(s.name)).filter(Boolean));
+
+    // Group transactions by merchant signature.
+    const groups = new Map();
+    for (const t of txns) {
+      const key = deriveCategoryKey(t.description);
+      if (!key) continue;
+      const g = groups.get(key) || { key, amounts: [], months: new Set(), descs: {}, category: t.category, lastDate: t.date };
+      g.amounts.push(Math.abs(t.amount));
+      g.months.add(new Date(t.date).toISOString().slice(0, 7));
+      g.descs[t.description] = (g.descs[t.description] || 0) + 1;
+      if (new Date(t.date) > new Date(g.lastDate)) g.lastDate = t.date;
+      groups.set(key, g);
+    }
+
+    const median = (arr) => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+    const candidates = [];
+    for (const g of groups.values()) {
+      if (existingKeys.has(g.key)) continue;          // already tracked
+      if (g.months.size < 2) continue;                // must recur across months
+      const med = median(g.amounts);
+      if (med <= 0) continue;
+      // Amounts should be roughly consistent (within 25% of the median).
+      const consistent = g.amounts.filter(a => Math.abs(a - med) <= med * 0.25).length;
+      if (consistent < 2) continue;
+      // Representative name = most frequent original description, trimmed.
+      const name = Object.entries(g.descs).sort((a, b) => b[1] - a[1])[0][0].slice(0, 40).trim();
+      candidates.push({
+        name,
+        cost: Math.round(med),
+        frequency: 'monthly',
+        category: g.category || 'Subscriptions',
+        occurrences: g.months.size,
+        lastSeen: g.lastDate,
+      });
+    }
+    candidates.sort((a, b) => b.occurrences - a.occurrences || b.cost - a.cost);
+    res.json(candidates.slice(0, 12));
+  } catch (e) {
+    console.error('[subscriptions/detect]', e.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 app.post('/api/subscriptions', auth, async (req, res) => {
   try {
     const { name, cost, frequency, category, scheduledPayment } = req.body;

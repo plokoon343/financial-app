@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
@@ -587,6 +587,12 @@ const Dashboard = () => {
           >
             {hideAmounts ? <FaEyeSlash size={20} /> : <FaEye size={20} />}
           </motion.button>
+          <Link to="/transactions"
+            style={{ background: darkMode ? '#4a5568' : '#e2e8f0', color: darkMode ? '#f7fafc' : '#1a365d',
+              border: 'none', padding: '0.875rem 1.5rem', borderRadius: '10px', fontSize: '1rem', fontWeight: 600,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', textDecoration: 'none' }}>
+            <FaListAlt /> View Transactions
+          </Link>
           <motion.button onClick={() => { setShowModal(true); setActiveTab('single'); setFormMsg(null); }}
             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             style={{ background: 'var(--gradient-primary)', color: 'white', border: 'none',

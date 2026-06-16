@@ -31,6 +31,8 @@ const Transactions = () => {
   const [sortDir, setSortDir] = useState('desc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [showAllStatements, setShowAllStatements] = useState(false); // statements popup (#12)
+  const RECENT_STATEMENTS = 3;
 
   // Click a column header to sort by it; click again to flip direction.
   const toggleSort = (col) => {
@@ -69,6 +71,9 @@ const Transactions = () => {
     }
     return [...map.values()].sort((a, b) => new Date(b.importedAt || 0) - new Date(a.importedAt || 0));
   }, [all]);
+
+  // Close the statements popup once everything's been deleted.
+  useEffect(() => { if (showAllStatements && batches.length === 0) setShowAllStatements(false); }, [batches.length, showAllStatements]);
 
   const filtered = useMemo(() => {
     const rows = all.filter(t => {
@@ -177,12 +182,19 @@ const Transactions = () => {
 
       {message && <div className={`tx-msg ${message.type}`}>{message.text}</div>}
 
-      {/* Statements (import batches) */}
+      {/* Statements (import batches) — show the most recent few; rest in a popup */}
       {batches.length > 0 && (
         <div className="tx-card">
-          <h3>Imported statements<InfoTip text="Each bank statement you upload becomes one group. Deleting a statement removes only its transactions — the rest of the month stays." /></h3>
+          <div className="statements-head">
+            <h3>Imported statements<InfoTip text="Each bank statement you upload becomes one group. Deleting a statement removes only its transactions — the rest of the month stays." /></h3>
+            {batches.length > RECENT_STATEMENTS && (
+              <button className="view-all-btn" onClick={() => setShowAllStatements(true)}>
+                View all ({batches.length})
+              </button>
+            )}
+          </div>
           <div className="batch-list">
-            {batches.map(b => (
+            {batches.slice(0, RECENT_STATEMENTS).map(b => (
               <div className="batch-chip" key={b.id}>
                 <div>
                   <strong>{b.bank}</strong>
@@ -191,6 +203,29 @@ const Transactions = () => {
                 <button className="btn-danger-sm" onClick={() => deleteBatch(b)}><i className="fas fa-trash"></i> Delete statement</button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* All-statements popup (#12) */}
+      {showAllStatements && (
+        <div className="stmt-modal-overlay" onClick={() => setShowAllStatements(false)}>
+          <div className="stmt-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="stmt-modal-head">
+              <h3>All imported statements ({batches.length})</h3>
+              <button className="stmt-modal-close" onClick={() => setShowAllStatements(false)} title="Close"><i className="fas fa-times"></i></button>
+            </div>
+            <div className="stmt-modal-list">
+              {batches.map(b => (
+                <div className="batch-chip" key={b.id}>
+                  <div>
+                    <strong>{b.bank}</strong>
+                    <span className="batch-meta">{b.month ? monthLabel(b.month) : 'multiple months'} · {b.count} txns · {money(b.total)}</span>
+                  </div>
+                  <button className="btn-danger-sm" onClick={() => deleteBatch(b)}><i className="fas fa-trash"></i> Delete</button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -326,6 +361,24 @@ const Transactions = () => {
         .tx-msg { padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 14px; text-align: center; }
         .tx-msg.success { background: rgba(56,161,105,0.12); color: #38a169; }
         .tx-msg.error { background: rgba(229,62,62,0.12); color: #e53e3e; }
+        .statements-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .view-all-btn {
+          background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border));
+          color: var(--accent-primary); border-radius: var(--radius-md); padding: 6px 12px;
+          font-size: 0.8rem; font-weight: 600; cursor: pointer;
+        }
+        .stmt-modal-overlay {
+          position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+          display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem;
+        }
+        .stmt-modal {
+          width: min(560px, 95vw); max-height: 85vh; overflow-y: auto; border-radius: 16px; padding: 1.25rem;
+          background: var(--bg-card, #131d33); border: 1px solid var(--border-color, #2a3852); color: var(--text-primary);
+        }
+        .stmt-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+        .stmt-modal-head h3 { margin: 0; font-size: 1.1rem; }
+        .stmt-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 1.1rem; cursor: pointer; }
+        .stmt-modal-list { display: flex; flex-direction: column; gap: 10px; }
         .batch-list { display: flex; flex-wrap: wrap; gap: 10px; }
         .batch-chip { display: flex; align-items: center; gap: 14px; justify-content: space-between; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); padding: 10px 12px; min-width: 260px; }
         .batch-meta { display: block; font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; }

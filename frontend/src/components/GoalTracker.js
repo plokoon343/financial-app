@@ -6,6 +6,7 @@ const GoalTracker = () => {
   //const { darkMode } = useAuth();
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedGoalId, setSelectedGoalId] = useState(null); // open goal popup (#30)
   const [newGoal, setNewGoal] = useState({
     name: '',
     target: '',
@@ -129,6 +130,9 @@ const GoalTracker = () => {
   const totalCurrent = goals.reduce((sum, g) => sum + g.current, 0);
   const overallProgress = totalTarget > 0 ? (totalCurrent / totalTarget) * 100 : 0;
 
+  // Live goal shown in the popup (re-derived from `goals` so it reflects updates).
+  const activeGoal = goals.find(g => g._id === selectedGoalId) || null;
+
   if (loading) return (
     <div className="loading-container">
       <div className="loading-spinner"></div>
@@ -179,145 +183,146 @@ const GoalTracker = () => {
             </button>
           </div>
         ) : (
-          <div className="goals-grid">
-            {goals.map((goal) => {
-              const { progress, daysLeft, monthlyNeeded } = getGoalProgress(goal);
-              const isCompleted = progress >= 100;
-              return (
-                <div key={goal._id} className={`goal-card ${isCompleted ? 'completed' : ''}`}>
-                  <div className="goal-header">
-                    <div className="goal-category-badge" style={{ backgroundColor: getCategoryColor(goal.category) }}>
-                      <i className={`fas ${getCategoryIcon(goal.category)}`}></i>
-                    </div>
-                    <div className="goal-title">
-                      <h3>{goal.name}</h3>
-                      <div className="goal-meta">
-                        <span className="goal-category" style={{ color: getCategoryColor(goal.category) }}>{goal.category}</span>
-                        <span className="goal-date"><i className="fas fa-calendar"></i>{new Date(goal.deadline).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                    <button className="remove-goal-btn" onClick={() => removeGoal(goal._id)}><i className="fas fa-times"></i></button>
-                  </div>
-                  <div className="goal-progress-section">
-                    <div className="progress-stats">
-                      <div className="progress-amounts">
-                        <span className="current-amount">₦{goal.current.toLocaleString()}</span>
-                        <span className="target-amount">₦{goal.target.toLocaleString()}</span>
-                      </div>
-                      <div className="progress-percentage">{progress.toFixed(1)}%</div>
-                    </div>
-                    <div className="progress-bar-container">
-                      <div className="progress-bar" style={{
-                        background: isCompleted
-                          ? 'linear-gradient(135deg, #27ae60 0%, #2ecc71 100%)'
-                          : `linear-gradient(135deg, ${getCategoryColor(goal.category)} 0%, ${getCategoryColor(goal.category)}80 100%)`
-                      }}>
-                        <div className="progress-fill" style={{ width: `${progress}%` }}></div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="goal-details">
-                    <div className="detail-grid">
-                      <div className="detail-item">
-                        <div className="detail-label"><i className="fas fa-calendar-day"></i><span>Days Left</span></div>
-                        <div className={`detail-value ${daysLeft < 30 ? 'warning' : ''}`}>{daysLeft}</div>
-                      </div>
-                      <div className="detail-item">
-                        <div className="detail-label"><i className="fas fa-money-bill-wave"></i><span>Monthly Needed</span></div>
-                        <div className="detail-value">₦{monthlyNeeded.toLocaleString()}</div>
-                      </div>
-                      <div className="detail-item">
-                        <div className="detail-label"><i className="fas fa-wallet"></i><span>Remaining</span></div>
-                        <div className="detail-value">₦{(goal.target - goal.current).toLocaleString()}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Scheduled Payment UI */}
-                  <div className="scheduled-payment-toggle">
-                    <label className="schedule-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={goal.scheduledPayment?.enabled || false}
-                        onChange={(e) => {
-                          const currentSP = goal.scheduledPayment || { enabled: false, amount: 0, dayOfMonth: 1 };
-                          updateScheduledPayment(goal._id, {
-                            enabled: e.target.checked,
-                            amount: currentSP.amount || 0,
-                            dayOfMonth: currentSP.dayOfMonth || 1
-                          });
-                        }}
-                      />
-                      <span>Auto‑pay from wallet</span>
-                    </label>
-                    {goal.scheduledPayment?.enabled && (
-                      <div className="schedule-details">
-                        <div className="schedule-field">
-                          <label>Amount per payment (₦)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="100"
-                            value={goal.scheduledPayment?.amount || 0}
-                            onChange={(e) => {
-                              const currentSP = goal.scheduledPayment || { enabled: true, amount: 0, dayOfMonth: 1 };
-                              updateScheduledPayment(goal._id, {
-                                enabled: true,
-                                amount: parseFloat(e.target.value),
-                                dayOfMonth: currentSP.dayOfMonth || 1
-                              });
-                            }}
-                          />
+          <div className="goals-table-wrap">
+            <table className="goals-table">
+              <thead>
+                <tr>
+                  <th>Goal</th><th>Category</th><th>Progress</th><th className="num">Target</th><th>Deadline</th><th>Auto-pay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {goals.map((goal) => {
+                  const { progress } = getGoalProgress(goal);
+                  const isCompleted = progress >= 100;
+                  return (
+                    <tr key={goal._id} className="goals-row" onClick={() => setSelectedGoalId(goal._id)} title="View goal">
+                      <td>
+                        <div className="gt-name">
+                          <span className="gt-badge" style={{ backgroundColor: getCategoryColor(goal.category) }}>
+                            <i className={`fas ${getCategoryIcon(goal.category)}`}></i>
+                          </span>
+                          <span>{goal.name}</span>
                         </div>
-                        <div className="schedule-field">
-                          <label>Day of month</label>
-                          <input
-                            type="number"
-                            min="1"
-                            max="31"
-                            value={goal.scheduledPayment?.dayOfMonth || 1}
-                            onChange={(e) => updateScheduledPayment(goal._id, {
-                              enabled: true,
-                              amount: goal.scheduledPayment?.amount || 0,
-                              dayOfMonth: parseInt(e.target.value, 10)
-                            })}
-                          />
+                      </td>
+                      <td><span className="gt-cat" style={{ color: getCategoryColor(goal.category) }}>{goal.category}</span></td>
+                      <td>
+                        <div className="gt-progress">
+                          <div className="gt-track"><div className="gt-fill" style={{ width: `${progress}%`, background: isCompleted ? '#27ae60' : getCategoryColor(goal.category) }}></div></div>
+                          <span>{progress.toFixed(0)}%</span>
                         </div>
-                        <small>Automatically added to goal on this day</small>
-                      </div>
-                    )}
-                  </div>
-
-                  {!isCompleted && (
-                    <div className="goal-actions">
-                      <div className="quick-add-header"><i className="fas fa-bolt"></i><span>Quick Add Funds</span></div>
-                      <div className="quick-add-buttons">
-                        {/* All calls now use contributeToGoal */}
-                        <button onClick={() => contributeToGoal(goal._id, 100)} className="add-funds-btn"><i className="fas fa-plus"></i> ₦100</button>
-                        <button onClick={() => contributeToGoal(goal._id, 500)} className="add-funds-btn"><i className="fas fa-plus"></i> ₦500</button>
-                        <button onClick={() => contributeToGoal(goal._id, 1000)} className="add-funds-btn"><i className="fas fa-plus"></i> ₦1,000</button>
-                        <div className="custom-add">
-                          <input type="number" placeholder="Custom" className="custom-input"
-                            onKeyPress={(e) => { if (e.key === 'Enter') { contributeToGoal(goal._id, parseFloat(e.target.value) || 0); e.target.value = ''; } }} />
-                          <button className="custom-btn" onClick={(e) => {
-                            const input = e.target.previousElementSibling;
-                            const val = parseFloat(input.value) || 0;
-                            if (val > 0) contributeToGoal(goal._id, val);
-                            input.value = '';
-                          }}>Add</button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {isCompleted && (
-                    <div className="goal-completed"><i className="fas fa-trophy"></i><span>Goal Achieved! 🎉</span></div>
-                  )}
-                </div>
-              );
-            })}
+                      </td>
+                      <td className="num">₦{goal.target.toLocaleString()}</td>
+                      <td>{new Date(goal.deadline).toLocaleDateString()}</td>
+                      <td>
+                        <span className={`gt-autopay ${goal.scheduledPayment?.enabled ? 'on' : 'off'}`}>
+                          <i className={`fas ${goal.scheduledPayment?.enabled ? 'fa-check-circle' : 'fa-circle'}`}></i>
+                          {goal.scheduledPayment?.enabled ? 'On' : 'Off'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
+
+      {/* Goal detail popup (#30) */}
+      {activeGoal && (() => {
+        const { progress, daysLeft, monthlyNeeded } = getGoalProgress(activeGoal);
+        const isCompleted = progress >= 100;
+        const sp = activeGoal.scheduledPayment || { enabled: false, amount: 0, dayOfMonth: 1 };
+        return (
+          <div className="goal-modal-overlay" onClick={() => setSelectedGoalId(null)}>
+            <div className="goal-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="goal-modal-head">
+                <div className="gt-name">
+                  <span className="gt-badge" style={{ backgroundColor: getCategoryColor(activeGoal.category) }}>
+                    <i className={`fas ${getCategoryIcon(activeGoal.category)}`}></i>
+                  </span>
+                  <div>
+                    <h3>{activeGoal.name}</h3>
+                    <span className="gt-cat" style={{ color: getCategoryColor(activeGoal.category) }}>{activeGoal.category}</span>
+                  </div>
+                </div>
+                <button className="goal-modal-close" onClick={() => setSelectedGoalId(null)} title="Close"><i className="fas fa-times"></i></button>
+              </div>
+
+              <div className="progress-stats">
+                <div className="progress-amounts">
+                  <span className="current-amount">₦{activeGoal.current.toLocaleString()}</span>
+                  <span className="target-amount">of ₦{activeGoal.target.toLocaleString()}</span>
+                </div>
+                <div className="progress-percentage">{progress.toFixed(1)}%</div>
+              </div>
+              <div className="progress-bar-container">
+                <div className="progress-bar"><div className="progress-fill" style={{ width: `${progress}%`, background: isCompleted ? '#27ae60' : getCategoryColor(activeGoal.category) }}></div></div>
+              </div>
+
+              <div className="detail-grid" style={{ marginTop: '1rem' }}>
+                <div className="detail-item"><div className="detail-label"><i className="fas fa-calendar-day"></i><span>Days Left</span></div><div className={`detail-value ${daysLeft < 30 ? 'warning' : ''}`}>{daysLeft}</div></div>
+                <div className="detail-item"><div className="detail-label"><i className="fas fa-money-bill-wave"></i><span>Monthly Needed</span></div><div className="detail-value">₦{monthlyNeeded.toLocaleString()}</div></div>
+                <div className="detail-item"><div className="detail-label"><i className="fas fa-wallet"></i><span>Remaining</span></div><div className="detail-value">₦{(activeGoal.target - activeGoal.current).toLocaleString()}</div></div>
+              </div>
+
+              {/* Auto-pay (#31) */}
+              <div className="scheduled-payment-toggle">
+                <label className="schedule-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={sp.enabled || false}
+                    onChange={(e) => updateScheduledPayment(activeGoal._id, { enabled: e.target.checked, amount: sp.amount || 0, dayOfMonth: sp.dayOfMonth || 1 })}
+                  />
+                  <span>Auto‑pay from wallet</span>
+                </label>
+                {sp.enabled && (
+                  <div className="schedule-details">
+                    <div className="schedule-field">
+                      <label>Amount per payment (₦)</label>
+                      <input type="number" min="0" step="100" value={sp.amount || 0}
+                        onChange={(e) => updateScheduledPayment(activeGoal._id, { enabled: true, amount: parseFloat(e.target.value), dayOfMonth: sp.dayOfMonth || 1 })} />
+                    </div>
+                    <div className="schedule-field">
+                      <label>Day of month</label>
+                      <input type="number" min="1" max="31" value={sp.dayOfMonth || 1}
+                        onChange={(e) => updateScheduledPayment(activeGoal._id, { enabled: true, amount: sp.amount || 0, dayOfMonth: parseInt(e.target.value, 10) })} />
+                    </div>
+                    <small>Automatically added to this goal on the chosen day</small>
+                  </div>
+                )}
+              </div>
+
+              {!isCompleted ? (
+                <div className="goal-actions">
+                  <div className="quick-add-header"><i className="fas fa-bolt"></i><span>Quick Add Funds</span></div>
+                  <div className="quick-add-buttons">
+                    <button onClick={() => contributeToGoal(activeGoal._id, 100)} className="add-funds-btn"><i className="fas fa-plus"></i> ₦100</button>
+                    <button onClick={() => contributeToGoal(activeGoal._id, 500)} className="add-funds-btn"><i className="fas fa-plus"></i> ₦500</button>
+                    <button onClick={() => contributeToGoal(activeGoal._id, 1000)} className="add-funds-btn"><i className="fas fa-plus"></i> ₦1,000</button>
+                    <div className="custom-add">
+                      <input type="number" placeholder="Custom" className="custom-input"
+                        onKeyPress={(e) => { if (e.key === 'Enter') { contributeToGoal(activeGoal._id, parseFloat(e.target.value) || 0); e.target.value = ''; } }} />
+                      <button className="custom-btn" onClick={(e) => {
+                        const input = e.target.previousElementSibling;
+                        const val = parseFloat(input.value) || 0;
+                        if (val > 0) contributeToGoal(activeGoal._id, val);
+                        input.value = '';
+                      }}>Add</button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="goal-completed"><i className="fas fa-trophy"></i><span>Goal Achieved! 🎉</span></div>
+              )}
+
+              <button className="goal-modal-delete" onClick={() => removeGoal(activeGoal._id)}>
+                <i className="fas fa-trash"></i> Delete goal
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Add Goal Form */}
       <div className="add-goal-form glass-effect">
@@ -460,6 +465,33 @@ const GoalTracker = () => {
         .btn-primary { padding: 14px 32px; background: var(--gradient-primary); color: white; border: none; border-radius: var(--radius-full); font-weight: 600; cursor: pointer; transition: all var(--transition-base); display: inline-flex; align-items: center; gap: 10px; font-size: 1rem; box-shadow: var(--shadow-md); }
         .btn-primary:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
         .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px; }
+
+        /* Goals table (#30) */
+        .goals-table-wrap { overflow-x: auto; }
+        .goals-table { width: 100%; border-collapse: collapse; }
+        .goals-table th { text-align: left; font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+        .goals-table th.num, .goals-table td.num { text-align: right; }
+        .goals-row { cursor: pointer; transition: background var(--transition-fast); }
+        .goals-row:hover { background: var(--glass-bg); }
+        .goals-table td { padding: 12px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.92rem; vertical-align: middle; }
+        .gt-name { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+        .gt-badge { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.85rem; flex-shrink: 0; }
+        .gt-cat { font-size: 0.85rem; font-weight: 600; }
+        .gt-progress { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+        .gt-track { flex: 1; height: 7px; border-radius: 4px; background: var(--glass-bg); overflow: hidden; }
+        .gt-fill { height: 100%; border-radius: 4px; }
+        .gt-autopay { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-full); }
+        .gt-autopay.on { color: #22C55E; background: rgba(34,197,94,0.12); }
+        .gt-autopay.off { color: var(--text-secondary); background: var(--glass-bg); }
+
+        /* Goal detail popup (#30) */
+        .goal-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+        .goal-modal { width: min(560px, 95vw); max-height: 88vh; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 18px; padding: 1.5rem; color: var(--text-primary); }
+        .goal-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 1.25rem; }
+        .goal-modal-head h3 { font-size: 1.3rem; color: var(--text-primary); margin: 0; }
+        .goal-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 1.2rem; cursor: pointer; }
+        .goal-modal-delete { margin-top: 1.25rem; width: 100%; padding: 0.8rem; border-radius: 10px; background: transparent; border: 1px solid #ef4444; color: #ef4444; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .goal-modal-delete:hover { background: rgba(239,68,68,0.1); }
         .goal-card { background: var(--glass-bg); border-radius: var(--radius-lg); padding: 16px; transition: all var(--transition-base); border: 1px solid var(--glass-border); position: relative; overflow: hidden; }
         .goal-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-md); }
         .goal-card.completed { border-left: 4px solid #27ae60; }

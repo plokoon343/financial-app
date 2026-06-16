@@ -10,6 +10,8 @@
     "axios": "^1.12.2",
     "chart.js": "^4.5.0",
     "framer-motion": "^12.24.11",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "motion": "^12.23.26",
     "papaparse": "^5.5.3",
     "react": "^19.1.1",

@@ -4,6 +4,9 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 import { tipsEnabled, setTipsEnabled, resetTips } from '../utils/tips';
+import { fmtNaira } from '../utils/format';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
@@ -101,14 +104,65 @@ const Settings = () => {
 
   const exportData = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/me/export`, authHeader());
-      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `finpilot-data-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click(); URL.revokeObjectURL(url);
-      flash('Your data has been downloaded.');
-    } catch { flash('Could not export data', 'error'); }
+      const { data } = await axios.get(`${API_URL}/api/me/export`, authHeader());
+      const doc = new jsPDF();
+      const date = (d) => (d ? new Date(d).toLocaleDateString('en-NG') : '');
+      let y = 16;
+
+      // Header
+      doc.setFontSize(18); doc.setTextColor('#0b1326');
+      doc.text('FinPilot — Data Export', 14, y); y += 7;
+      doc.setFontSize(10); doc.setTextColor('#64748b');
+      doc.text(`Generated ${new Date().toLocaleString('en-NG')}`, 14, y); y += 8;
+
+      // Profile
+      const p = data.profile || {};
+      autoTable(doc, {
+        startY: y,
+        head: [['Profile', '']],
+        body: [
+          ['Name', p.name || ''],
+          ['Email', p.email || ''],
+          ['Phone', p.phone || ''],
+          ['Monthly income', p.monthlyIncome ? fmtNaira(p.monthlyIncome) : '—'],
+          ['Primary goal', p.primaryGoal || '—'],
+        ],
+        theme: 'striped', headStyles: { fillColor: [8, 135, 81] }, styles: { fontSize: 9 },
+      });
+
+      const section = (title, head, rows) => {
+        if (!rows || rows.length === 0) return;
+        autoTable(doc, {
+          startY: doc.lastAutoTable.finalY + 8,
+          head: [[`${title} (${rows.length})`, ...Array(head.length - 1).fill('')]],
+          theme: 'plain', styles: { fontSize: 11, fontStyle: 'bold', textColor: [8, 135, 81] },
+        });
+        autoTable(doc, {
+          startY: doc.lastAutoTable.finalY + 1,
+          head: [head],
+          body: rows,
+          theme: 'striped', headStyles: { fillColor: [30, 41, 59] }, styles: { fontSize: 8, cellPadding: 2 },
+        });
+      };
+
+      section('Transactions', ['Date', 'Description', 'Category', 'Type', 'Amount'],
+        (data.transactions || []).map((t) => [date(t.date), (t.description || '').slice(0, 40), t.category || '', t.type || '', fmtNaira(t.amount)]));
+      section('Budgets', ['Category', 'Month', 'Amount'],
+        (data.budgets || []).map((b) => [b.category, b.month, fmtNaira(b.amount)]));
+      section('Goals', ['Name', 'Saved', 'Target', 'Deadline'],
+        (data.goals || []).map((g) => [g.name, fmtNaira(g.current), fmtNaira(g.target), date(g.deadline)]));
+      section('Debts', ['Name', 'Balance', 'Min payment'],
+        (data.debts || []).map((d) => [d.name, fmtNaira(d.balance), fmtNaira(d.minPayment)]));
+      section('Subscriptions', ['Name', 'Cost', 'Frequency', 'Status'],
+        (data.subscriptions || []).map((s) => [s.name, fmtNaira(s.cost), s.frequency, s.status]));
+      section('Recurring bills', ['Name', 'Amount', 'Due day', 'Frequency'],
+        (data.bills || []).map((b) => [b.name, fmtNaira(b.amount), b.dueDate, b.frequency]));
+
+      doc.save(`finpilot-data-${new Date().toISOString().slice(0, 10)}.pdf`);
+      flash('Your data has been downloaded as a PDF.');
+    } catch (e) {
+      flash('Could not export data', 'error');
+    }
   };
 
   const deleteAccount = async () => {
@@ -267,7 +321,7 @@ const Settings = () => {
       {/* Data & privacy */}
       <div className="settings-card">
         <h3><i className="fas fa-database"></i> Data &amp; Privacy</h3>
-        <div className="row-between"><div><strong>Export my data</strong><span className="hint">Download everything as a JSON file.</span></div><button className="btn-secondary" onClick={exportData}><i className="fas fa-download"></i> Export</button></div>
+        <div className="row-between"><div><strong>Export my data</strong><span className="hint">Download everything as a PDF report.</span></div><button className="btn-secondary" onClick={exportData}><i className="fas fa-download"></i> Export</button></div>
         <div className="divider" />
         <button className="btn-secondary" onClick={() => { logout(); navigate('/login'); }}><i className="fas fa-right-from-bracket"></i> Log out</button>
       </div>

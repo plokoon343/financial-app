@@ -26,3 +26,6 @@ yarn-error.log*
 
 # misc
 .DS_Store
+
+# local doc-generation scratch (not part of the app)
+_docgen/

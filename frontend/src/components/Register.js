@@ -70,7 +70,7 @@ import './Login.css'; // reuse same CSS for consistency
 
 const Register = () => {
   const [formData, setFormData] = useState({
-    name: '', email: '', password: '', confirmPassword: ''
+    name: '', email: '', phone: '', password: '', confirmPassword: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -105,9 +105,13 @@ const Register = () => {
       setError('Password must be at least 6 characters');
       return;
     }
+    if (formData.phone.replace(/\D/g, '').length < 7) {
+      setError('Enter a valid phone number');
+      return;
+    }
     setLoading(true);
     setError('');
-    const result = await register(formData.name, formData.email, formData.password);
+    const result = await register(formData.name, formData.email, formData.password, formData.phone);
     if (result.success) navigate('/');
     else setError(result.message);
     setLoading(false);
@@ -163,6 +167,21 @@ const Register = () => {
               onChange={handleChange}
               required
               placeholder="Enter your email"
+              className="form-input"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="phone" className="form-label">Phone Number</label>
+            <input
+              id="phone"
+              type="tel"
+              name="phone"
+              value={formData.phone}
+              onChange={handleChange}
+              required
+              placeholder="e.g. 0801 234 5678"
               className="form-input"
               disabled={loading}
             />

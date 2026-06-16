@@ -1209,12 +1209,20 @@ app.get('/api/test', (req, res) => res.json({ message: 'Backend is working!' }))
 // Auth
 app.post('/api/register', authLimiter, async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, phone } = req.body;
+    // Phone is now required at sign-up.
+    const cleanPhone = (phone || '').toString().trim();
+    if (!name || !email || !password || !cleanPhone) {
+      return res.status(400).json({ message: 'Name, email, phone and password are all required' });
+    }
+    if (cleanPhone.replace(/\D/g, '').length < 7) {
+      return res.status(400).json({ message: 'Enter a valid phone number' });
+    }
     let user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: 'User already exists' });
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    user = new User({ name, email, password: hashedPassword });
+    user = new User({ name, email, password: hashedPassword, phone: cleanPhone.slice(0, 20) });
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });

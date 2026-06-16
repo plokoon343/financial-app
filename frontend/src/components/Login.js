@@ -5,6 +5,7 @@ import './Login.css';
 
 const Login = () => {
   const [formData, setFormData] = useState({ email: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
@@ -81,33 +82,32 @@ const Login = () => {
               <label htmlFor="password" className="form-label">Password</label>
               <Link to="/forgot-password" className="forgot-password">Forgot password?</Link>
             </div>
-            <input
-              id="password"
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              required
-              placeholder="Enter your password"
-              className="form-input"
-              disabled={loading}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                placeholder="Enter your password"
+                className="form-input"
+                disabled={loading}
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </div>
 
           <button type="submit" className={`login-button ${loading ? 'loading' : ''}`} disabled={loading}>
             {loading ? <>Signing In...</> : 'Sign In'}
           </button>
         </form>
-
-        <div className="divider"><span>or</span></div>
-
-        <button
-          className="demo-button"
-          onClick={() => setFormData({ email: 'demo@example.com', password: 'demo123' })}
-          type="button"
-        >
-          Use Demo Credentials
-        </button>
 
         <div className="signup-section">
           <p>Don't have an account?</p>

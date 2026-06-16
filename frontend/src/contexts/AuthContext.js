@@ -79,24 +79,40 @@ export const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(id);
   }, []);
 
+  const finishLogin = ({ token, user }) => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(user));
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    setUser(user);
+  };
+
   const login = async (email, password) => {
     try {
-      const response = await axios.post(`${API_URL}/api/login`, {
-        email,
-        password
-      });
-
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      setUser(user);
-      
+      const response = await axios.post(`${API_URL}/api/login`, { email, password });
+      // 2-step verification: backend emailed a code, no token yet.
+      if (response.data.otpRequired) {
+        return { success: true, otpRequired: true, email: response.data.email || email };
+      }
+      finishLogin(response.data);
       return { success: true };
     } catch (error) {
-      return { 
-        success: false, 
-        message: error.response?.data?.message || 'Login failed' 
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Login failed'
+      };
+    }
+  };
+
+  // Step 2 of 2FA: verify the emailed code and complete sign-in.
+  const verifyLoginOtp = async (email, otp) => {
+    try {
+      const response = await axios.post(`${API_URL}/api/verify-login-otp`, { email, otp });
+      finishLogin(response.data);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Verification failed'
       };
     }
   };
@@ -142,6 +158,7 @@ export const AuthProvider = ({ children }) => {
   const value = {
     user,
     login,
+    verifyLoginOtp,
     register,
     logout,
     updateUser,

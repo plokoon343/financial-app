@@ -11,6 +11,10 @@ const Wallet = () => {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState('deposit');
+  // Custom destination account for withdrawals (#26)
+  const [acctName, setAcctName] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [acctNumber, setAcctNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
 
@@ -38,13 +42,25 @@ const Wallet = () => {
       setMessage({ text: 'Please enter a valid amount', type: 'error' });
       return;
     }
+    // For withdrawals, require a destination account (custom account #26).
+    if (type === 'withdrawal') {
+      if (!acctName.trim() || !bankName.trim() || acctNumber.replace(/\D/g, '').length < 10) {
+        setMessage({ text: 'Enter the destination account name, bank, and a 10-digit account number', type: 'error' });
+        return;
+      }
+    }
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
       const endpoint = type === 'deposit' ? '/api/wallet/deposit' : '/api/wallet/withdraw';
+      // Compose a description that records the chosen destination account.
+      const last4 = acctNumber.replace(/\D/g, '').slice(-4);
+      const withdrawDesc = `Withdrawal to ${acctName.trim()} · ${bankName.trim()} ••••${last4}${description ? ` (${description})` : ''}`;
       const res = await axios.post(`${API_URL}${endpoint}`, {
         amount: parseFloat(amount),
-        description: description || (type === 'deposit' ? 'Manual deposit' : 'Manual withdrawal')
+        description: type === 'deposit'
+          ? (description || 'Manual deposit')
+          : withdrawDesc,
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -53,6 +69,7 @@ const Wallet = () => {
       window.dispatchEvent(new CustomEvent('wallet-updated', { detail: { balance: res.data.balance } }));
       setAmount('');
       setDescription('');
+      setAcctName(''); setBankName(''); setAcctNumber('');
       setMessage({ text: `${type === 'deposit' ? 'Deposit' : 'Withdrawal'} successful!`, type: 'success' });
       fetchWallet(); // refresh transaction list and savings balance
     } catch (err) {
@@ -146,8 +163,36 @@ const Wallet = () => {
             </div>
           </div>
 
+          {type === 'withdrawal' && (
+            <div className="withdraw-account">
+              <div className="wa-title"><i className="fas fa-university"></i> Withdraw to account</div>
+              <div className="form-group">
+                <label htmlFor="acctName">Account name</label>
+                <div className="input-with-icon">
+                  <i className="fas fa-user input-icon"></i>
+                  <input id="acctName" type="text" value={acctName} onChange={(e) => setAcctName(e.target.value)} placeholder="e.g. John Doe" />
+                </div>
+              </div>
+              <div className="form-group">
+                <label htmlFor="bankName">Bank</label>
+                <div className="input-with-icon">
+                  <i className="fas fa-building-columns input-icon"></i>
+                  <input id="bankName" type="text" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g. GTBank" />
+                </div>
+              </div>
+              <div className="form-group">
+                <label htmlFor="acctNumber">Account number</label>
+                <div className="input-with-icon">
+                  <i className="fas fa-hashtag input-icon"></i>
+                  <input id="acctNumber" type="text" inputMode="numeric" maxLength="10" value={acctNumber} onChange={(e) => setAcctNumber(e.target.value)} placeholder="10-digit account number" />
+                </div>
+              </div>
+              <p className="wa-note"><i className="fas fa-info-circle"></i> Funds leave your wallet now; the bank transfer to this account is processed once bank integration is live.</p>
+            </div>
+          )}
+
           <div className="form-group">
-            <label htmlFor="description">Description (optional)</label>
+            <label htmlFor="description">{type === 'withdrawal' ? 'Note (optional)' : 'Description (optional)'}</label>
             <div className="input-with-icon">
               <i className="fas fa-pen input-icon"></i>
               <input
@@ -297,6 +342,16 @@ const Wallet = () => {
           align-items: center;
           gap: 10px;
         }
+        .withdraw-account {
+          background: var(--glass-bg);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-md);
+          padding: 16px;
+          margin-bottom: 25px;
+        }
+        .wa-title { font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+        .withdraw-account .form-group { margin-bottom: 14px; }
+        .wa-note { font-size: 0.78rem; color: var(--text-secondary); margin: 4px 0 0; display: flex; align-items: flex-start; gap: 6px; line-height: 1.4; }
         .form-group {
           margin-bottom: 25px;
         }

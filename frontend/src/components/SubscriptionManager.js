@@ -13,6 +13,37 @@ const SubscriptionManager = () => {
     frequency: 'monthly',
     category: 'Entertainment',
   });
+  // Auto-detected candidates from bank statements
+  const [detected, setDetected] = useState([]);
+  const [detecting, setDetecting] = useState(false);
+  const [detectMsg, setDetectMsg] = useState('');
+
+  const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+
+  const detectSubscriptions = async () => {
+    setDetecting(true); setDetectMsg('');
+    try {
+      const res = await axios.get(`${API_URL}/api/subscriptions/detect`, authHeaders());
+      setDetected(res.data || []);
+      setDetectMsg(res.data.length ? '' : 'No recurring charges found in your transactions yet.');
+    } catch (err) {
+      setDetectMsg('Could not scan transactions. Try again.');
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const addDetected = async (cand) => {
+    try {
+      await axios.post(`${API_URL}/api/subscriptions`, {
+        name: cand.name, cost: cand.cost, frequency: cand.frequency, category: cand.category,
+      }, authHeaders());
+      setDetected((prev) => prev.filter((c) => c.name !== cand.name));
+      fetchSubscriptions();
+    } catch (err) {
+      setDetectMsg('Could not add that subscription.');
+    }
+  };
 
   // Fetch subscriptions from backend
   const fetchSubscriptions = async () => {
@@ -213,6 +244,33 @@ const SubscriptionManager = () => {
                     <i className="fas fa-trash"></i>Remove
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Auto-detect from statements */}
+      <div className="detect-card glass-effect">
+        <div className="detect-head">
+          <div>
+            <h3><i className="fas fa-magnifying-glass-chart"></i> Detect from statements</h3>
+            <p>Scan your transactions for recurring charges and add them as subscriptions.</p>
+          </div>
+          <button className="btn-primary" onClick={detectSubscriptions} disabled={detecting}>
+            <i className="fas fa-wand-magic-sparkles"></i> {detecting ? 'Scanning…' : 'Scan transactions'}
+          </button>
+        </div>
+        {detectMsg && <p className="detect-msg">{detectMsg}</p>}
+        {detected.length > 0 && (
+          <div className="detect-list">
+            {detected.map((c, i) => (
+              <div key={i} className="detect-row">
+                <div className="detect-info">
+                  <span className="detect-name">{c.name}</span>
+                  <span className="detect-meta">{fmtNaira(c.cost)}/mo · seen in {c.occurrences} months · {c.category}</span>
+                </div>
+                <button className="detect-add" onClick={() => addDetected(c)}><i className="fas fa-plus"></i> Add</button>
               </div>
             ))}
           </div>
@@ -683,6 +741,19 @@ const SubscriptionManager = () => {
           box-shadow: var(--shadow-sm);
         }
         
+        /* Detect from statements */
+        .detect-card { background: var(--card-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); margin-bottom: 24px; }
+        .detect-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+        .detect-head h3 { font-family: var(--font-heading); font-size: 1.4rem; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+        .detect-head p { color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px; }
+        .detect-msg { color: var(--text-secondary); font-size: 0.9rem; margin-top: 12px; }
+        .detect-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+        .detect-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--glass-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+        .detect-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .detect-name { color: var(--text-primary); font-weight: 600; }
+        .detect-meta { color: var(--text-secondary); font-size: 0.8rem; }
+        .detect-add { background: var(--gradient-primary); color: #fff; border: none; border-radius: var(--radius-full); padding: 8px 18px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+
         /* Add Subscription Form */
         .add-subscription-form {
           background: var(--card-bg);

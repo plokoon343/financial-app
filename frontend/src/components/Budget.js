@@ -29,6 +29,10 @@ const Budget = () => {
     amount: '',
     month: currentMonth
   });
+  // Detail/edit popup for a single budget (#18/#13).
+  const [detailBudget, setDetailBudget] = useState(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Always send the auth token explicitly (don't rely on a global axios default).
   const authConfig = () => ({
@@ -98,6 +102,7 @@ const Budget = () => {
     if (window.confirm('Are you sure you want to delete this budget?')) {
       try {
         await axios.delete(`${API_URL}/api/budgets/${id}`, authConfig());
+        setDetailBudget(null);
         fetchBudgets();
       } catch (error) {
         console.error('Error deleting budget:', error);
@@ -105,6 +110,26 @@ const Budget = () => {
       }
     }
   };
+
+  // No PUT endpoint for budgets — "edit limit" = delete then recreate with the
+  // same category/month and the new amount.
+  const saveEditLimit = async () => {
+    const amt = parseFloat(editAmount);
+    if (!amt || amt <= 0) { alert('Enter a valid amount'); return; }
+    setSavingEdit(true);
+    try {
+      await axios.delete(`${API_URL}/api/budgets/${detailBudget._id}`, authConfig());
+      await axios.post(`${API_URL}/api/budgets`, { category: detailBudget.category, amount: amt, month: detailBudget.month }, authConfig());
+      setDetailBudget(null);
+      fetchBudgets();
+    } catch (error) {
+      alert(errMessage(error, 'Could not update the budget.'));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const openDetail = (b) => { setDetailBudget(b); setEditAmount(String(b.amount)); };
 
   // Month key (YYYY-MM) for a transaction, so spend is scoped to the budget's month.
   const txMonth = (t) => {
@@ -387,7 +412,13 @@ const Budget = () => {
         ) : (
           <div className="budget-list">
             {budgetData.map(budget => (
-              <div key={budget._id} className={`budget-item glass-effect ${budget.isOverBudget ? 'over-budget' : budget.isWarning ? 'warning-budget' : ''}`}>
+              <div
+                key={budget._id}
+                className={`budget-item glass-effect ${budget.isOverBudget ? 'over-budget' : budget.isWarning ? 'warning-budget' : ''}`}
+                onClick={() => openDetail(budget)}
+                style={{ cursor: 'pointer' }}
+                title="View / edit budget"
+              >
                 <div className="budget-header">
                   <div className="budget-category">
                     <i className="fas fa-tag"></i>
@@ -397,9 +428,9 @@ const Budget = () => {
                     <span className="budget-month">
                       <i className="fas fa-calendar"></i> {budget.month}
                     </span>
-                    <button 
+                    <button
                       className="delete-budget-btn"
-                      onClick={() => deleteBudget(budget._id)}
+                      onClick={(e) => { e.stopPropagation(); deleteBudget(budget._id); }}
                       title="Delete budget"
                     >
                       <i className="fas fa-trash"></i>
@@ -446,7 +477,84 @@ const Budget = () => {
         )}
       </div>
 
+      {/* Budget detail / edit popup (#18) */}
+      {detailBudget && (
+        <div className="budget-modal-overlay" onClick={() => setDetailBudget(null)}>
+          <div className="budget-modal glass-effect" onClick={(e) => e.stopPropagation()}>
+            <div className="budget-modal-head">
+              <h3><i className="fas fa-tag"></i> {detailBudget.category}</h3>
+              <button className="budget-modal-close" onClick={() => setDetailBudget(null)} title="Close">
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <p className="budget-modal-month"><i className="fas fa-calendar"></i> {detailBudget.month}</p>
+
+            <div className="budget-modal-stats">
+              <div><span>Spent</span><strong>{fmtMoney(detailBudget.actualSpent)}</strong></div>
+              <div><span>Budget</span><strong>{fmtMoney(detailBudget.amount)}</strong></div>
+              <div><span>Remaining</span><strong className={detailBudget.remaining < 0 ? 'negative' : 'positive'}>{fmtMoney(detailBudget.remaining)}</strong></div>
+            </div>
+            <div className="progress-bar" style={{ margin: '0.5rem 0 1.25rem' }}>
+              <div
+                className={`progress-fill ${detailBudget.isOverBudget ? 'over' : detailBudget.isWarning ? 'warning' : 'normal'}`}
+                style={{ width: `${Math.min(detailBudget.spentPercentage, 100)}%` }}
+              ></div>
+            </div>
+
+            <label className="budget-modal-label">Edit monthly limit (₦)</label>
+            <input
+              type="number"
+              min="0"
+              value={editAmount}
+              onChange={(e) => setEditAmount(e.target.value)}
+              className="budget-modal-input"
+            />
+            <div className="budget-modal-actions">
+              <button className="btn-danger-outline" onClick={() => deleteBudget(detailBudget._id)}>
+                <i className="fas fa-trash"></i> Delete
+              </button>
+              <button className="btn-primary" onClick={saveEditLimit} disabled={savingEdit}>
+                {savingEdit ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx="true">{`
+        /* Budget detail/edit popup */
+        .budget-modal-overlay {
+          position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 1000; padding: 1rem; backdrop-filter: blur(4px);
+        }
+        .budget-modal {
+          width: min(440px, 94vw); border-radius: 18px; padding: 1.5rem;
+          background: var(--bg-card, #131d33); border: 1px solid var(--border-color, #2a3852);
+          color: var(--text-primary);
+        }
+        .budget-modal-head { display: flex; justify-content: space-between; align-items: center; }
+        .budget-modal-head h3 { margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem; }
+        .budget-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 1.1rem; cursor: pointer; }
+        .budget-modal-month { color: var(--text-secondary); font-size: 0.85rem; margin: 0.25rem 0 1rem; }
+        .budget-modal-stats { display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .budget-modal-stats div { display: flex; flex-direction: column; gap: 2px; }
+        .budget-modal-stats span { color: var(--text-secondary); font-size: 0.75rem; }
+        .budget-modal-stats strong { font-size: 1rem; }
+        .budget-modal-stats .negative { color: #ef4444; }
+        .budget-modal-stats .positive { color: #10b981; }
+        .budget-modal-label { display: block; color: var(--text-secondary); font-size: 0.8rem; font-weight: 600; margin-bottom: 0.4rem; }
+        .budget-modal-input {
+          width: 100%; box-sizing: border-box; padding: 0.75rem 1rem; border-radius: 10px;
+          background: var(--bg-input, #1e293b); border: 1px solid var(--border-color, #2a3852);
+          color: var(--text-primary); font-size: 1rem; margin-bottom: 1.25rem;
+        }
+        .budget-modal-actions { display: flex; gap: 0.75rem; }
+        .budget-modal-actions button { flex: 1; padding: 0.8rem; border-radius: 10px; font-weight: 600; cursor: pointer; border: none; }
+        .budget-modal-actions .btn-primary { background: var(--gradient-primary, #10b981); color: #fff; }
+        .budget-modal-actions .btn-danger-outline { background: transparent; border: 1px solid #ef4444; color: #ef4444; }
+        .budget-modal-actions button:disabled { opacity: 0.6; cursor: default; }
+
         /* Budget Page Styles */
         .budget-page {
           padding: 20px;

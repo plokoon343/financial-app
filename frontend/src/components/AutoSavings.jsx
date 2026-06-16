@@ -227,7 +227,7 @@ const AutoSavings = () => {
       {/* Info popup for round‑up */}
       {showInfo && (
         <div className="modal-overlay" onClick={() => setShowInfo(false)}>
-          <div className="modal-content glass-effect" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3><i className="fas fa-lightbulb"></i> How Round‑Up Savings Work</h3>
               <button className="modal-close" onClick={() => setShowInfo(false)}>✕</button>
@@ -296,7 +296,7 @@ const AutoSavings = () => {
         .rule-detail { font-size: 1.2rem; margin: 15px 0; }
         .rule-goal { margin-top: 10px; font-size: 0.9rem; color: var(--text-secondary); }
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 2000; }
-        .modal-content { max-width: 450px; width: 90%; background: var(--card-bg); border-radius: var(--radius-lg); padding: 16px; border: 1px solid var(--glass-border); }
+        .modal-content { max-width: 450px; width: 90%; background: var(--bg-card); border-radius: var(--radius-lg); padding: 16px; border: 1px solid var(--border-color); }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-secondary); }
         .modal-body { margin-bottom: 20px; line-height: 1.5; }

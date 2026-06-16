@@ -480,7 +480,7 @@ const Budget = () => {
       {/* Budget detail / edit popup (#18) */}
       {detailBudget && (
         <div className="budget-modal-overlay" onClick={() => setDetailBudget(null)}>
-          <div className="budget-modal glass-effect" onClick={(e) => e.stopPropagation()}>
+          <div className="budget-modal" onClick={(e) => e.stopPropagation()}>
             <div className="budget-modal-head">
               <h3><i className="fas fa-tag"></i> {detailBudget.category}</h3>
               <button className="budget-modal-close" onClick={() => setDetailBudget(null)} title="Close">

@@ -11,7 +11,6 @@ const SubscriptionManager = () => {
     cost: '',
     frequency: 'monthly',
     category: 'Entertainment',
-    scheduledPayment: { enabled: false, dayOfMonth: 1 }
   });
 
   // Fetch subscriptions from backend
@@ -43,9 +42,6 @@ const SubscriptionManager = () => {
         cost: parseFloat(newSubscription.cost),
         frequency: newSubscription.frequency,
         category: newSubscription.category,
-        scheduledPayment: newSubscription.scheduledPayment.enabled
-          ? { enabled: true, dayOfMonth: newSubscription.scheduledPayment.dayOfMonth }
-          : { enabled: false }
       };
       await axios.post(`${API_URL}/api/subscriptions`, payload, {
         headers: { Authorization: `Bearer ${token}` }
@@ -56,7 +52,6 @@ const SubscriptionManager = () => {
         cost: '',
         frequency: 'monthly',
         category: 'Entertainment',
-        scheduledPayment: { enabled: false, dayOfMonth: 1 }
       });
     } catch (err) {
       console.error('Failed to add subscription:', err);
@@ -89,19 +84,6 @@ const SubscriptionManager = () => {
       fetchSubscriptions();
     } catch (err) {
       console.error('Failed to delete subscription:', err);
-    }
-  };
-
-  // Update scheduled payment for a subscription
-  const updateScheduledPayment = async (id, scheduledPayment) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.put(`${API_URL}/api/subscriptions/${id}`, { scheduledPayment }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      fetchSubscriptions();
-    } catch (err) {
-      console.error('Failed to update scheduled payment:', err);
     }
   };
 
@@ -230,41 +212,6 @@ const SubscriptionManager = () => {
                     <i className="fas fa-trash"></i>Remove
                   </button>
                 </div>
-
-                {/* Scheduled Payment Toggle */}
-                <div className="scheduled-payment-toggle">
-                  <label className="schedule-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={sub.scheduledPayment?.enabled || false}
-                      onChange={(e) => updateScheduledPayment(sub._id, {
-                        ...sub.scheduledPayment,
-                        enabled: e.target.checked,
-                        dayOfMonth: sub.scheduledPayment?.dayOfMonth || 1
-                      })}
-                    />
-                    <span>Auto‑pay from wallet</span>
-                  </label>
-                  {sub.scheduledPayment?.enabled && (
-                    <div className="schedule-details">
-                      <div className="schedule-field">
-                        <label>Day of month</label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="31"
-                          value={sub.scheduledPayment?.dayOfMonth || 1}
-                          onChange={(e) => updateScheduledPayment(sub._id, {
-                            ...sub.scheduledPayment,
-                            enabled: true,
-                            dayOfMonth: parseInt(e.target.value)
-                          })}
-                        />
-                      </div>
-                      <small>Full subscription cost deducted automatically on this day</small>
-                    </div>
-                  )}
-                </div>
               </div>
             ))}
           </div>
@@ -318,17 +265,6 @@ const SubscriptionManager = () => {
           </div>
         </div>
         {/* Scheduled payment option in add form */}
-        <div className="scheduled-payment-option">
-          <label className="schedule-checkbox">
-            <input type="checkbox" checked={newSubscription.scheduledPayment.enabled} onChange={(e) => setNewSubscription({...newSubscription, scheduledPayment: { ...newSubscription.scheduledPayment, enabled: e.target.checked }})} />
-            <span>Schedule auto‑pay from wallet</span>
-          </label>
-          {newSubscription.scheduledPayment.enabled && (
-            <div className="schedule-details">
-              <div className="schedule-field"><label>Day of month</label><input type="number" min="1" max="31" value={newSubscription.scheduledPayment.dayOfMonth} onChange={(e) => setNewSubscription({...newSubscription, scheduledPayment: { ...newSubscription.scheduledPayment, dayOfMonth: parseInt(e.target.value) }})} /></div>
-            </div>
-          )}
-        </div>
         <div className="form-buttons">
           <button className="btn-submit" onClick={addSubscription}><i className="fas fa-plus"></i> Add Subscription</button>
         </div>

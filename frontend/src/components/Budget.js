@@ -5,17 +5,8 @@ import { Chart, registerables } from 'chart.js';
 import { API_URL } from '../config';
 import { EXPENSE_CATEGORIES } from '../constants/categories';
 import { FeatureTip } from './FeatureTip';
+import { fmtNaira as fmtMoney } from '../utils/format';
 Chart.register(...registerables);
-
-// Compact Naira formatter: amounts of ₦10,000+ collapse to 10k / 1.2M etc.;
-// smaller amounts keep two decimals.
-const fmtMoney = (n) => {
-  const num = Number(n) || 0;
-  if (Math.abs(num) >= 10000) {
-    return '₦' + new Intl.NumberFormat('en-NG', { notation: 'compact', maximumFractionDigits: 1 }).format(num);
-  }
-  return '₦' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
 
 const Budget = () => {
   const currentMonth = new Date().toISOString().slice(0, 7);

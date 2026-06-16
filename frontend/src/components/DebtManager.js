@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
+import { fmtNaira } from '../utils/format';
 const DebtManager = () => {
   //const { darkMode } = useAuth();
   const [debts, setDebts] = useState([]);
@@ -122,14 +123,14 @@ const DebtManager = () => {
           <div className="overview-icon"><i className="fas fa-money-bill-wave"></i></div>
           <div className="overview-content">
             <h3>Total Debt</h3>
-            <div className="amount highlight-danger">₦{totalDebt.toLocaleString()}</div>
+            <div className="amount highlight-danger">{fmtNaira(totalDebt)}</div>
           </div>
         </div>
         <div className="overview-card glass-card">
           <div className="overview-icon"><i className="fas fa-calendar-alt"></i></div>
           <div className="overview-content">
             <h3>Monthly Payments</h3>
-            <div className="amount">₦{totalMonthlyPayment.toLocaleString()}</div>
+            <div className="amount">{fmtNaira(totalMonthlyPayment)}</div>
             <div className="subtext">/ month</div>
           </div>
         </div>
@@ -191,8 +192,8 @@ const DebtManager = () => {
                   </div>
                 </div>
                 <div className="debt-details">
-                  <div className="detail"><span className="label">Balance</span><span className="value">₦{debt.balance.toLocaleString()}</span></div>
-                  <div className="detail"><span className="label">Min Payment</span><span className="value">₦{debt.minPayment.toLocaleString()}/mo</span></div>
+                  <div className="detail"><span className="label">Balance</span><span className="value">{fmtNaira(debt.balance)}</span></div>
+                  <div className="detail"><span className="label">Min Payment</span><span className="value">{fmtNaira(debt.minPayment)}/mo</span></div>
                   <div className="detail"><span className="label">Priority</span>
                     <span className={`priority ${debt.interest > 15 ? 'high' : debt.interest > 8 ? 'medium' : 'low'}`}>
                       {debt.interest > 15 ? 'High' : debt.interest > 8 ? 'Medium' : 'Low'}

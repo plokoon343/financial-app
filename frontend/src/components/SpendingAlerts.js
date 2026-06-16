@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
+import { fmtNaira } from '../utils/format';
 const SpendingAlerts = () => {
   //const { darkMode } = useAuth();
   const [alerts, setAlerts] = useState([]);
@@ -71,7 +72,7 @@ const SpendingAlerts = () => {
                 <div className="alert-message">{alert.message}</div>
                 <div className="alert-details">
                   <span className="alert-category">{alert.category}</span>
-                  <span className="alert-amount">₦{alert.amount?.toLocaleString()}</span>
+                  <span className="alert-amount">{fmtNaira(alert.amount || 0)}</span>
                   <span className="alert-timestamp">{new Date(alert.timestamp).toLocaleDateString()}</span>
                 </div>
               </div>

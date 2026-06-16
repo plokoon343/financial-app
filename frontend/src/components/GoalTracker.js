@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
+import { fmtNaira } from '../utils/format';
 const GoalTracker = () => {
   //const { darkMode } = useAuth();
   const [goals, setGoals] = useState([]);
@@ -159,7 +160,7 @@ const GoalTracker = () => {
         </div>
         <div className="overview-card glass-effect">
           <div className="overview-icon total-saved"><i className="fas fa-piggy-bank"></i></div>
-          <div className="overview-content"><h3>Total Saved</h3><div className="overview-amount">₦{totalCurrent.toLocaleString()}</div></div>
+          <div className="overview-content"><h3>Total Saved</h3><div className="overview-amount">{fmtNaira(totalCurrent)}</div></div>
         </div>
         <div className="overview-card glass-effect">
           <div className="overview-icon overall-progress"><i className="fas fa-chart-line"></i></div>
@@ -211,7 +212,7 @@ const GoalTracker = () => {
                           <span>{progress.toFixed(0)}%</span>
                         </div>
                       </td>
-                      <td className="num">₦{goal.target.toLocaleString()}</td>
+                      <td className="num">{fmtNaira(goal.target)}</td>
                       <td>{new Date(goal.deadline).toLocaleDateString()}</td>
                       <td>
                         <span className={`gt-autopay ${goal.scheduledPayment?.enabled ? 'on' : 'off'}`}>
@@ -251,8 +252,8 @@ const GoalTracker = () => {
 
               <div className="progress-stats">
                 <div className="progress-amounts">
-                  <span className="current-amount">₦{activeGoal.current.toLocaleString()}</span>
-                  <span className="target-amount">of ₦{activeGoal.target.toLocaleString()}</span>
+                  <span className="current-amount">{fmtNaira(activeGoal.current)}</span>
+                  <span className="target-amount">of {fmtNaira(activeGoal.target)}</span>
                 </div>
                 <div className="progress-percentage">{progress.toFixed(1)}%</div>
               </div>
@@ -262,8 +263,8 @@ const GoalTracker = () => {
 
               <div className="detail-grid" style={{ marginTop: '1rem' }}>
                 <div className="detail-item"><div className="detail-label"><i className="fas fa-calendar-day"></i><span>Days Left</span></div><div className={`detail-value ${daysLeft < 30 ? 'warning' : ''}`}>{daysLeft}</div></div>
-                <div className="detail-item"><div className="detail-label"><i className="fas fa-money-bill-wave"></i><span>Monthly Needed</span></div><div className="detail-value">₦{monthlyNeeded.toLocaleString()}</div></div>
-                <div className="detail-item"><div className="detail-label"><i className="fas fa-wallet"></i><span>Remaining</span></div><div className="detail-value">₦{(activeGoal.target - activeGoal.current).toLocaleString()}</div></div>
+                <div className="detail-item"><div className="detail-label"><i className="fas fa-money-bill-wave"></i><span>Monthly Needed</span></div><div className="detail-value">{fmtNaira(monthlyNeeded)}</div></div>
+                <div className="detail-item"><div className="detail-label"><i className="fas fa-wallet"></i><span>Remaining</span></div><div className="detail-value">{fmtNaira(activeGoal.target - activeGoal.current)}</div></div>
               </div>
 
               {/* Auto-pay (#31) */}

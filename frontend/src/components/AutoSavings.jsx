@@ -3,6 +3,7 @@ import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 import { FeatureTip } from './FeatureTip';
+import { fmtNaira } from '../utils/format';
 const AutoSavings = () => {
   //const { darkMode } = useAuth();
   const [rule, setRule] = useState(null);
@@ -122,7 +123,7 @@ const AutoSavings = () => {
               ) : rule.type === 'percentage' ? (
                 <>Save <strong>{rule.value}%</strong> of every income</>
               ) : (
-                <>Save <strong>₦{Number(rule.value).toLocaleString()}</strong> from every income</>
+                <>Save <strong>{fmtNaira(Number(rule.value))}</strong> from every income</>
               )}
               {rule.targetGoalId && (
                 <div className="rule-goal">
@@ -206,7 +207,7 @@ const AutoSavings = () => {
                   <option value="">None – save to general savings wallet</option>
                   {goals.map(goal => (
                     <option key={goal._id} value={goal._id}>
-                      {goal.name} – ₦{goal.current.toLocaleString()} / ₦{goal.target.toLocaleString()}
+                      {goal.name} – {fmtNaira(goal.current)} / {fmtNaira(goal.target)}
                     </option>
                   ))}
                 </select>

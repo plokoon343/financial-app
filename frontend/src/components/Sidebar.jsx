@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { fmtNaira } from '../utils/format';
 const Sidebar = () => {
   const { user, logout, darkMode, toggleDarkMode } = useAuth();
   const location = useLocation();
@@ -107,7 +108,7 @@ const Sidebar = () => {
         {/* Wallet balance */}
         <div className="sidebar-wallet">
           <span className="material-symbols-outlined">account_balance_wallet</span>
-          <span>₦{walletBalance.toLocaleString()}</span>
+          <span>{fmtNaira(walletBalance)}</span>
           <Link
             to="/wallet?action=deposit"
             className="sidebar-wallet-add"

@@ -102,6 +102,15 @@
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
+  /* Semantic surface tokens (light) — keep these in sync with .dark-theme below
+     so every component reads a defined, readable value in both themes. */
+  --text-primary: #1a2540;
+  --text-secondary: #51607a;
+  --text-faint: #8a97ad;
+  --border-color: rgba(15, 23, 42, 0.12);
+  --bg-card: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-input: #f1f5f9;
 }
 .dark-theme {
   --primary-bg: radial-gradient(circle at 0% 0%, #131b2e 0%, #0b1326 60%);
@@ -112,9 +121,23 @@
   --border-color: rgba(255,255,255,0.12);
   --text-primary: #dae2fd;
   --text-secondary: #95a3bd;
+  --text-faint: #64748b;
   --accent-primary: #70db9d;        /* mint accent for icons/active/links */
   --gradient-primary: linear-gradient(135deg, #008751 0%, #00b76a 100%);
+  /* Solid surface tokens (dark) — paired with the light set above. */
+  --bg-card: #131d33;
+  --bg-elevated: #1a2540;
+  --bg-input: #1e293b;
 }
+
+/* Dropdowns: keep the closed control AND its options readable in both themes
+   (the open option list is OS-drawn, so set explicit bg/color). */
+select {
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+}
+select option { background: #ffffff; color: #0f172a; }
+.dark-theme select option { background: #1e293b; color: #dae2fd; }
 
 /* Material Symbols sizing default */
 .material-symbols-outlined {

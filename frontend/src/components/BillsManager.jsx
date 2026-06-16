@@ -1,371 +1,213 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+import { Link } from 'react-router-dom';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+
 const BillsManager = () => {
-  const { darkMode } = useAuth();
   const [debts, setDebts] = useState([]);
-  const [subscriptions, setSubscriptions] = useState([]);
   const [recurringBills, setRecurringBills] = useState([]);
-  const [banks, setBanks] = useState([]);
+  const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [processingPayment, setProcessingPayment] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [message, setMessage] = useState(null);
 
-  // Local form state
-  const [formState, setFormState] = useState({});
+  // Selected items to pay (keys: `bill_<id>`, `debt_<id>`)
+  const [selected, setSelected] = useState(new Set());
+  const [paySource, setPaySource] = useState('wallet'); // 'wallet' | 'account'
 
-  // Fetch all bills and bank list
+  const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+  const flash = (text, type = 'success') => { setMessage({ text, type }); setTimeout(() => setMessage(null), 3500); };
+
   const fetchAll = async () => {
-    const token = localStorage.getItem('token');
-    const headers = { Authorization: `Bearer ${token}` };
     try {
-      const [debtsRes, subsRes, billsRes, banksRes] = await Promise.all([
-        axios.get(`${API_URL}/api/debts`, { headers }),
-        axios.get(`${API_URL}/api/subscriptions`, { headers }),
-        axios.get(`${API_URL}/api/bills`, { headers }),
-        axios.get(`${API_URL}/api/banks`, { headers }),
+      const [debtsRes, billsRes, goalsRes] = await Promise.all([
+        axios.get(`${API_URL}/api/debts`, authHeaders()),
+        axios.get(`${API_URL}/api/bills`, authHeaders()),
+        axios.get(`${API_URL}/api/goals`, authHeaders()),
       ]);
-      setDebts(debtsRes.data);
-      setSubscriptions(subsRes.data);
-      setRecurringBills(billsRes.data);
-      setBanks(banksRes.data);
-
-      // Initialize form state
-      const initialFormState = {};
-      const allItems = [
-        ...debtsRes.data.map(d => ({ ...d, type: 'debt' })),
-        ...subsRes.data.map(s => ({ ...s, type: 'subscription' })),
-        ...billsRes.data.map(b => ({ ...b, type: 'bill' })),
-      ];
-      allItems.forEach(item => {
-        const key = `${item.type}_${item._id}`;
-        initialFormState[key] = {
-          bankCode: item.bankCode || '',
-          accountNumber: item.accountNumber || '',
-          isVerifying: false,
-        };
-      });
-      setFormState(initialFormState);
+      setDebts(debtsRes.data || []);
+      setRecurringBills(billsRes.data || []);
+      setGoals(goalsRes.data || []);
     } catch (err) {
       console.error('Failed to fetch data:', err);
+      flash('Could not load your obligations. The server may be waking up — try again.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  useEffect(() => { fetchAll(); }, []);
 
-  // Delete a bill/debt/subscription
+  const toggle = (key) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
   const removeItem = async (type, id) => {
-    if (!window.confirm('Are you sure you want to delete this item?')) return;
+    if (!window.confirm('Delete this item?')) return;
     try {
-      const token = localStorage.getItem('token');
-      let endpoint = '';
-      if (type === 'debt') endpoint = `${API_URL}/api/debts/${id}`;
-      else if (type === 'subscription') endpoint = `${API_URL}/api/subscriptions/${id}`;
-      else if (type === 'bill') endpoint = `${API_URL}/api/bills/${id}`;
-      await axios.delete(endpoint, { headers: { Authorization: `Bearer ${token}` } });
-      await fetchAll(); // refresh list
+      const ep = type === 'debt' ? `/api/debts/${id}` : `/api/bills/${id}`;
+      await axios.delete(`${API_URL}${ep}`, authHeaders());
+      fetchAll();
     } catch (err) {
-      console.error('Failed to delete item:', err);
-      alert('Could not delete the item. Please try again.');
+      flash('Could not delete the item.', 'error');
     }
   };
 
-  // Update local form field
-  const updateLocalField = (type, id, field, value) => {
-    const key = `${type}_${id}`;
-    setFormState(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        [field]: value,
-      },
-    }));
-  };
-
-  // Resolve account name and save
-  const verifyAndSave = async (type, id, bankCode, accountNumber) => {
-    const key = `${type}_${id}`;
-    if (!bankCode || !accountNumber || accountNumber.length !== 10) {
-      alert('Please select a bank and enter a valid 10-digit account number');
-      return;
-    }
-
-    setFormState(prev => ({
-      ...prev,
-      [key]: { ...prev[key], isVerifying: true },
-    }));
-
+  const paySelected = async () => {
+    const billIds = [...selected].filter((k) => k.startsWith('bill_')).map((k) => k.slice(5));
+    const debtIds = [...selected].filter((k) => k.startsWith('debt_')).map((k) => k.slice(5));
+    if (billIds.length === 0 && debtIds.length === 0) { flash('Select at least one item to pay.', 'error'); return; }
+    if (paySource !== 'wallet') { flash('Paying from a bank account arrives with bank integration. Use Wallet for now.', 'error'); return; }
+    if (!window.confirm(`Pay ${billIds.length + debtIds.length} selected item(s) from your wallet?`)) return;
+    setProcessing(true);
     try {
-      const token = localStorage.getItem('token');
-      const resolveRes = await axios.get(`${API_URL}/api/bank/resolve`, {
-        params: { bank_code: bankCode, account_number: accountNumber },
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const accountName = resolveRes.data.account_name;
-
-      const selectedBank = banks.find(b => b.code === bankCode);
-      const bankName = selectedBank?.name || '';
-
-      let endpoint = '';
-      if (type === 'debt') endpoint = `${API_URL}/api/debts/${id}`;
-      else if (type === 'subscription') endpoint = `${API_URL}/api/subscriptions/${id}`;
-      else if (type === 'bill') endpoint = `${API_URL}/api/bills/${id}`;
-
-      await axios.put(endpoint, {
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName,
-        recipient: accountName,
-      }, { headers: { Authorization: `Bearer ${token}` } });
-
-      await fetchAll();
-      alert('Payment details saved successfully!');
+      const res = await axios.post(`${API_URL}/api/payments/pay-selected`, { billIds, debtIds }, authHeaders());
+      flash(res.data.message || 'Payment complete.');
+      setSelected(new Set());
+      fetchAll();
+      window.dispatchEvent(new CustomEvent('wallet-updated', { detail: { balance: res.data.balance } }));
     } catch (err) {
-      console.error('Verification failed:', err);
-      alert(err.response?.data?.message || 'Account verification failed');
+      flash(err.response?.data?.message || 'Payment failed.', 'error');
     } finally {
-      setFormState(prev => ({
-        ...prev,
-        [key]: { ...prev[key], isVerifying: false },
-      }));
+      setProcessing(false);
     }
   };
 
-  // Pay all due bills
-  const payAllDueBills = async () => {
-    if (!window.confirm('Pay all pending bills, debts, and subscriptions due today or earlier?')) return;
-    setProcessingPayment(true);
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-      const response = await axios.post(`${API_URL}/api/payments/pay-all-due`, {}, { headers });
-      alert(response.data.message || 'All due bills have been paid successfully!');
-      await fetchAll();
-    } catch (err) {
-      console.error('Failed to pay bills:', err);
-      alert(err.response?.data?.message || 'Error processing payments. Please try again.');
-    } finally {
-      setProcessingPayment(false);
-    }
-  };
+  if (loading) return <div className="loading">Loading your obligations...</div>;
 
-  const formatCurrency = (amount) => fmtNaira(amount);
-
-  const allItems = [
-    ...debts.map(d => ({ ...d, type: 'debt', dueDate: d.scheduledPayment?.dayOfMonth || null, amount: d.minPayment })),
-    ...subscriptions.map(s => ({ ...s, type: 'subscription', dueDate: s.scheduledPayment?.dayOfMonth || null, amount: s.cost })),
-    ...recurringBills.map(b => ({ ...b, type: 'bill', dueDate: b.dueDate, amount: b.amount })),
-  ];
-
-  if (loading) return <div className="loading">Loading bills...</div>;
+  const selectedCount = selected.size;
 
   return (
     <div className="bills-manager">
-      <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
+      <div className="bills-head">
         <div>
           <h2><i className="fas fa-receipt"></i> Bills & Obligations</h2>
-          <p>All your recurring payments – debts, subscriptions, and bills</p>
+          <p>Choose what to pay, settle it from your wallet, and track your debts & goals.</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={fetchAll} className="action-button secondary" style={{ padding: '8px 20px', borderRadius: '30px', border: 'none', cursor: 'pointer', fontWeight: '500' }}>
-            <i className="fas fa-sync-alt"></i> Refresh
-          </button>
-          <button onClick={payAllDueBills} disabled={processingPayment} className="action-button primary" style={{ padding: '8px 20px', borderRadius: '30px', border: 'none', background: '#e53e3e', color: 'white', cursor: 'pointer', fontWeight: '500' }}>
-            <i className="fas fa-bolt"></i> {processingPayment ? 'Processing...' : 'Pay All Due'}
-          </button>
-        </div>
+        <button onClick={fetchAll} className="btn-ghost"><i className="fas fa-sync-alt"></i> Refresh</button>
       </div>
 
-      <div className="bills-list glass-effect">
-        {allItems.length === 0 ? (
-          <div className="empty-state">No bills, debts, or subscriptions added yet.</div>
-        ) : (
-          allItems.map((item) => {
-            const key = `${item.type}_${item._id}`;
-            const localData = formState[key] || { bankCode: item.bankCode || '', accountNumber: item.accountNumber || '', isVerifying: false };
+      {message && <div className={`bills-msg ${message.type}`}>{message.text}</div>}
 
-            return (
-              <div key={key} className="bill-item">
-                <div className="bill-info">
-                  <div className="bill-name">
-                    <i className={`fas ${item.type === 'debt' ? 'fa-credit-card' : item.type === 'subscription' ? 'fa-calendar-alt' : 'fa-receipt'}`}></i>
-                    {item.name}
-                    <span className="bill-type">{item.type}</span>
-                    {/* Delete button */}
-                    <button
-                      onClick={() => removeItem(item.type, item._id)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#e53e3e',
-                        cursor: 'pointer',
-                        fontSize: '1rem',
-                        marginLeft: 'auto',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        transition: 'background 0.2s'
-                      }}
-                      title="Delete this item"
-                    >
-                      <i className="fas fa-trash-alt"></i>
-                    </button>
-                  </div>
-                  <div className="bill-details">
-                    <span className="bill-amount">{formatCurrency(item.amount)}</span>
-                    {item.frequency && <span className="bill-frequency">{item.frequency === 'monthly' ? '/month' : '/year'}</span>}
-                    {item.dueDate && <span className="bill-due">Due on day {item.dueDate}</span>}
-                    {item.balance !== undefined && <span className="debt-balance">Remaining: {fmtNaira(item.balance)}</span>}
-                  </div>
+      {/* Pay bar */}
+      <div className="pay-bar">
+        <div className="pay-from">
+          <label>Pay from</label>
+          <select value={paySource} onChange={(e) => setPaySource(e.target.value)}>
+            <option value="wallet">Wallet</option>
+            <option value="account">Bank account (with bank integration)</option>
+          </select>
+        </div>
+        <button className="btn-pay" onClick={paySelected} disabled={processing || selectedCount === 0}>
+          <i className="fas fa-bolt"></i> {processing ? 'Processing…' : `Pay Selected${selectedCount ? ` (${selectedCount})` : ''}`}
+        </button>
+      </div>
 
-                  {/* Recipient/Payee */}
-                  <div className="bill-field">
-                    <label>Recipient/Payee:</label>
-                    <span className="readonly-value">
-                      {item.accountName || 'Not set (verify account first)'}
-                      {item.accountName && <i className="fas fa-check-circle" style={{ color: '#48bb78', marginLeft: '8px' }}></i>}
-                    </span>
-                  </div>
-
-                  {/* Bank Selection */}
-                  <div className="bill-field">
-                    <label>Bank:</label>
-                    <select
-                      value={localData.bankCode}
-                      onChange={(e) => updateLocalField(item.type, item._id, 'bankCode', e.target.value)}
-                      className="bank-select"
-                      style={{
-                        background: 'var(--glass-bg)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '20px',
-                        padding: '8px 16px',
-                        color: 'var(--text-primary)'
-                      }}
-                    >
-                      <option value="">Select bank</option>
-                      {banks.map(bank => (
-                        <option key={bank.code} value={bank.code} style={{ background: darkMode ? '#2d3748' : 'white', color: darkMode ? '#e2e8f0' : '#1a202c' }}>
-                          {bank.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Account Number */}
-                  <div className="bill-field">
-                    <label>Account Number:</label>
-                    <input
-                      type="text"
-                      value={localData.accountNumber}
-                      onChange={(e) => updateLocalField(item.type, item._id, 'accountNumber', e.target.value)}
-                      placeholder="10-digit account number"
-                      maxLength="10"
-                      style={{
-                        background: 'var(--glass-bg)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '20px',
-                        padding: '8px 16px',
-                        color: 'var(--text-primary)',
-                        width: '200px'
-                      }}
-                    />
-                  </div>
-
-                  {/* Verify & Save Button */}
-                  <div className="bill-field" style={{ borderBottom: 'none', marginTop: '12px' }}>
-                    <button
-                      onClick={() => verifyAndSave(item.type, item._id, localData.bankCode, localData.accountNumber)}
-                      disabled={localData.isVerifying}
-                      className="verify-button"
-                      style={{
-                        padding: '8px 24px',
-                        borderRadius: '30px',
-                        border: 'none',
-                        background: '#4299e1',
-                        color: 'white',
-                        cursor: 'pointer',
-                        fontWeight: '500',
-                        opacity: localData.isVerifying ? 0.7 : 1,
-                      }}
-                    >
-                      {localData.isVerifying ? 'Verifying...' : 'Verify & Save'}
-                    </button>
-                    {item.accountName && (
-                      <span style={{ marginLeft: '12px', fontSize: '0.85rem', color: '#48bb78' }}>
-                        <i className="fas fa-check"></i> Verified
-                      </span>
-                    )}
-                  </div>
-                </div>
+      {/* Recurring bills */}
+      <section className="bills-section">
+        <h3><i className="fas fa-receipt"></i> Recurring Bills</h3>
+        {recurringBills.length === 0 ? (
+          <p className="muted">No recurring bills.</p>
+        ) : recurringBills.map((b) => {
+          const key = `bill_${b._id}`;
+          return (
+            <div key={key} className={`pay-row ${selected.has(key) ? 'on' : ''}`}>
+              <label className="pay-check">
+                <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} />
+              </label>
+              <div className="pay-main">
+                <span className="pay-name">{b.name}</span>
+                <span className="pay-meta">Due day {b.dueDate} · {b.frequency === 'yearly' ? 'yearly' : 'monthly'}</span>
               </div>
-            );
-          })
-        )}
-      </div>
+              <span className="pay-amount">{fmtNaira(b.amount)}</span>
+              <button className="row-del" onClick={() => removeItem('bill', b._id)} title="Delete"><i className="fas fa-trash"></i></button>
+            </div>
+          );
+        })}
+      </section>
+
+      {/* Debts */}
+      <section className="bills-section">
+        <h3><i className="fas fa-credit-card"></i> Debts</h3>
+        {debts.length === 0 ? (
+          <p className="muted">No debts tracked.</p>
+        ) : debts.map((d) => {
+          const key = `debt_${d._id}`;
+          const pay = d.scheduledPayment?.amount || d.minPayment;
+          return (
+            <div key={key} className={`pay-row ${selected.has(key) ? 'on' : ''}`}>
+              <label className="pay-check">
+                <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} disabled={d.balance <= 0} />
+              </label>
+              <div className="pay-main">
+                <span className="pay-name">{d.name}</span>
+                <span className="pay-meta">Balance {fmtNaira(d.balance)} · pays {fmtNaira(pay)}</span>
+              </div>
+              <span className="pay-amount">{fmtNaira(pay)}</span>
+              <button className="row-del" onClick={() => removeItem('debt', d._id)} title="Delete"><i className="fas fa-trash"></i></button>
+            </div>
+          );
+        })}
+      </section>
+
+      {/* Goals — tracked only (contribute from the Goals page) */}
+      <section className="bills-section">
+        <h3><i className="fas fa-flag-checkered"></i> Goals <span className="track-tag">tracked</span></h3>
+        {goals.length === 0 ? (
+          <p className="muted">No goals yet. <Link to="/goals" className="inline-link">Create one</Link>.</p>
+        ) : goals.map((g) => {
+          const pct = g.target > 0 ? Math.min((g.current / g.target) * 100, 100) : 0;
+          return (
+            <div key={g._id} className="track-row">
+              <div className="pay-main">
+                <span className="pay-name">{g.name}</span>
+                <span className="pay-meta">{fmtNaira(g.current)} / {fmtNaira(g.target)} · {pct.toFixed(0)}%</span>
+                <div className="track-bar"><div className="track-fill" style={{ width: `${pct}%` }} /></div>
+              </div>
+              <Link to="/goals" className="inline-link">Contribute</Link>
+            </div>
+          );
+        })}
+      </section>
 
       <style jsx="true">{`
-        .bills-manager { padding: 20px; max-width: 1100px; margin: 0 auto; }
-        .action-button { transition: all 0.2s ease; }
-        .action-button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-        .action-button.primary:hover { background: #c53030 !important; }
-        .action-button.secondary { background: var(--glass-bg); color: var(--text-primary); border: 1px solid var(--border-color); }
-        .action-button.secondary:hover { background: var(--glass-border); }
-        .bill-item {
-          background: var(--card-bg);
-          backdrop-filter: blur(20px);
-          border-radius: var(--radius-lg);
-          padding: 20px;
-          margin-bottom: 15px;
-          border: 1px solid var(--glass-border);
-          transition: transform 0.2s;
-        }
-        .bill-item:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
-        .bill-name { font-size: 1.2rem; font-weight: 600; display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-        .bill-type { font-size: 0.7rem; background: var(--glass-bg); padding: 2px 8px; border-radius: 20px; color: var(--text-secondary); }
-        .bill-details { margin: 10px 0; display: flex; flex-wrap: wrap; gap: 15px; color: var(--text-secondary); font-size: 0.9rem; }
-        .bill-field {
-          margin-top: 12px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
-          padding: 8px 0;
-          border-bottom: 1px dashed var(--glass-border);
-        }
-        .bill-field label { font-weight: 600; min-width: 130px; color: var(--text-primary); }
-        .readonly-value {
-          background: var(--glass-bg);
-          padding: 6px 16px;
-          border-radius: 20px;
-          color: var(--text-primary);
-          font-weight: 500;
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-        }
-        select.bank-select option {
-          background-color: ${darkMode ? '#2d3748' : '#ffffff'};
-          color: ${darkMode ? '#e2e8f0' : '#1a202c'};
-        }
-        select.bank-select {
-          cursor: pointer;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%234a5568' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-          background-repeat: no-repeat;
-          background-position: right 12px center;
-          appearance: none;
-          padding-right: 32px;
-        }
-        .empty-state { text-align: center; padding: 60px 20px; color: var(--text-secondary); background: var(--glass-bg); border-radius: var(--radius-lg); }
-        @media (max-width: 768px) {
-          .bill-field { flex-direction: column; align-items: flex-start; }
-          .bill-field label { min-width: auto; }
-          .section-header > div { flex-direction: column; width: 100%; }
-        }
+        .bills-manager { padding: 20px; max-width: 900px; margin: 0 auto; }
+        .bills-head { display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 16px; }
+        .bills-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); }
+        .bills-head p { color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px; }
+        .btn-ghost { background: var(--glass-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-full); padding: 8px 18px; cursor: pointer; font-weight: 600; }
+        .bills-msg { padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 14px; }
+        .bills-msg.success { background: rgba(34,197,94,0.12); color: #22c55e; }
+        .bills-msg.error { background: rgba(239,68,68,0.12); color: #ef4444; }
+        .pay-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 20px; }
+        .pay-from { display: flex; flex-direction: column; gap: 6px; }
+        .pay-from label { font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; }
+        .pay-from select { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px 14px; min-width: 240px; }
+        .btn-pay { background: var(--gradient-primary); color: #fff; border: none; border-radius: var(--radius-md); padding: 12px 22px; font-weight: 700; cursor: pointer; }
+        .btn-pay:disabled { opacity: 0.5; cursor: default; }
+        .bills-section { margin-bottom: 22px; }
+        .bills-section h3 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); font-size: 1.1rem; margin-bottom: 10px; }
+        .track-tag { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px; background: var(--glass-bg); color: var(--text-secondary); padding: 2px 8px; border-radius: var(--radius-full); }
+        .muted { color: var(--text-secondary); font-size: 0.9rem; }
+        .inline-link { color: var(--accent-primary); font-weight: 600; text-decoration: none; }
+        .pay-row, .track-row { display: flex; align-items: center; gap: 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 8px; }
+        .pay-row.on { border-color: var(--accent-primary); background: var(--glass-bg); }
+        .pay-check input { width: 18px; height: 18px; accent-color: var(--accent-primary); cursor: pointer; }
+        .pay-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .pay-name { color: var(--text-primary); font-weight: 600; }
+        .pay-meta { color: var(--text-secondary); font-size: 0.8rem; }
+        .pay-amount { color: var(--text-primary); font-weight: 700; white-space: nowrap; }
+        .row-del { background: none; border: none; color: var(--text-faint); cursor: pointer; padding: 6px; }
+        .row-del:hover { color: #ef4444; }
+        .track-bar { height: 6px; border-radius: 4px; background: var(--glass-bg); overflow: hidden; margin-top: 6px; }
+        .track-fill { height: 100%; background: var(--gradient-primary); border-radius: 4px; }
+        .loading { text-align: center; padding: 60px; color: var(--text-secondary); }
+        @media (max-width: 600px) { .pay-bar { flex-direction: column; align-items: stretch; } .pay-from select { min-width: 0; width: 100%; } .btn-pay { width: 100%; } }
       `}</style>
     </div>
   );

@@ -2281,6 +2281,58 @@ app.post('/api/payments/pay-all-due', auth, async (req, res) => {
   }
 });
 
+// Pay a user-selected set of bills/debts from the wallet (Bills page checkboxes).
+// Body: { billIds: [], debtIds: [] }. Source is the main wallet for now (paying
+// from an external bank account comes with the bank integration).
+app.post('/api/payments/pay-selected', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { billIds = [], debtIds = [] } = req.body || {};
+    if (billIds.length === 0 && debtIds.length === 0) {
+      return res.status(400).json({ message: 'Select at least one item to pay' });
+    }
+    const wallet = await getOrCreateWallet(userId);
+    let totalPaid = 0;
+    const errors = [];
+    const today = new Date();
+
+    for (const id of debtIds) {
+      const debt = await Debt.findOne({ _id: id, userId });
+      if (!debt || debt.balance <= 0) continue;
+      const amount = Math.min(debt.scheduledPayment?.amount || debt.minPayment, debt.balance);
+      if (wallet.balance < amount) { errors.push(`Insufficient funds for debt: ${debt.name}`); continue; }
+      wallet.balance -= amount;
+      debt.balance = Math.max(0, debt.balance - amount);
+      await debt.save();
+      totalPaid += amount;
+      await new WalletTransaction({ userId, type: 'withdrawal', amount, description: `Debt payment: ${debt.name}`, status: 'completed' }).save();
+    }
+
+    for (const id of billIds) {
+      const bill = await RecurringBill.findOne({ _id: id, userId });
+      if (!bill) continue;
+      const amount = bill.amount;
+      if (wallet.balance < amount) { errors.push(`Insufficient funds for bill: ${bill.name}`); continue; }
+      wallet.balance -= amount;
+      if (bill.frequency === 'yearly') bill.nextDue = new Date(bill.nextDue.getFullYear() + 1, bill.nextDue.getMonth(), bill.dueDate);
+      else bill.nextDue = new Date(bill.nextDue.getFullYear(), bill.nextDue.getMonth() + 1, bill.dueDate);
+      await bill.save();
+      totalPaid += amount;
+      await new WalletTransaction({ userId, type: 'withdrawal', amount, description: `Bill payment: ${bill.name}`, status: 'completed' }).save();
+      await new Transaction({ userId, date: today, description: bill.name, amount: -Math.abs(amount), category: bill.category || 'Bills', type: 'expense' }).save();
+    }
+
+    await wallet.save();
+    res.json({
+      message: errors.length ? `Paid ${totalPaid} — some failed: ${errors.join('; ')}` : `Paid ${totalPaid} from wallet.`,
+      totalPaid, errors, balance: wallet.balance,
+    });
+  } catch (err) {
+    console.error('Pay selected error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Superadmin routes (unchanged)
 app.get('/api/admin/users', auth, superAdminAuth, async (req, res) => {
   try {

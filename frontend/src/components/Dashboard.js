@@ -897,9 +897,9 @@ const Dashboard = () => {
                 </div>
               ))}
               {filteredTransactions.length > 6 && (
-                <p style={{ textAlign: 'center', fontSize: '0.83rem', color: darkMode ? '#a0aec0' : '#718096', margin: '0.75rem 0 0' }}>
+                <Link to="/transactions" style={{ display: 'block', textAlign: 'center', fontSize: '0.83rem', fontWeight: 600, color: 'var(--accent-primary)', margin: '0.75rem 0 0', textDecoration: 'none' }}>
                   +{filteredTransactions.length - 6} more transactions
-                </p>
+                </Link>
               )}
             </div>
           ) : (

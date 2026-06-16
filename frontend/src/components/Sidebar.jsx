@@ -108,6 +108,15 @@ const Sidebar = () => {
         <div className="sidebar-wallet">
           <span className="material-symbols-outlined">account_balance_wallet</span>
           <span>₦{walletBalance.toLocaleString()}</span>
+          <Link
+            to="/wallet?action=deposit"
+            className="sidebar-wallet-add"
+            title="Deposit to wallet"
+            onClick={toggleSidebar}
+            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', color: 'var(--accent-primary)' }}
+          >
+            <span className="material-symbols-outlined">add_circle</span>
+          </Link>
         </div>
 
         <nav className="sidebar-nav">
@@ -115,38 +124,15 @@ const Sidebar = () => {
             <div key={group.title} className="sidebar-group">
               <div className="sidebar-group-title">{group.title}</div>
               {group.items.map((item) => (
-                item.path === '/wallet' ? (
-                  <div key={item.path} style={{ display: 'flex', alignItems: 'center' }}>
-                    <Link
-                      to={item.path}
-                      className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
-                      onClick={toggleSidebar}
-                      style={{ flex: 1 }}
-                    >
-                      <span className="material-symbols-outlined">{item.icon}</span>
-                      <span>{item.label}</span>
-                    </Link>
-                    <Link
-                      to="/wallet?action=deposit"
-                      className="sidebar-wallet-add"
-                      title="Deposit to wallet"
-                      onClick={toggleSidebar}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 0.65rem', color: 'var(--accent-primary)' }}
-                    >
-                      <span className="material-symbols-outlined">add_circle</span>
-                    </Link>
-                  </div>
-                ) : (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
-                    onClick={toggleSidebar}
-                  >
-                    <span className="material-symbols-outlined">{item.icon}</span>
-                    <span>{item.label}</span>
-                  </Link>
-                )
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
+                  onClick={toggleSidebar}
+                >
+                  <span className="material-symbols-outlined">{item.icon}</span>
+                  <span>{item.label}</span>
+                </Link>
               ))}
             </div>
           ))}

@@ -311,6 +311,37 @@ const createNotification = async (userId, { type = 'info', title, message = '', 
   catch (e) { console.error('[createNotification]', e.message); }
 };
 
+// After spending changes, raise an in-app notification when a category crosses
+// 80% ("near") or 100% ("over") of its monthly budget. De-duplicated per
+// category+month+threshold (via the notification link) so it fires once, not on
+// every transaction.
+const checkBudgetAlert = async (userId, category, monthStr) => {
+  try {
+    if (!category || !/^\d{4}-\d{2}$/.test(monthStr || '')) return;
+    const budget = await Budget.findOne({ userId, category, month: monthStr });
+    if (!budget || budget.amount <= 0) return;
+    const start = new Date(`${monthStr}-01T00:00:00.000Z`);
+    const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1);
+    const agg = await Transaction.aggregate([
+      { $match: { userId: budget.userId, type: 'expense', category, date: { $gte: start, $lt: end } } },
+      { $group: { _id: null, spent: { $sum: { $abs: '$amount' } } } },
+    ]);
+    const spent = agg[0]?.spent || 0;
+    const pct = spent / budget.amount;
+    const threshold = pct >= 1 ? 'over' : pct >= 0.8 ? 'near' : null;
+    if (!threshold) return;
+    const link = `/budget?c=${encodeURIComponent(category)}&m=${monthStr}&t=${threshold}`;
+    if (await Notification.findOne({ userId, link })) return; // already alerted
+    const pctRound = Math.round(pct * 100);
+    await createNotification(userId, {
+      type: threshold === 'over' ? 'info' : 'info',
+      title: threshold === 'over' ? `Over budget: ${category}` : `Budget alert: ${category}`,
+      message: `You've used ${pctRound}% of your ${category} budget for ${monthStr}.`,
+      link,
+    });
+  } catch (e) { console.error('[checkBudgetAlert]', e.message); }
+};
+
 // UPDATED: Added bank fields + recipient
 const recurringBillSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -1525,6 +1556,9 @@ app.post('/api/transactions', auth, async (req, res) => {
   const transaction = new Transaction({ userId: req.user._id, date: new Date(date), description: description.trim(), amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount), category: category.trim(), type });
   await transaction.save();
   await applySavingsRule(req.user._id, transaction.amount, transaction.type);
+  if (transaction.type === 'expense') {
+    checkBudgetAlert(req.user._id, transaction.category, new Date(transaction.date).toISOString().slice(0, 7));
+  }
   res.status(201).json(transaction);
 });
 // Edit a transaction (also teaches the categorizer when the category changes).
@@ -1923,6 +1957,14 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     // Learn description -> category from what the user chose to import (incl. any
     // edits they made on the review screen), so future imports auto-apply them.
     await learnCategories(req.user._id, valid);
+    // Raise budget alerts for each distinct expense category+month just imported.
+    const pairs = new Set(valid
+      .filter(t => t.type === 'expense' && t.category)
+      .map(t => `${t.category}|${new Date(t.date).toISOString().slice(0, 7)}`));
+    for (const pair of pairs) {
+      const [cat, m] = pair.split('|');
+      checkBudgetAlert(req.user._id, cat, m);
+    }
     return res.json({ message: `Imported ${inserted.length} transaction(s) successfully.`, count: inserted.length });
   } catch (error) {
     if (error.result) return res.json({ message: `Imported ${error.result.nInserted} transaction(s).`, count: error.result.nInserted });

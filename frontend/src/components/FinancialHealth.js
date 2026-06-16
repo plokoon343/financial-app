@@ -45,30 +45,12 @@ const FinancialHealth = ({ transactions = [] }) => {
     return '#c0392b';
   };
 
-  const getHealthAdvice = (data) => {
-    const advice = [];
-    
-    if (data.netIncome < 0) {
-      advice.push("🚨 CRITICAL: Your expenses exceed your income by " + fmtNaira(Math.abs(data.netIncome)) + ". You're accumulating debt!");
-      advice.push("Immediately review your expenses and identify areas to cut back.");
-      advice.push("Consider finding additional income sources to cover the deficit.");
-    } else if (data.savingsRate < 10) {
-      advice.push("Try to increase your savings rate to at least 10% of your income.");
-    }
-    
-    if (data.netIncome > 0 && data.netIncome < 500) {
-      advice.push("You have a positive cash flow. Consider increasing your emergency fund.");
-    }
-    
-    if (data.netIncome > 0 && data.savingsRate >= 20) {
-      advice.push("Excellent! You're saving a healthy portion of your income.");
-    }
-    
-    if (advice.length === 0 && data.netIncome >= 0) {
-      advice.push("Maintain your current financial habits.");
-    }
-    
-    return advice;
+  // A single concise status derived from the numbers (replaces prose advice).
+  const getHealthStatus = (data) => {
+    if (data.netIncome < 0) return { icon: '🔴', label: 'Spending exceeds income' };
+    if (data.savingsRate >= 20) return { icon: '🟢', label: 'Healthy — strong savings rate' };
+    if (data.savingsRate >= 10) return { icon: '🟡', label: 'Stable — room to save more' };
+    return { icon: '🟠', label: 'Tight — savings rate is low' };
   };
 
   if (loading && transactions.length === 0) {
@@ -84,7 +66,10 @@ const FinancialHealth = ({ transactions = [] }) => {
     );
   }
 
-  const advice = healthData ? getHealthAdvice(healthData) : [];
+  const expenseRatio = healthData && healthData.totalIncome > 0
+    ? (healthData.totalExpenses / healthData.totalIncome) * 100
+    : 0;
+  const healthStatus = healthData ? getHealthStatus(healthData) : { icon: '', label: '' };
 
   return (
     <div className="financial-health-page">
@@ -163,17 +148,25 @@ const FinancialHealth = ({ transactions = [] }) => {
             </div>
 
             <div className="health-card">
-              <h3>Financial Advice</h3>
-              <div className="advice-list">
-                {advice.map((item, index) => (
-                  <div key={index} className="advice-item" style={{
-                    color: healthData.netIncome < 0 && index === 0 ? '#e74c3c' : 'inherit',
-                    fontWeight: healthData.netIncome < 0 && index === 0 ? 'bold' : 'normal'
-                  }}>
-                    {healthData.netIncome < 0 && index === 0 ? '⚠️' : '💡'} {item}
-                  </div>
-                ))}
+              <h3>Key Insights</h3>
+              <div className="health-metrics">
+                <div className="metric">
+                  <span className="label">Spent of income</span>
+                  <span className="value" style={{ color: expenseRatio > 90 ? '#e74c3c' : expenseRatio > 70 ? '#f39c12' : '#27ae60' }}>{expenseRatio.toFixed(0)}%</span>
+                </div>
+                <div className="metric">
+                  <span className="label">Saved of income</span>
+                  <span className="value income">{Math.max(0, healthData.savingsRate).toFixed(0)}%</span>
+                </div>
+                <div className="metric">
+                  <span className="label">Monthly burn</span>
+                  <span className="value expense">{fmtNaira(healthData.totalExpenses / 6)}</span>
+                </div>
               </div>
+              <div className="insight-bar" title={`${expenseRatio.toFixed(0)}% of income spent`}>
+                <div className="insight-bar-fill" style={{ width: `${Math.min(expenseRatio, 100)}%`, background: expenseRatio > 90 ? '#e74c3c' : expenseRatio > 70 ? '#f39c12' : '#27ae60' }}></div>
+              </div>
+              <p className="insight-status">{healthStatus.icon} {healthStatus.label}</p>
             </div>
           </div>
 
@@ -379,7 +372,30 @@ const FinancialHealth = ({ transactions = [] }) => {
         .metric .value.expense {
           color: #e74c3c;
         }
-        
+
+        /* Key Insights */
+        .insight-bar {
+          height: 10px;
+          border-radius: var(--radius-full);
+          background: var(--glass-bg);
+          overflow: hidden;
+          margin: 16px 0 12px;
+        }
+        .insight-bar-fill {
+          height: 100%;
+          border-radius: var(--radius-full);
+          transition: width 0.5s ease;
+        }
+        .insight-status {
+          text-align: center;
+          font-weight: 600;
+          color: var(--text-primary);
+          background: var(--glass-bg);
+          padding: 10px;
+          border-radius: var(--radius-md);
+          margin: 0;
+        }
+
         /* Savings Rate */
         .savings-rate {
           text-align: center;

@@ -249,12 +249,30 @@ const AutoSavings = () => {
 
       <div className="info-card glass-effect">
         <h3><i className="fas fa-lightbulb"></i> How it works</h3>
-        <ul>
-          <li><strong>Fixed amount rule</strong>: When you add income, the chosen amount is moved to savings.</li>
-          <li><strong>Round‑up rule</strong>: When you add an expense, we round up to the nearest step and save the difference.</li>
-          <li>Money is taken from your <strong>main wallet</strong> and added to your <strong>savings balance</strong> (or linked goal).</li>
-          <li>You can only have one active rule at a time (fixed amount OR round‑up).</li>
-        </ul>
+        <div className="how-steps">
+          <div className="how-step">
+            <div className="how-step-icon"><i className="fas fa-sliders-h"></i></div>
+            <div className="how-step-text">
+              <h4>1. Pick a rule</h4>
+              <p><strong>Fixed</strong> moves a set amount from each income. <strong>Round‑up</strong> rounds each expense up and saves the change.</p>
+            </div>
+          </div>
+          <div className="how-step">
+            <div className="how-step-icon"><i className="fas fa-bolt"></i></div>
+            <div className="how-step-text">
+              <h4>2. We do it automatically</h4>
+              <p>Every matching transaction triggers the rule — no manual transfers needed.</p>
+            </div>
+          </div>
+          <div className="how-step">
+            <div className="how-step-icon"><i className="fas fa-piggy-bank"></i></div>
+            <div className="how-step-text">
+              <h4>3. Money grows your savings</h4>
+              <p>Funds move from your main wallet into your savings balance (or a linked goal).</p>
+            </div>
+          </div>
+        </div>
+        <p className="how-note"><i className="fas fa-info-circle"></i> One active rule at a time — fixed amount <em>or</em> round‑up.</p>
       </div>
 
       <style jsx="true">{`
@@ -284,6 +302,13 @@ const AutoSavings = () => {
         .modal-body { margin-bottom: 20px; line-height: 1.5; }
         .modal-tip { background: rgba(56,161,105,0.1); padding: 10px; border-radius: var(--radius-md); margin-top: 15px; display: flex; align-items: center; gap: 8px; }
         .modal-footer button { padding: 8px 20px; background: var(--gradient-primary); border: none; border-radius: var(--radius-md); color: white; cursor: pointer; }
+        .info-card h3 { display: flex; align-items: center; gap: 8px; color: var(--text-primary); margin-bottom: 16px; }
+        .how-steps { display: grid; gap: 14px; }
+        .how-step { display: flex; align-items: flex-start; gap: 14px; padding: 14px; background: var(--glass-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+        .how-step-icon { width: 42px; height: 42px; flex-shrink: 0; border-radius: 50%; background: var(--gradient-primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+        .how-step-text h4 { color: var(--text-primary); margin: 0 0 4px; font-size: 1rem; }
+        .how-step-text p { color: var(--text-secondary); margin: 0; font-size: 0.9rem; line-height: 1.45; }
+        .how-note { margin-top: 14px; color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; gap: 8px; }
       `}</style>
     </div>
   );

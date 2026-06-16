@@ -7,6 +7,16 @@ import { EXPENSE_CATEGORIES } from '../constants/categories';
 import { FeatureTip } from './FeatureTip';
 Chart.register(...registerables);
 
+// Compact Naira formatter: amounts of ₦10,000+ collapse to 10k / 1.2M etc.;
+// smaller amounts keep two decimals.
+const fmtMoney = (n) => {
+  const num = Number(n) || 0;
+  if (Math.abs(num) >= 10000) {
+    return '₦' + new Intl.NumberFormat('en-NG', { notation: 'compact', maximumFractionDigits: 1 }).format(num);
+  }
+  return '₦' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 const Budget = () => {
   const currentMonth = new Date().toISOString().slice(0, 7);
   const [budgets, setBudgets] = useState([]);
@@ -125,6 +135,12 @@ const Budget = () => {
   const totalSpent = budgetData.reduce((sum, b) => sum + b.actualSpent, 0);
   const totalRemaining = totalBudget - totalSpent;
 
+  // Chart.js renders to canvas and can't read CSS variables, so resolve a real
+  // readable color for the current theme.
+  const chartTextColor =
+    (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light')
+      ? '#1a365d' : '#e2e8f0';
+
   const chartData = {
     labels: budgetData.map(b => b.category),
     datasets: [
@@ -154,7 +170,7 @@ const Budget = () => {
             size: 12,
             family: 'Inter, sans-serif'
           },
-          color: 'var(--text-primary)'
+          color: chartTextColor
         }
       },
       title: {
@@ -165,7 +181,7 @@ const Budget = () => {
           family: 'Poppins, sans-serif',
           weight: '600'
         },
-        color: 'var(--text-primary)',
+        color: chartTextColor,
         padding: {
           top: 10,
           bottom: 30
@@ -218,7 +234,7 @@ const Budget = () => {
           </div>
           <div className="summary-content">
             <h3>Total Budget</h3>
-            <p className="summary-amount">₦{totalBudget.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="summary-amount">{fmtMoney(totalBudget)}</p>
           </div>
         </div>
         
@@ -228,7 +244,7 @@ const Budget = () => {
           </div>
           <div className="summary-content">
             <h3>Total Spent</h3>
-            <p className="summary-amount">₦{totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="summary-amount">{fmtMoney(totalSpent)}</p>
           </div>
         </div>
         
@@ -239,7 +255,7 @@ const Budget = () => {
           <div className="summary-content">
             <h3>Total Remaining</h3>
             <p className={`summary-amount ${totalRemaining < 0 ? 'negative' : 'positive'}`}>
-              ₦{totalRemaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {fmtMoney(totalRemaining)}
             </p>
           </div>
         </div>
@@ -400,7 +416,7 @@ const Budget = () => {
                   </div>
                   <div className="progress-text">
                     <span>{budget.spentPercentage.toFixed(1)}% spent</span>
-                    <span>₦{budget.actualSpent.toFixed(2)} of ₦{budget.amount.toFixed(2)}</span>
+                    <span>{fmtMoney(budget.actualSpent)} of {fmtMoney(budget.amount)}</span>
                   </div>
                 </div>
                 
@@ -408,33 +424,21 @@ const Budget = () => {
                   <div className="budget-amounts">
                     <div className="amount-item">
                       <span className="amount-label">Budget</span>
-                      <span className="amount-value">₦{budget.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="amount-value">{fmtMoney(budget.amount)}</span>
                     </div>
                     <div className="amount-item">
                       <span className="amount-label">Spent</span>
-                      <span className="amount-value spent">₦{budget.actualSpent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="amount-value spent">{fmtMoney(budget.actualSpent)}</span>
                     </div>
                     <div className="amount-item">
                       <span className="amount-label">Remaining</span>
                       <span className={`amount-value ${budget.remaining < 0 ? 'negative' : 'positive'}`}>
-                        ₦{budget.remaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {fmtMoney(budget.remaining)}
                       </span>
                     </div>
                   </div>
-                  
-                  {budget.isOverBudget && (
-                    <div className="budget-warning">
-                      <i className="fas fa-exclamation-triangle"></i>
-                      <span>You've exceeded your budget by ₦{Math.abs(budget.remaining).toFixed(2)}</span>
-                    </div>
-                  )}
-                  
-                  {budget.isWarning && !budget.isOverBudget && (
-                    <div className="budget-warning warning">
-                      <i className="fas fa-exclamation-circle"></i>
-                      <span>You've used {budget.spentPercentage.toFixed(1)}% of your budget</span>
-                    </div>
-                  )}
+                  {/* Budget over/near alerts now surface as in-app notifications (bell),
+                      generated server-side — see checkBudgetAlert in the backend. */}
                 </div>
               </div>
             ))}

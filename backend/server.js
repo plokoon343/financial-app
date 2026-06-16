@@ -167,6 +167,10 @@ const userSchema = new mongoose.Schema({
   emailAlerts:   { type: Boolean, default: true },
   onboarded:     { type: Boolean, default: false },
   lastLogin:     { type: Date },
+  // Email-based 2-step verification (#21/#22).
+  twoFactorEnabled: { type: Boolean, default: false },
+  loginOtpHash:     { type: String },
+  loginOtpExpiry:   { type: Date },
   // Tokens issued before this time are rejected (used by "log out of all devices").
   sessionsValidFrom: { type: Date },
   bankDetails: {
@@ -1266,6 +1270,49 @@ app.post('/api/login', authLimiter, async (req, res) => {
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+
+    // 2-step verification: email a one-time code instead of issuing a token now.
+    if (user.twoFactorEnabled) {
+      if (!emailConfigured()) {
+        return res.status(503).json({ message: 'Two-step verification is on but email is not configured. Contact support.' });
+      }
+      const otp = ('' + Math.floor(100000 + Math.random() * 900000)); // 6 digits
+      user.loginOtpHash = hashToken(otp);
+      user.loginOtpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+      await user.save();
+      sendEmail({
+        to: user.email,
+        subject: 'Your FinPilot login code',
+        text: `Your FinPilot verification code is ${otp}. It expires in 10 minutes.`,
+        html: `<p>Your FinPilot verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 10 minutes. If you didn't try to sign in, change your password.</p>`,
+      }).catch(e => console.error('[login-otp] email failed:', e.message));
+      return res.json({ otpRequired: true, email: user.email });
+    }
+
+    user.lastLogin = new Date();
+    await user.save();
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
+  } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Step 2 of 2FA login: verify the emailed OTP and issue the token.
+app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ message: 'Email and code are required' });
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user || !user.loginOtpHash || !user.loginOtpExpiry) {
+      return res.status(400).json({ message: 'No pending verification. Please sign in again.' });
+    }
+    if (user.loginOtpExpiry < new Date()) {
+      return res.status(400).json({ message: 'Code expired. Please sign in again.' });
+    }
+    if (user.loginOtpHash !== hashToken(String(otp).trim())) {
+      return res.status(400).json({ message: 'Incorrect code' });
+    }
+    user.loginOtpHash = undefined;
+    user.loginOtpExpiry = undefined;
     user.lastLogin = new Date();
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
@@ -1280,6 +1327,7 @@ app.get('/api/me', auth, async (req, res) => {
     id: u._id, name: u.name, email: u.email, role: u.role,
     phone: u.phone || '', monthlyIncome: u.monthlyIncome || 0,
     primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
+    twoFactorEnabled: !!u.twoFactorEnabled,
     onboarded: !!u.onboarded, lastLogin: u.lastLogin || null,
   });
 });
@@ -1287,16 +1335,17 @@ app.get('/api/me', auth, async (req, res) => {
 // Update profile / onboarding fields
 app.put('/api/me', auth, async (req, res) => {
   try {
-    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, onboarded } = req.body;
+    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, onboarded, twoFactorEnabled } = req.body;
     const u = req.user;
     if (name !== undefined && name.trim()) u.name = name.trim();
     if (phone !== undefined) u.phone = phone.toString().slice(0, 20);
     if (monthlyIncome !== undefined) u.monthlyIncome = Math.max(0, parseFloat(monthlyIncome) || 0);
     if (primaryGoal !== undefined) u.primaryGoal = primaryGoal.toString().slice(0, 100);
     if (emailAlerts !== undefined) u.emailAlerts = !!emailAlerts;
+    if (twoFactorEnabled !== undefined) u.twoFactorEnabled = !!twoFactorEnabled;
     if (onboarded !== undefined) u.onboarded = !!onboarded;
     await u.save();
-    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, onboarded: u.onboarded });
+    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, twoFactorEnabled: u.twoFactorEnabled, onboarded: u.onboarded });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 

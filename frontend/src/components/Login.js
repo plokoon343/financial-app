@@ -8,12 +8,16 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // 2-step verification state
+  const [otpStep, setOtpStep] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [otpEmail, setOtpEmail] = useState('');
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
   
-  const { login } = useAuth();
+  const { login, verifyLoginOtp } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -32,8 +36,25 @@ const Login = () => {
     setLoading(true);
     setError('');
     const result = await login(formData.email, formData.password);
+    if (result.success && result.otpRequired) {
+      setOtpEmail(result.email);
+      setOtpStep(true);
+    } else if (result.success) {
+      navigate('/');
+    } else {
+      setError(result.message || 'Login failed');
+    }
+    setLoading(false);
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    if (!otp.trim()) { setError('Enter the 6-digit code.'); return; }
+    setLoading(true);
+    setError('');
+    const result = await verifyLoginOtp(otpEmail, otp.trim());
     if (result.success) navigate('/');
-    else setError(result.message || 'Login failed');
+    else setError(result.message || 'Verification failed');
     setLoading(false);
   };
 
@@ -52,7 +73,7 @@ const Login = () => {
             <i className="fas fa-chart-simple logo-icon"></i>  {/* Favicon-style icon */}
             <h1>FINPILOT</h1>
           </div>
-          <p className="login-subtitle">Sign in to manage your finances</p>
+          <p className="login-subtitle">{otpStep ? 'Enter the code we emailed you' : 'Sign in to manage your finances'}</p>
         </div>
 
         {error && (
@@ -61,6 +82,35 @@ const Login = () => {
           </div>
         )}
 
+        {otpStep ? (
+          <form onSubmit={handleVerifyOtp} className="login-form">
+            <div className="form-group">
+              <label htmlFor="otp" className="form-label">Verification code</label>
+              <input
+                id="otp"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={otp}
+                onChange={(e) => { setOtp(e.target.value); if (error) setError(''); }}
+                required
+                placeholder="6-digit code"
+                className="form-input"
+                disabled={loading}
+                autoFocus
+              />
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #94a3b8)', marginTop: '8px' }}>
+                Sent to {otpEmail}. The code expires in 10 minutes.
+              </p>
+            </div>
+            <button type="submit" className={`login-button ${loading ? 'loading' : ''}`} disabled={loading}>
+              {loading ? 'Verifying...' : 'Verify & Sign In'}
+            </button>
+            <button type="button" className="demo-button" style={{ marginTop: '12px' }} onClick={() => { setOtpStep(false); setOtp(''); setError(''); }}>
+              ← Back to login
+            </button>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
             <label htmlFor="email" className="form-label">Email Address</label>
@@ -108,11 +158,14 @@ const Login = () => {
             {loading ? <>Signing In...</> : 'Sign In'}
           </button>
         </form>
+        )}
 
+        {!otpStep && (
         <div className="signup-section">
           <p>Don't have an account?</p>
           <Link to="/register" className="signup-link">Create an account</Link>
         </div>
+        )}
 
         <div className="login-footer">
           <p>By continuing, you agree to our Terms of Service and Privacy Policy</p>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
+import { fmtNaira } from '../utils/format';
 const Wallet = () => {
   //const { darkMode } = useAuth();
   const [balance, setBalance] = useState(0);
@@ -94,11 +95,11 @@ const Wallet = () => {
       <div className="balance-cards">
         <div className="wallet-balance-card glass-effect">
           <div className="balance-label">Main Wallet</div>
-          <div className="balance-amount">₦{balance.toLocaleString()}</div>
+          <div className="balance-amount">{fmtNaira(balance)}</div>
         </div>
         <div className="wallet-balance-card glass-effect savings">
           <div className="balance-label">Savings</div>
-          <div className="balance-amount">₦{savingsBalance.toLocaleString()}</div>
+          <div className="balance-amount">{fmtNaira(savingsBalance)}</div>
           <div className="balance-note">
             <i className="fas fa-robot"></i> Auto‑saved from income
           </div>
@@ -197,7 +198,7 @@ const Wallet = () => {
                   <div className="tx-date">{new Date(tx.createdAt).toLocaleDateString()}</div>
                 </div>
                 <div className="tx-amount" style={{ color: getTransactionColor(tx) }}>
-                  {getTransactionAmountSign(tx)} ₦{tx.amount.toLocaleString()}
+                  {getTransactionAmountSign(tx)} {fmtNaira(tx.amount)}
                 </div>
               </div>
             ))}

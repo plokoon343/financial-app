@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
+import { fmtNaira } from '../utils/format';
 const BillsManager = () => {
   const { darkMode } = useAuth();
   const [debts, setDebts] = useState([]);
@@ -154,7 +155,7 @@ const BillsManager = () => {
     }
   };
 
-  const formatCurrency = (amount) => `₦${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatCurrency = (amount) => fmtNaira(amount);
 
   const allItems = [
     ...debts.map(d => ({ ...d, type: 'debt', dueDate: d.scheduledPayment?.dayOfMonth || null, amount: d.minPayment })),
@@ -219,7 +220,7 @@ const BillsManager = () => {
                     <span className="bill-amount">{formatCurrency(item.amount)}</span>
                     {item.frequency && <span className="bill-frequency">{item.frequency === 'monthly' ? '/month' : '/year'}</span>}
                     {item.dueDate && <span className="bill-due">Due on day {item.dueDate}</span>}
-                    {item.balance !== undefined && <span className="debt-balance">Remaining: ₦{item.balance.toLocaleString()}</span>}
+                    {item.balance !== undefined && <span className="debt-balance">Remaining: {fmtNaira(item.balance)}</span>}
                   </div>
 
                   {/* Recipient/Payee */}

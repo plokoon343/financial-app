@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
+import { fmtNaira } from '../utils/format';
 
 const FinancialTrends = ({ transactions = [] }) => {
   const [timeframe, setTimeframe] = useState('6months');
@@ -115,7 +116,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           <p className="tooltip-label">{label}</p>
           {payload.map((entry, index) => (
             <p key={index} className="tooltip-item" style={{ color: entry.color }}>
-              {entry.name}: <span>₦{entry.value.toLocaleString()}</span>
+              {entry.name}: <span>{fmtNaira(entry.value)}</span>
             </p>
           ))}
         </div>
@@ -181,7 +182,7 @@ const FinancialTrends = ({ transactions = [] }) => {
             <div className="trend-info">
               <h3>Income Trend</h3>
               <div className="trend-value">
-                <span className="amount">₦{trendMetrics.averageIncome ? trendMetrics.averageIncome.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '0'}</span>
+                <span className="amount">{fmtNaira(trendMetrics.averageIncome || 0)}</span>
                 <span className={`trend-change ${trendMetrics.incomeChange > 0 ? 'positive' : 'negative'}`}>
                   <i className={`fas fa-${trendMetrics.incomeChange > 0 ? 'arrow-up' : 'arrow-down'}`}></i>
                   {Math.abs(trendMetrics.incomeChange || 0)}%
@@ -200,7 +201,7 @@ const FinancialTrends = ({ transactions = [] }) => {
             <div className="trend-info">
               <h3>Expense Trend</h3>
               <div className="trend-value">
-                <span className="amount">₦{trendMetrics.averageExpenses ? trendMetrics.averageExpenses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '0'}</span>
+                <span className="amount">{fmtNaira(trendMetrics.averageExpenses || 0)}</span>
                 <span className={`trend-change ${trendMetrics.expenseChange <= 0 ? 'positive' : 'negative'}`}>
                   <i className={`fas fa-${trendMetrics.expenseChange <= 0 ? 'arrow-down' : 'arrow-up'}`}></i>
                   {Math.abs(trendMetrics.expenseChange || 0)}%
@@ -373,7 +374,7 @@ const FinancialTrends = ({ transactions = [] }) => {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value) => `₦${value.toLocaleString()}`}
+                      formatter={(value) => fmtNaira(value)}
                       contentStyle={{ 
                         background: 'var(--card-bg)',
                         border: '1px solid var(--glass-border)',
@@ -385,7 +386,7 @@ const FinancialTrends = ({ transactions = [] }) => {
                 <div className="pie-center">
                   <span className="total-label">Total</span>
                   <span className="total-amount">
-                    ₦{expenseCategories.reduce((sum, cat) => sum + cat.amount, 0).toLocaleString()}
+                    {fmtNaira(expenseCategories.reduce((sum, cat) => sum + cat.amount, 0))}
                   </span>
                 </div>
               </div>
@@ -400,7 +401,7 @@ const FinancialTrends = ({ transactions = [] }) => {
                         <span className="percentage">{category.percentage}%</span>
                       </div>
                     </div>
-                    <div className="category-amount">₦{category.amount.toLocaleString()}</div>
+                    <div className="category-amount">{fmtNaira(category.amount)}</div>
                   </div>
                 ))}
               </div>
@@ -430,7 +431,7 @@ const FinancialTrends = ({ transactions = [] }) => {
                 <div className="metric-content">
                   <span className="metric-label">Avg. Monthly Income</span>
                   <span className="metric-value">
-                    ₦{trendMetrics.averageIncome ? trendMetrics.averageIncome.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '0'}
+                    {fmtNaira(trendMetrics.averageIncome || 0)}
                   </span>
                 </div>
               </div>
@@ -442,7 +443,7 @@ const FinancialTrends = ({ transactions = [] }) => {
                 <div className="metric-content">
                   <span className="metric-label">Avg. Monthly Expenses</span>
                   <span className="metric-value">
-                    ₦{trendMetrics.averageExpenses ? trendMetrics.averageExpenses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '0'}
+                    {fmtNaira(trendMetrics.averageExpenses || 0)}
                   </span>
                 </div>
               </div>
@@ -454,7 +455,7 @@ const FinancialTrends = ({ transactions = [] }) => {
                 <div className="metric-content">
                   <span className="metric-label">Avg. Monthly Savings</span>
                   <span className="metric-value">
-                    ₦{trendMetrics.averageSavings ? trendMetrics.averageSavings.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '0'}
+                    {fmtNaira(trendMetrics.averageSavings || 0)}
                   </span>
                 </div>
               </div>
@@ -481,7 +482,7 @@ const FinancialTrends = ({ transactions = [] }) => {
                       return (
                         <>
                           <span className="month-name">{bestMonth.month}</span>
-                          <span className="month-amount">₦{bestMonth.savings ? bestMonth.savings.toLocaleString() : '0'}</span>
+                          <span className="month-amount">{fmtNaira(bestMonth.savings || 0)}</span>
                           <span className="month-rate">({bestMonth.savingsRate || '0'}%)</span>
                         </>
                       );

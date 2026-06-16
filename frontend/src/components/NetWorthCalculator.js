@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 //import { API_URL } from '../config';
+import { fmtNaira } from '../utils/format';
 const NetWorthCalculator = () => {
   const [assets, setAssets] = useState({
     cash: '',
@@ -70,16 +71,16 @@ const NetWorthCalculator = () => {
         <div className="networth-display">
           <div className="networth-label">Current Net Worth</div>
           <div className="networth-value" style={{ color: netWorth >= 0 ? '#27ae60' : '#e74c3c', textShadow: netWorth >= 0 ? '0 0 20px rgba(39,174,96,0.3)' : '0 0 20px rgba(231,76,60,0.3)' }}>
-            ₦{netWorth.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {fmtNaira(netWorth)}
           </div>
           <div className="networth-breakdown">
             <div className="breakdown-item positive">
               <div className="breakdown-label"><i className="fas fa-arrow-up"></i><span>Total Assets</span></div>
-              <div className="breakdown-amount">₦{totalAssets.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div className="breakdown-amount">{fmtNaira(totalAssets)}</div>
             </div>
             <div className="breakdown-item negative">
               <div className="breakdown-label"><i className="fas fa-arrow-down"></i><span>Total Liabilities</span></div>
-              <div className="breakdown-amount">₦{totalLiabilities.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div className="breakdown-amount">{fmtNaira(totalLiabilities)}</div>
             </div>
           </div>
         </div>
@@ -90,7 +91,7 @@ const NetWorthCalculator = () => {
         <div className="assets-section glass-effect">
           <div className="section-title">
             <h3><i className="fas fa-plus-circle"></i> Assets</h3>
-            <p className="section-total">Total: ₦{totalAssets.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="section-total">Total: {fmtNaira(totalAssets)}</p>
           </div>
           <div className="assets-list">
             {assetCategories.map(cat => (
@@ -119,7 +120,7 @@ const NetWorthCalculator = () => {
         <div className="liabilities-section glass-effect">
           <div className="section-title">
             <h3><i className="fas fa-minus-circle"></i> Liabilities</h3>
-            <p className="section-total">Total: ₦{totalLiabilities.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="section-total">Total: {fmtNaira(totalLiabilities)}</p>
           </div>
           <div className="liabilities-list">
             {liabilityCategories.map(cat => (

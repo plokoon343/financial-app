@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import FinancialTrends from './FinancialTrends';
 import SpendingAlerts from './SpendingAlerts';
+import { fmtNaira } from '../utils/format';
 const FinancialHealth = ({ transactions = [] }) => {
   const [healthData, setHealthData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,7 +49,7 @@ const FinancialHealth = ({ transactions = [] }) => {
     const advice = [];
     
     if (data.netIncome < 0) {
-      advice.push("🚨 CRITICAL: Your expenses exceed your income by ₦" + Math.abs(data.netIncome).toLocaleString() + ". You're accumulating debt!");
+      advice.push("🚨 CRITICAL: Your expenses exceed your income by " + fmtNaira(Math.abs(data.netIncome)) + ". You're accumulating debt!");
       advice.push("Immediately review your expenses and identify areas to cut back.");
       advice.push("Consider finding additional income sources to cover the deficit.");
     } else if (data.savingsRate < 10) {
@@ -115,11 +116,11 @@ const FinancialHealth = ({ transactions = [] }) => {
               <div className="health-metrics">
                 <div className="metric">
                   <span className="label">Total Income:</span>
-                  <span className="value income">₦{healthData.totalIncome.toLocaleString()}</span>
+                  <span className="value income">{fmtNaira(healthData.totalIncome)}</span>
                 </div>
                 <div className="metric">
                   <span className="label">Total Expenses:</span>
-                  <span className="value expense">-₦{healthData.totalExpenses.toLocaleString()}</span>
+                  <span className="value expense">-{fmtNaira(healthData.totalExpenses)}</span>
                 </div>
                 <div className="metric">
                   <span className="label">Net Income:</span>
@@ -130,7 +131,7 @@ const FinancialHealth = ({ transactions = [] }) => {
                       fontWeight: healthData.netIncome < 0 ? 'bold' : 'normal'
                     }}
                   >
-                    {healthData.netIncome >= 0 ? '+' : ''}₦{healthData.netIncome.toLocaleString()}
+                    {healthData.netIncome >= 0 ? '+' : ''}{fmtNaira(healthData.netIncome)}
                   </span>
                 </div>
               </div>

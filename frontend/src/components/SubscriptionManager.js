@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
+import { fmtNaira } from '../utils/format';
 const SubscriptionManager = () => {
   //const { darkMode } = useAuth();
   const [subscriptions, setSubscriptions] = useState([]);
@@ -132,11 +133,11 @@ const SubscriptionManager = () => {
       <div className="overview-grid">
         <div className="overview-card glass-effect">
           <div className="overview-icon monthly-cost"><i className="fas fa-calendar-day"></i></div>
-          <div className="overview-content"><h3>Monthly Cost</h3><div className="overview-amount">₦{monthlyCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+          <div className="overview-content"><h3>Monthly Cost</h3><div className="overview-amount">{fmtNaira(monthlyCost)}</div></div>
         </div>
         <div className="overview-card glass-effect">
           <div className="overview-icon yearly-cost"><i className="fas fa-calendar-year"></i></div>
-          <div className="overview-content"><h3>Yearly Cost</h3><div className="overview-amount">₦{yearlyCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+          <div className="overview-content"><h3>Yearly Cost</h3><div className="overview-amount">{fmtNaira(yearlyCost)}</div></div>
         </div>
         <div className="overview-card glass-effect">
           <div className="overview-icon active-subs"><i className="fas fa-bell"></i></div>
@@ -159,7 +160,7 @@ const SubscriptionManager = () => {
                   </div>
                 </div>
                 <div className="category-info">
-                  <div className="category-amount">₦{amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div className="category-amount">{fmtNaira(amount)}</div>
                   <div className="category-percentage">{((amount / monthlyCost) * 100).toFixed(1)}%</div>
                 </div>
               </div>
@@ -194,7 +195,7 @@ const SubscriptionManager = () => {
                     <span className="status-badge" style={{ backgroundColor: sub.status === 'active' ? '#27ae60' : '#e74c3c', color: 'white' }}>{sub.status}</span>
                   </div>
                   <div className="sub-details">
-                    <span className="sub-cost"><i className="fas fa-money-bill"></i>₦{sub.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{sub.frequency === 'monthly' ? 'mo' : 'yr'}</span>
+                    <span className="sub-cost"><i className="fas fa-money-bill"></i>{fmtNaira(sub.cost)}/{sub.frequency === 'monthly' ? 'mo' : 'yr'}</span>
                     <span className="sub-category" style={{ backgroundColor: `${getCategoryColor(sub.category)}20`, color: getCategoryColor(sub.category), border: `1px solid ${getCategoryColor(sub.category)}` }}>
                       <i className="fas fa-tag"></i>{sub.category}
                     </span>

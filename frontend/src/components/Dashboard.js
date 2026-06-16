@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { categoriesFor } from '../constants/categories';
+import { fmtNaira } from '../utils/format';
 import {
   FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
   FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
@@ -383,7 +384,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                       {tx.description}
                       {tx.duplicate && <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>Dup</span>}
                     </td>
-                    <td style={{ padding: '0.5rem 0.7rem', fontWeight: 700, color: tx.type === 'income' ? '#38a169' : '#e53e3e', whiteSpace: 'nowrap' }}>₦{Number(tx.amount).toLocaleString()}</td>
+                    <td style={{ padding: '0.5rem 0.7rem', fontWeight: 700, color: tx.type === 'income' ? '#38a169' : '#e53e3e', whiteSpace: 'nowrap' }}>{fmtNaira(Number(tx.amount))}</td>
                     <td style={{ padding: '0.5rem 0.7rem', color: tx.type === 'income' ? '#38a169' : '#e53e3e', fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{tx.type === 'income' ? '↑' : '↓'} {tx.type}</td>
                     <td style={{ padding: '0.5rem 0.7rem' }} onClick={(e) => e.stopPropagation()}>
                       <select
@@ -465,7 +466,7 @@ const Dashboard = () => {
 
   const formatAmount = (value) => {
     if (hideAmounts) return '••••';
-    return `₦${value.toLocaleString()}`;
+    return fmtNaira(value);
   };
 
 // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -886,7 +887,7 @@ const Dashboard = () => {
                     <div style={{ fontSize: '0.78rem', color: darkMode ? '#a0aec0' : '#718096' }}>{new Date(tx.date).toLocaleDateString()} · {tx.category}</div>
                   </div>
                   <div style={{ fontWeight: 700, color: tx.type === 'income' ? '#38a169' : '#e53e3e', whiteSpace: 'nowrap', fontSize: '0.92rem' }}>
-                    {tx.type === 'income' ? '+' : '-'}{hideAmounts ? '••••' : `₦${Math.abs(tx.amount).toLocaleString()}`}
+                    {tx.type === 'income' ? '+' : '-'}{hideAmounts ? '••••' : fmtNaira(Math.abs(tx.amount))}
                   </div>
                   <button onClick={() => deleteTransaction(tx._id || tx.id)}
                     style={{ background: 'none', border: 'none', color: darkMode ? '#718096' : '#cbd5e0', cursor: 'pointer', padding: '0.25rem', borderRadius: '6px', flexShrink: 0 }}
@@ -944,7 +945,7 @@ const Dashboard = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             {[
               { title: 'Top Spending Category', value: transactions.length > 0 ? (Object.entries(transactions.filter(t => t.type === 'expense').reduce((a, t) => { const c = t.category||'Other'; a[c]=(a[c]||0)+Math.abs(t.amount); return a; }, {})).sort((a,b)=>b[1]-a[1])[0]?.[0] || 'None') : 'None', color: '#00d4aa' },
-              { title: 'Avg Daily Spend', value: hideAmounts ? '••••' : `₦${(stats.totalExpenses/30).toLocaleString(undefined,{maximumFractionDigits:0})}`, color: '#4facfe' },
+              { title: 'Avg Daily Spend', value: hideAmounts ? '••••' : fmtNaira(stats.totalExpenses/30), color: '#4facfe' },
               { title: 'Total Transactions', value: transactions.length, color: '#fa709a' },
               { title: 'Balance Status', value: stats.netBalance >= 0 ? '✓ Positive' : '✗ Negative', color: stats.netBalance >= 0 ? '#38a169' : '#e53e3e' },
             ].map(ins => (

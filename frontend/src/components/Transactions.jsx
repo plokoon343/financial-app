@@ -3,9 +3,10 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { categoriesFor, ALL_CATEGORIES } from '../constants/categories';
 import { FeatureTip, InfoTip } from './FeatureTip';
+import { fmtNaira } from '../utils/format';
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-const money = (n) => `₦${Math.abs(Number(n)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (n) => fmtNaira(Math.abs(Number(n)));
 const monthKey = (d) => { const x = new Date(d); return isNaN(x) ? '' : x.toISOString().slice(0, 7); };
 const monthLabel = (m) => {
   if (!m) return 'Unknown';

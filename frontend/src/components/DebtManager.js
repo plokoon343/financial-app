@@ -8,6 +8,7 @@ const DebtManager = () => {
   const [debts, setDebts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
+  const [selectedDebtId, setSelectedDebtId] = useState(null); // detail popup
   const [newDebt, setNewDebt] = useState({
     name: '',
     balance: '',
@@ -105,6 +106,8 @@ const DebtManager = () => {
   const totalDebt = debts.reduce((sum, d) => sum + d.balance, 0);
   const totalMonthlyPayment = debts.reduce((sum, d) => sum + d.minPayment, 0);
   const highestInterestDebt = debts.reduce((h, d) => (d.interest > h.interest ? d : h), { interest: 0, name: 'No debts' });
+  const priorityOf = (i) => (i > 15 ? 'high' : i > 8 ? 'medium' : 'low');
+  const activeDebt = debts.find((d) => d._id === selectedDebtId) || null;
 
   if (loading) {
     return <div className="loading">Loading debts...</div>;
@@ -181,80 +184,74 @@ const DebtManager = () => {
             <button className="cta-btn" onClick={() => setIsAdding(true)}><i className="fas fa-plus"></i> Add Your First Debt</button>
           </div>
         ) : (
-          <div className="debts-list">
-            {debts.sort((a, b) => b.interest - a.interest).map((debt) => (
-              <div key={debt._id} className="debt-item glass-card">
-                <div className="debt-header">
-                  <div className="debt-name"><i className="fas fa-credit-card"></i><span>{debt.name}</span></div>
-                  <div className="debt-actions">
-                    <span className="interest-badge">{debt.interest}%</span>
-                    <button className="remove-btn" onClick={() => removeDebt(debt._id)}><i className="fas fa-trash"></i></button>
-                  </div>
-                </div>
-                <div className="debt-details">
-                  <div className="detail"><span className="label">Balance</span><span className="value">{fmtNaira(debt.balance)}</span></div>
-                  <div className="detail"><span className="label">Min Payment</span><span className="value">{fmtNaira(debt.minPayment)}/mo</span></div>
-                  <div className="detail"><span className="label">Priority</span>
-                    <span className={`priority ${debt.interest > 15 ? 'high' : debt.interest > 8 ? 'medium' : 'low'}`}>
-                      {debt.interest > 15 ? 'High' : debt.interest > 8 ? 'Medium' : 'Low'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Scheduled Payment Toggle */}
-                <div className="scheduled-payment-toggle">
-                  <label className="schedule-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={debt.scheduledPayment?.enabled || false}
-                      onChange={(e) => updateScheduledPayment(debt._id, {
-                        ...debt.scheduledPayment,
-                        enabled: e.target.checked,
-                        amount: debt.scheduledPayment?.amount || 0,
-                        dayOfMonth: debt.scheduledPayment?.dayOfMonth || 1
-                      })}
-                    />
-                    <span>Auto‑pay from wallet</span>
-                  </label>
-                  {debt.scheduledPayment?.enabled && (
-                    <div className="schedule-details">
-                      <div className="schedule-field">
-                        <label>Amount per payment (₦)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="100"
-                          value={debt.scheduledPayment?.amount || 0}
-                          onChange={(e) => updateScheduledPayment(debt._id, {
-                            ...debt.scheduledPayment,
-                            amount: parseFloat(e.target.value),
-                            dayOfMonth: debt.scheduledPayment?.dayOfMonth || 1
-                          })}
-                        />
-                      </div>
-                      <div className="schedule-field">
-                        <label>Day of month</label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="31"
-                          value={debt.scheduledPayment?.dayOfMonth || 1}
-                          onChange={(e) => updateScheduledPayment(debt._id, {
-                            ...debt.scheduledPayment,
-                            amount: debt.scheduledPayment?.amount || 0,
-                            dayOfMonth: parseInt(e.target.value)
-                          })}
-                        />
-                      </div>
-                      <small>Auto‑deducted from wallet monthly</small>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="debt-table-wrap">
+            <table className="debt-table">
+              <thead>
+                <tr><th>Debt</th><th className="num">Balance</th><th>Interest</th><th className="num">Min / mo</th><th>Priority</th><th>Auto-pay</th></tr>
+              </thead>
+              <tbody>
+                {debts.sort((a, b) => b.interest - a.interest).map((debt) => (
+                  <tr key={debt._id} className="debt-row" onClick={() => setSelectedDebtId(debt._id)} title="View / edit debt">
+                    <td><div className="dt-name"><i className="fas fa-credit-card"></i> {debt.name}</div></td>
+                    <td className="num">{fmtNaira(debt.balance)}</td>
+                    <td><span className="interest-badge">{debt.interest}%</span></td>
+                    <td className="num">{fmtNaira(debt.minPayment)}</td>
+                    <td><span className={`priority ${priorityOf(debt.interest)}`}>{priorityOf(debt.interest) === 'high' ? 'High' : priorityOf(debt.interest) === 'medium' ? 'Medium' : 'Low'}</span></td>
+                    <td><span className={`dt-autopay ${debt.scheduledPayment?.enabled ? 'on' : 'off'}`}><i className={`fas ${debt.scheduledPayment?.enabled ? 'fa-check-circle' : 'fa-circle'}`}></i> {debt.scheduledPayment?.enabled ? 'On' : 'Off'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
+
+      {/* Debt detail / edit popup */}
+      {activeDebt && (
+        <div className="debt-modal-overlay" onClick={() => setSelectedDebtId(null)}>
+          <div className="debt-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="debt-modal-head">
+              <h3><i className="fas fa-credit-card"></i> {activeDebt.name}</h3>
+              <button className="debt-modal-close" onClick={() => setSelectedDebtId(null)} title="Close"><i className="fas fa-times"></i></button>
+            </div>
+            <div className="debt-modal-stats">
+              <div><span>Balance</span><strong className="highlight-danger">{fmtNaira(activeDebt.balance)}</strong></div>
+              <div><span>Interest</span><strong>{activeDebt.interest}%</strong></div>
+              <div><span>Min / mo</span><strong>{fmtNaira(activeDebt.minPayment)}</strong></div>
+              <div><span>Priority</span><strong className={`priority ${priorityOf(activeDebt.interest)}`} style={{ padding: '2px 10px' }}>{priorityOf(activeDebt.interest)}</strong></div>
+            </div>
+
+            <div className="scheduled-payment-toggle" style={{ borderTop: 'none', marginTop: 0 }}>
+              <label className="schedule-checkbox">
+                <input
+                  type="checkbox"
+                  checked={activeDebt.scheduledPayment?.enabled || false}
+                  onChange={(e) => updateScheduledPayment(activeDebt._id, {
+                    ...activeDebt.scheduledPayment, enabled: e.target.checked,
+                    amount: activeDebt.scheduledPayment?.amount || 0, dayOfMonth: activeDebt.scheduledPayment?.dayOfMonth || 1,
+                  })}
+                />
+                <span>Auto‑pay from wallet</span>
+              </label>
+              {activeDebt.scheduledPayment?.enabled && (
+                <div className="schedule-details">
+                  <div className="schedule-field"><label>Amount per payment (₦)</label>
+                    <input type="number" min="0" step="100" value={activeDebt.scheduledPayment?.amount || 0}
+                      onChange={(e) => updateScheduledPayment(activeDebt._id, { ...activeDebt.scheduledPayment, amount: parseFloat(e.target.value), dayOfMonth: activeDebt.scheduledPayment?.dayOfMonth || 1 })} /></div>
+                  <div className="schedule-field"><label>Day of month</label>
+                    <input type="number" min="1" max="31" value={activeDebt.scheduledPayment?.dayOfMonth || 1}
+                      onChange={(e) => updateScheduledPayment(activeDebt._id, { ...activeDebt.scheduledPayment, amount: activeDebt.scheduledPayment?.amount || 0, dayOfMonth: parseInt(e.target.value) })} /></div>
+                  <small>Auto‑deducted from wallet monthly</small>
+                </div>
+              )}
+            </div>
+
+            <button className="debt-modal-delete" onClick={() => { removeDebt(activeDebt._id); setSelectedDebtId(null); }}>
+              <i className="fas fa-trash"></i> Delete debt
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add Debt Form */}
       {isAdding && (
@@ -725,6 +722,33 @@ const DebtManager = () => {
           color: #27ae60;
           border: 1px solid rgba(39, 174, 96, 0.3);
         }
+
+        /* Debt table */
+        .debt-table-wrap { overflow-x: auto; }
+        .debt-table { width: 100%; border-collapse: collapse; }
+        .debt-table th { text-align: left; font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+        .debt-table th.num, .debt-table td.num { text-align: right; }
+        .debt-row { cursor: pointer; transition: background var(--transition-fast); }
+        .debt-row:hover { background: var(--glass-bg); }
+        .debt-table td { padding: 12px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.92rem; vertical-align: middle; white-space: nowrap; }
+        .dt-name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+        .dt-name i { color: var(--accent-primary); }
+        .dt-autopay { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-full); }
+        .dt-autopay.on { color: #22C55E; background: rgba(34,197,94,.12); }
+        .dt-autopay.off { color: var(--text-secondary); background: var(--glass-bg); }
+
+        /* Debt detail popup */
+        .debt-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+        .debt-modal { width: min(520px, 95vw); max-height: 88vh; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 18px; padding: 24px; color: var(--text-primary); }
+        .debt-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+        .debt-modal-head h3 { display: flex; align-items: center; gap: 10px; font-size: 1.3rem; color: var(--text-primary); }
+        .debt-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 1.2rem; cursor: pointer; }
+        .debt-modal-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 18px; }
+        .debt-modal-stats div { display: flex; flex-direction: column; gap: 3px; }
+        .debt-modal-stats span { color: var(--text-secondary); font-size: 0.78rem; }
+        .debt-modal-stats strong { font-size: 1.1rem; }
+        .debt-modal-delete { margin-top: 18px; width: 100%; padding: 12px; border-radius: 12px; background: transparent; border: 1px solid #ef4444; color: #ef4444; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .debt-modal-delete:hover { background: rgba(239,68,68,.1); }
 
         /* Add Debt Form */
         .add-debt-form {

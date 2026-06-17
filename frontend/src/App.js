@@ -28,6 +28,7 @@ const SubscriptionManager = lazy(() => import('./components/SubscriptionManager'
 const BillsManager = lazy(() => import('./components/BillsManager'));
 const NetWorthCalculator = lazy(() => import('./components/NetWorthCalculator'));
 const AutoSavings = lazy(() => import('./components/AutoSavings'));
+const ConnectBank = lazy(() => import('./components/ConnectBank'));
 const Transactions = lazy(() => import('./components/Transactions'));
 const Profile = lazy(() => import('./components/Profile'));
 const Settings = lazy(() => import('./components/Settings'));
@@ -109,6 +110,7 @@ function AppContent() {
           <Route path="bills" element={<BillsManager />} />
           <Route path="networth" element={<NetWorthCalculator />} />
           <Route path="auto-savings" element={<AutoSavings />} />
+          <Route path="connect-bank" element={<ConnectBank />} />
           <Route path="support" element={<Support />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />

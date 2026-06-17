@@ -340,6 +340,24 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+/* "Key feature" highlight (Connect Bank) */
+.sidebar-link.sidebar-key {
+  border: 1px solid var(--accent-primary);
+  background: var(--primarySoft, rgba(0,168,98,.10));
+}
+.sidebar-link.sidebar-key.active { border-color: transparent; }
+.sidebar-key-badge {
+  margin-left: auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  background: var(--accent-primary);
+  color: #04130d;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
 .sidebar-footer {
   padding: 1.5rem;
   border-top: 1px solid var(--glass-border);

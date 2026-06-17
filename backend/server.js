@@ -173,6 +173,14 @@ const userSchema = new mongoose.Schema({
   loginOtpExpiry:   { type: Date },
   // Tokens issued before this time are rejected (used by "log out of all devices").
   sessionsValidFrom: { type: Date },
+  // Linked bank account via Mono (auto-import). accountId is Mono's account id.
+  linkedBank: {
+    provider:    { type: String, default: '' },   // 'mono'
+    accountId:   { type: String, default: '' },
+    institution: { type: String, default: '' },    // bank name
+    accountName: { type: String, default: '' },
+    lastSynced:  { type: Date },
+  },
   bankDetails: {
     bankName:        { type: String, default: '' },
     bankCode:        { type: String, default: '' },
@@ -2676,6 +2684,109 @@ app.post('/api/user/bank-details', auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
   }
+});
+
+// --------------------------
+// Bank linking via Mono (auto-import). Keys-pending: inert until MONO_* env vars
+// are set. Public key is exposed to the frontend for the Connect widget; the
+// secret key is used server-side to exchange the auth code and pull transactions.
+// --------------------------
+const MONO_BASE = 'https://api.withmono.com/v2';
+const monoConfigured = () => !!(process.env.MONO_SECRET_KEY && process.env.MONO_PUBLIC_KEY);
+const monoHeaders = () => ({ 'mono-sec-key': process.env.MONO_SECRET_KEY, 'Content-Type': 'application/json' });
+
+// Config for the frontend widget + current link status.
+app.get('/api/bank/mono-config', auth, async (req, res) => {
+  const lb = req.user.linkedBank || {};
+  res.json({
+    enabled: monoConfigured(),
+    publicKey: process.env.MONO_PUBLIC_KEY || '',
+    connected: !!lb.accountId,
+    institution: lb.institution || '',
+    accountName: lb.accountName || '',
+    lastSynced: lb.lastSynced || null,
+  });
+});
+
+// Exchange the Mono Connect auth code for an account id and link it.
+app.post('/api/bank/connect', auth, async (req, res) => {
+  if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: 'Missing authorization code' });
+    const exch = await axios.post(`${MONO_BASE}/accounts/auth`, { code }, { headers: monoHeaders(), timeout: 20000 });
+    const accountId = exch.data?.data?.id || exch.data?.id;
+    if (!accountId) return res.status(502).json({ message: 'Could not link account (no id returned)' });
+    // Pull account metadata (bank name + account holder) for display.
+    let institution = '', accountName = '';
+    try {
+      const info = await axios.get(`${MONO_BASE}/accounts/${accountId}`, { headers: monoHeaders(), timeout: 20000 });
+      const acct = info.data?.data?.account || info.data?.account || info.data?.data || {};
+      institution = acct.institution?.name || '';
+      accountName = acct.name || '';
+    } catch { /* metadata is best-effort */ }
+    req.user.linkedBank = { provider: 'mono', accountId, institution, accountName, lastSynced: null };
+    await req.user.save();
+    res.json({ connected: true, institution, accountName });
+  } catch (err) {
+    console.error('[bank/connect]', err.response?.data || err.message);
+    res.status(502).json({ message: err.response?.data?.message || 'Could not link your bank. Try again.' });
+  }
+});
+
+// Pull transactions from the linked account and import new ones.
+app.post('/api/bank/sync', auth, async (req, res) => {
+  if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });
+  const lb = req.user.linkedBank || {};
+  if (!lb.accountId) return res.status(400).json({ message: 'No bank account linked' });
+  try {
+    const r = await axios.get(`${MONO_BASE}/accounts/${lb.accountId}/transactions`, {
+      headers: monoHeaders(), params: { paginate: false }, timeout: 30000,
+    });
+    const raw = r.data?.data || r.data?.transactions || [];
+    // Map Mono txns → our model. Mono amounts are in kobo; debit=expense, credit=income.
+    const mapped = raw.map((t) => {
+      const amt = Math.abs(Number(t.amount) || 0) / 100;
+      const type = (t.type === 'credit') ? 'income' : 'expense';
+      const description = (t.narration || t.description || 'Bank transaction').toString().trim();
+      const date = new Date(t.date).toISOString().slice(0, 10);
+      return { date, description, amount: amt, type, category: categorizeTransaction(description, type) };
+    }).filter((t) => t.amount > 0 && t.date);
+
+    // Dedupe against what the user already has.
+    const existing = await Transaction.find({ userId: req.user._id }, { date: 1, amount: 1, description: 1 }).lean();
+    const seen = new Set(existing.map((t) => `${new Date(t.date).toISOString().slice(0, 10)}|${Math.abs(t.amount)}|${t.description}`));
+    const importBatch = new mongoose.Types.ObjectId().toString();
+    const importedAt = new Date();
+    const docs = mapped
+      .filter((t) => !seen.has(`${t.date}|${t.amount}|${t.description}`))
+      .map((t) => new Transaction({
+        userId: req.user._id, date: new Date(t.date), description: t.description,
+        amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
+        category: t.category, type: t.type, source: 'import',
+        bank: lb.institution || 'Linked bank', importBatch, importedAt,
+      }));
+    if (docs.length) await Transaction.insertMany(docs, { ordered: false });
+    req.user.linkedBank.lastSynced = importedAt;
+    await req.user.save();
+    res.json({ imported: docs.length, total: mapped.length, lastSynced: importedAt });
+  } catch (err) {
+    console.error('[bank/sync]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not sync transactions. Try again.' });
+  }
+});
+
+// Unlink the bank account.
+app.delete('/api/bank/unlink', auth, async (req, res) => {
+  try {
+    const id = req.user.linkedBank?.accountId;
+    if (id && monoConfigured()) {
+      axios.post(`${MONO_BASE}/accounts/${id}/unlink`, {}, { headers: monoHeaders(), timeout: 15000 }).catch(() => {});
+    }
+    req.user.linkedBank = { provider: '', accountId: '', institution: '', accountName: '', lastSynced: null };
+    await req.user.save();
+    res.json({ connected: false });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // 404 handler

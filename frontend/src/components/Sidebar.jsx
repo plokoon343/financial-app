@@ -50,6 +50,9 @@ const Sidebar = () => {
 
   // Grouped navigation
   const navGroups = [
+    { title: 'Banking', items: [
+      { path: '/connect-bank', label: 'Connect Bank', icon: 'account_balance', key: true },
+    ]},
     { title: 'Money', items: [
       { path: '/', label: 'Dashboard', icon: 'dashboard' },
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
@@ -128,11 +131,12 @@ const Sidebar = () => {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
+                  className={`sidebar-link ${location.pathname === item.path ? 'active' : ''} ${item.key ? 'sidebar-key' : ''}`}
                   onClick={toggleSidebar}
                 >
                   <span className="material-symbols-outlined">{item.icon}</span>
                   <span>{item.label}</span>
+                  {item.key && <span className="sidebar-key-badge">New</span>}
                 </Link>
               ))}
             </div>

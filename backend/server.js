@@ -47,7 +47,7 @@ const makeTransport = () => nodemailer.createTransport({
 // The "from" identity. Brevo requires a verified sender; we reuse EMAIL_USER (your
 // Gmail) as both the SMTP login and the Brevo sender so one address drives both.
 const senderEmail = () => (process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER || '').trim();
-const senderName = () => process.env.EMAIL_FROM_NAME || 'FinPilot';
+const senderName = () => process.env.EMAIL_FROM_NAME || 'Automonie';
 const mailFrom = () => process.env.EMAIL_FROM || `${senderName()} <${senderEmail()}>`;
 
 // Send one email via whichever transport is configured. Brevo wins if its key is set.
@@ -83,9 +83,9 @@ const sendResetEmail = async (to, link) => {
   }
   await sendEmail({
     to,
-    subject: 'Reset your FinPilot password',
+    subject: 'Reset your Automonie password',
     text: `Reset your password using this link (valid for 1 hour):\n\n${link}\n\nIf you didn't request this, ignore this email.`,
-    html: `<p>Reset your FinPilot password using the link below (valid for 1 hour):</p>
+    html: `<p>Reset your Automonie password using the link below (valid for 1 hour):</p>
            <p><a href="${link}">Reset my password</a></p>
            <p style="color:#888;font-size:12px">If you didn't request this, you can safely ignore this email.</p>`,
   });
@@ -1290,9 +1290,9 @@ app.post('/api/login', authLimiter, async (req, res) => {
       await user.save();
       sendEmail({
         to: user.email,
-        subject: 'Your FinPilot login code',
-        text: `Your FinPilot verification code is ${otp}. It expires in 10 minutes.`,
-        html: `<p>Your FinPilot verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 10 minutes. If you didn't try to sign in, change your password.</p>`,
+        subject: 'Your Automonie login code',
+        text: `Your Automonie verification code is ${otp}. It expires in 10 minutes.`,
+        html: `<p>Your Automonie verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 10 minutes. If you didn't try to sign in, change your password.</p>`,
       }).catch(e => console.error('[login-otp] email failed:', e.message));
       return res.json({ otpRequired: true, email: user.email });
     }
@@ -2527,7 +2527,7 @@ app.get('/api/admin/test-email', auth, superAdminAuth, async (req, res) => {
   }
   try {
     const to = (req.query.to || req.user.email);
-    await sendEmail({ to, subject: `FinPilot email test ✅ (${transport})`, text: 'If you can read this, email sending works.' });
+    await sendEmail({ to, subject: `Automonie email test ✅ (${transport})`, text: 'If you can read this, email sending works.' });
     res.json({ ok: true, message: `Test email sent to ${to} via ${transport}. Check inbox and spam.`, diag });
   } catch (err) {
     // Brevo errors carry the real reason in the HTTP response body.

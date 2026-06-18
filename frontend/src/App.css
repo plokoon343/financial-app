@@ -24,8 +24,8 @@
   --shadow-lg: 0 12px 24px rgba(0,0,0,0.12);
   
   --font-heading: 'Poppins', 'Segoe UI', sans-serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-accent: 'Space Grotesk', monospace;
+  --font-body: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-accent: 'Poppins', 'Segoe UI', sans-serif;
   
   /* Smaller base radii – mobile friendly */
   --radius-sm: 8px;
@@ -65,8 +65,8 @@
   --shadow-glow: 0 0 30px rgba(102, 126, 234, 0.3);
   
   --font-heading: 'Poppins', 'Segoe UI', sans-serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-accent: 'Space Grotesk', monospace;
+  --font-body: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-accent: 'Poppins', 'Segoe UI', sans-serif;
   
   --radius-sm: 10px;
   --radius-md: 14px;
@@ -92,7 +92,7 @@
   --shadow-glow: 0 0 40px rgba(102, 126, 234, 0.2);
 }
 
-/* ===== FinPilot "cockpit" theme — overrides the tokens above ===== */
+/* ===== Automonie "cockpit" theme — overrides the tokens above ===== */
 :root {
   --accent-primary: #008751;
   --gradient-primary: linear-gradient(135deg, #008751 0%, #00a862 100%);

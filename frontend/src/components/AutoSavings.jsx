@@ -103,7 +103,7 @@ const AutoSavings = () => {
 
       <FeatureTip tipKey="page:auto-savings" title="Save without thinking">
         Choose a fixed amount to move to savings from each income, or a round‑up rule on
-        expenses. Optionally link it to a savings goal and FinPilot does the rest.
+        expenses. Optionally link it to a savings goal and Automonie does the rest.
       </FeatureTip>
 
       <div className="savings-card glass-effect">

@@ -71,7 +71,7 @@ const Login = () => {
         <div className="login-header">
           <div className="logo">
             <i className="fas fa-chart-simple logo-icon"></i>  {/* Favicon-style icon */}
-            <h1>FINPILOT</h1>
+            <h1>AUTOMONIE</h1>
           </div>
           <p className="login-subtitle">{otpStep ? 'Enter the code we emailed you' : 'Sign in to manage your finances'}</p>
         </div>

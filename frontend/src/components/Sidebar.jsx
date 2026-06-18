@@ -91,7 +91,7 @@ const Sidebar = () => {
         <div className="sidebar-header">
           <Link to="/" className="sidebar-logo" onClick={toggleSidebar}>
             <span className="material-symbols-outlined">rocket_launch</span>
-            <span>FINPILOT</span>
+            <span>AUTOMONIE</span>
           </Link>
         </div>
 

@@ -130,7 +130,7 @@ const Register = () => {
         <div className="login-header">
           <div className="logo">
             <i className="fas fa-chart-simple logo-icon"></i>
-            <h1>FINPILOT</h1>
+            <h1>AUTOMONIE</h1>
           </div>
           <p className="login-subtitle">Create your account</p>
         </div>

@@ -29,3 +29,8 @@ yarn-error.log*
 
 # local doc-generation scratch (not part of the app)
 _docgen/
+
+# Local AI assistant config
+.claude/
+CLAUDE.md
+AGENTS.md

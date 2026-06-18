@@ -113,7 +113,7 @@ const Settings = () => {
 
       // Header
       doc.setFontSize(18); doc.setTextColor('#0b1326');
-      doc.text('FinPilot — Data Export', 14, y); y += 7;
+      doc.text('Automonie — Data Export', 14, y); y += 7;
       doc.setFontSize(10); doc.setTextColor('#64748b');
       doc.text(`Generated ${new Date().toLocaleString('en-NG')}`, 14, y); y += 8;
 
@@ -160,7 +160,7 @@ const Settings = () => {
       section('Recurring bills', ['Name', 'Amount', 'Due day', 'Frequency'],
         (data.bills || []).map((b) => [b.name, fmtNaira(b.amount), b.dueDate, b.frequency]));
 
-      doc.save(`finpilot-data-${new Date().toISOString().slice(0, 10)}.pdf`);
+      doc.save(`automonie-data-${new Date().toISOString().slice(0, 10)}.pdf`);
       flash('Your data has been downloaded as a PDF.');
     } catch (e) {
       flash('Could not export data', 'error');

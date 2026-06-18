@@ -84,7 +84,7 @@ const ConnectBank = () => {
       <div className="cb-head">
         <span className="cb-eyebrow">Key feature</span>
         <h2><i className="fas fa-building-columns"></i> Connect your bank</h2>
-        <p>Link your bank account once and FinPilot keeps your transactions up to date automatically — no more manual statement uploads.</p>
+        <p>Link your bank account once and Automonie keeps your transactions up to date automatically — no more manual statement uploads.</p>
       </div>
 
       {message && <div className={`cb-msg ${message.type}`}>{message.text}</div>}

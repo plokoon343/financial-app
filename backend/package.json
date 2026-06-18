@@ -2,6 +2,8 @@
   "name": "financial-app-backend",
   "version": "1.0.0",
   "description": "Backend for financial application",
+  "license": "UNLICENSED",
+  "private": true,
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

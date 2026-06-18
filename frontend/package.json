@@ -2,6 +2,7 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "dependencies": {
     "@mono.co/connect.js": "^2.2.0",
     "@testing-library/dom": "^10.4.1",

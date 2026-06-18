@@ -19,6 +19,7 @@ const Login = () => {
   
   const { login, verifyLoginOtp } = useAuth();
   const navigate = useNavigate();
+  const timedOut = new URLSearchParams(window.location.search).get('timeout') === '1';
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
@@ -75,6 +76,12 @@ const Login = () => {
           </div>
           <p className="login-subtitle">{otpStep ? 'Enter the code we emailed you' : 'Sign in to manage your finances'}</p>
         </div>
+
+        {timedOut && !error && (
+          <div className="error-message" style={{ background: 'rgba(59,130,246,0.12)', borderColor: '#3b82f6' }}>
+            <span className="error-icon">🔒</span> You were signed out after a period of inactivity. Please sign in again.
+          </div>
+        )}
 
         {error && (
           <div className="error-message">

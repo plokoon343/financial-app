@@ -79,6 +79,33 @@ export const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(id);
   }, []);
 
+  // Auto sign-out after a period of inactivity. Any user interaction resets the
+  // idle clock; a lightweight interval checks elapsed time so it survives tab
+  // sleep. Only active while signed in.
+  useEffect(() => {
+    if (!user) return;
+    const IDLE_LIMIT = 15 * 60 * 1000; // 15 minutes
+    let last = Date.now();
+    const bump = () => { last = Date.now(); };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
+    const iv = setInterval(() => {
+      if (Date.now() - last > IDLE_LIMIT) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        delete axios.defaults.headers.common['Authorization'];
+        setUser(null);
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.assign('/login?timeout=1');
+        }
+      }
+    }, 30000);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, bump));
+      clearInterval(iv);
+    };
+  }, [user]);
+
   const finishLogin = ({ token, user }) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));

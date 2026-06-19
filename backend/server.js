@@ -248,6 +248,10 @@ const goalSchema = new mongoose.Schema({
     amount:     { type: Number, default: 0 },
     dayOfMonth: { type: Number, min: 1, max: 31, default: 1 },
   },
+  // Savings plan: a locked goal can't be withdrawn before its deadline without
+  // a 3% early-break fee. `locked` is the commitment; `deadline` is maturity.
+  locked:   { type: Boolean, default: false },
+  lockedAt: { type: Date },
   createdAt: { type: Date, default: Date.now }
 });
 const Goal = mongoose.model('Goal', goalSchema);
@@ -1810,6 +1814,67 @@ app.post('/api/goals/:id/contribute', auth, async (req, res) => {
     res.json({ goal, newBalance: wallet.balance });
   } catch (error) {
     console.error('Goal contribute error:', error);
+    res.status(500).json({ message: error.message || 'Server error' });
+  }
+});
+
+// Turn a goal into a locked Savings Plan: committed until its deadline.
+app.post('/api/goals/:id/lock', auth, async (req, res) => {
+  try {
+    const goal = await Goal.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!goal) return res.status(404).json({ message: 'Goal not found' });
+    if (new Date(goal.deadline) <= new Date()) {
+      return res.status(400).json({ message: 'Pick a future deadline before locking this goal.' });
+    }
+    goal.locked = true;
+    goal.lockedAt = new Date();
+    await goal.save();
+    res.json(goal);
+  } catch (error) {
+    console.error('Goal lock error:', error);
+    res.status(500).json({ message: error.message || 'Server error' });
+  }
+});
+
+// Withdraw a goal's balance back to the wallet. If it's a locked plan pulled
+// before its deadline, a 3% early-break fee is deducted; matured/unlocked goals
+// withdraw in full.
+const EARLY_BREAK_FEE = 0.03;
+app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
+  try {
+    const goal = await Goal.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!goal) return res.status(404).json({ message: 'Goal not found' });
+
+    const amount = goal.current;
+    if (amount <= 0) return res.status(400).json({ message: 'This goal has no funds to withdraw.' });
+
+    const matured = new Date() >= new Date(goal.deadline);
+    const early = goal.locked && !matured;
+    const fee = early ? Math.round(amount * EARLY_BREAK_FEE * 100) / 100 : 0;
+    const net = Math.round((amount - fee) * 100) / 100;
+
+    const wallet = await getOrCreateWallet(req.user._id);
+    wallet.balance += net;
+    await wallet.save();
+
+    goal.current = 0;
+    goal.locked = false;
+    goal.lockedAt = undefined;
+    await goal.save();
+
+    await new WalletTransaction({
+      userId: req.user._id,
+      type: 'deposit',
+      amount: net,
+      description: early
+        ? `Early break of locked plan: ${goal.name} (3% fee ₦${fee.toLocaleString()})`
+        : `Withdrawal from goal: ${goal.name}`,
+      status: 'completed',
+    }).save();
+
+    res.json({ goal, withdrawn: net, fee, early, newBalance: wallet.balance });
+  } catch (error) {
+    console.error('Goal withdraw error:', error);
     res.status(500).json({ message: error.message || 'Server error' });
   }
 });

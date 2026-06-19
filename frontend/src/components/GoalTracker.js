@@ -100,6 +100,33 @@ const GoalTracker = () => {
     }
   };
 
+  // Lock a goal into a committed Savings Plan (3% fee to break before deadline).
+  const lockPlan = async (goal) => {
+    if (!window.confirm(`Lock "${goal.name}" until ${new Date(goal.deadline).toLocaleDateString()}? Withdrawing before then charges a 3% early-break fee.`)) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_URL}/api/goals/${goal._id}/lock`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      fetchGoals();
+    } catch (err) { alert(err.response?.data?.message || 'Could not lock this plan'); }
+  };
+
+  // Withdraw a goal's funds back to the wallet (3% fee if a locked plan is broken early).
+  const withdrawGoal = async (goal) => {
+    const matured = new Date() >= new Date(goal.deadline);
+    const early = goal.locked && !matured;
+    const fee = early ? goal.current * 0.03 : 0;
+    const msg = early
+      ? `Breaking "${goal.name}" early charges a 3% fee (≈ ${fmtNaira(fee)}). You'll receive ${fmtNaira(goal.current - fee)} in your wallet. Continue?`
+      : `Move ${fmtNaira(goal.current)} from "${goal.name}" back to your wallet?`;
+    if (!window.confirm(msg)) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/api/goals/${goal._id}/withdraw`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      fetchGoals();
+      window.dispatchEvent(new CustomEvent('wallet-updated', { detail: { balance: res.data.newBalance } }));
+    } catch (err) { alert(err.response?.data?.message || 'Could not withdraw'); }
+  };
+
   const getGoalProgress = (goal) => {
     const progress = (goal.current / goal.target) * 100;
     const daysLeft = Math.ceil((new Date(goal.deadline) - new Date()) / (1000 * 60 * 60 * 24));
@@ -213,7 +240,10 @@ const GoalTracker = () => {
                         </div>
                       </td>
                       <td className="num">{fmtNaira(goal.target)}</td>
-                      <td>{new Date(goal.deadline).toLocaleDateString()}</td>
+                      <td>
+                        {new Date(goal.deadline).toLocaleDateString()}
+                        {goal.locked && <i className="fas fa-lock" style={{ color: 'var(--accent-primary)', marginLeft: 6 }} title="Locked Savings Plan"></i>}
+                      </td>
                       <td>
                         <span className={`gt-autopay ${goal.scheduledPayment?.enabled ? 'on' : 'off'}`}>
                           <i className={`fas ${goal.scheduledPayment?.enabled ? 'fa-check-circle' : 'fa-circle'}`}></i>
@@ -316,6 +346,28 @@ const GoalTracker = () => {
               ) : (
                 <div className="goal-completed"><i className="fas fa-trophy"></i><span>Goal Achieved! 🎉</span></div>
               )}
+
+              {/* Savings Plan: lock / break / withdraw */}
+              <div className="plan-section">
+                {activeGoal.locked ? (
+                  <>
+                    <div className="plan-locked"><i className="fas fa-lock"></i> Locked plan · matures {new Date(activeGoal.deadline).toLocaleDateString()}</div>
+                    {activeGoal.current > 0 && (
+                      <button className="plan-break-btn" onClick={() => withdrawGoal(activeGoal)}>
+                        <i className="fas fa-unlock"></i> Break &amp; withdraw {new Date() < new Date(activeGoal.deadline) ? '(3% fee)' : ''}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <div className="plan-actions">
+                    <button className="plan-lock-btn" onClick={() => lockPlan(activeGoal)}><i className="fas fa-lock"></i> Lock as Savings Plan</button>
+                    {activeGoal.current > 0 && (
+                      <button className="plan-withdraw-btn" onClick={() => withdrawGoal(activeGoal)}><i className="fas fa-wallet"></i> Withdraw to wallet</button>
+                    )}
+                  </div>
+                )}
+                <small>Locking commits these funds until the deadline. Breaking a locked plan early costs a 3% fee.</small>
+              </div>
 
               <button className="goal-modal-delete" onClick={() => removeGoal(activeGoal._id)}>
                 <i className="fas fa-trash"></i> Delete goal
@@ -537,6 +589,14 @@ const GoalTracker = () => {
         .custom-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
         .goal-completed { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 20px; background: rgba(39, 174, 96, 0.1); border-radius: var(--radius-md); color: #27ae60; font-weight: 600; font-size: 1.2rem; }
         .goal-completed i { font-size: 1.5rem; }
+        .plan-section { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--glass-border); }
+        .plan-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        .plan-lock-btn, .plan-withdraw-btn, .plan-break-btn { padding: 12px 18px; border-radius: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 0.95rem; }
+        .plan-lock-btn { flex: 1; background: var(--gradient-primary); color: #fff; border: none; }
+        .plan-withdraw-btn { flex: 1; background: var(--glass-bg); color: var(--text-primary); border: 1px solid var(--glass-border); }
+        .plan-break-btn { width: 100%; margin-top: 10px; background: transparent; border: 1px solid #f59e0b; color: #f59e0b; justify-content: center; }
+        .plan-break-btn:hover { background: rgba(245,158,11,0.1); }
+        .plan-locked { display: flex; align-items: center; gap: 8px; color: var(--accent-primary); font-weight: 700; }
         .add-goal-form { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 24px; }
         .form-header { text-align: center; margin-bottom: 30px; }
         .form-header h3 { font-family: var(--font-heading); font-size: 1.8rem; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 10px; }

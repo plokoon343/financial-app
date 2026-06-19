@@ -158,6 +158,7 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  googleId: { type: String },   // set when the account is linked to Google sign-in
   role: { type: String, enum: ['user', 'superadmin'], default: 'user' },
   isActive: { type: Boolean, default: true },
   // Profile / onboarding
@@ -1330,6 +1331,57 @@ app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Google sign-in (keys-pending). Verifies a Google ID token, then finds or
+// creates the matching user and issues our JWT. Configure by setting
+// GOOGLE_CLIENT_IDS (comma-separated web/android/ios client IDs) on the server.
+const { OAuth2Client } = require('google-auth-library');
+const GOOGLE_CLIENT_IDS = (process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+const googleClient = new OAuth2Client();
+app.post('/api/auth/google', authLimiter, async (req, res) => {
+  try {
+    if (GOOGLE_CLIENT_IDS.length === 0) {
+      return res.status(503).json({ message: 'Google sign-in is not configured yet.' });
+    }
+    const { idToken } = req.body;
+    if (!idToken) return res.status(400).json({ message: 'Missing Google credential' });
+
+    let payload;
+    try {
+      const ticket = await googleClient.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_IDS });
+      payload = ticket.getPayload();
+    } catch (e) {
+      return res.status(401).json({ message: 'Could not verify your Google sign-in. Try again.' });
+    }
+    if (!payload || !payload.email || !payload.email_verified) {
+      return res.status(401).json({ message: 'Your Google email could not be verified.' });
+    }
+
+    const email = payload.email.toLowerCase().trim();
+    let user = await User.findOne({ email });
+    if (!user) {
+      const randomPw = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), await bcrypt.genSalt(10));
+      user = new User({
+        name: payload.name || email.split('@')[0],
+        email,
+        password: randomPw,
+        googleId: payload.sub,
+      });
+    } else if (!user.googleId) {
+      user.googleId = payload.sub;
+    }
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Google itself is the strong factor, so we skip our email OTP here.
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
+  } catch (error) {
+    console.error('[google-auth]', error.message);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // Current user's profile

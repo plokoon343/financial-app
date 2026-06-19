@@ -17,15 +17,44 @@ const Login = () => {
     return saved ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
   
-  const { login, verifyLoginOtp } = useAuth();
+  const { login, verifyLoginOtp, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const timedOut = new URLSearchParams(window.location.search).get('timeout') === '1';
+  const googleClientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
     if (darkMode) document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.setAttribute('data-theme', 'light');
   }, [darkMode]);
+
+  // Render the Google Identity Services button when a client ID is configured.
+  useEffect(() => {
+    if (!googleClientId || otpStep) return;
+    let iv;
+    const tryInit = () => {
+      if (!window.google?.accounts?.id) return false;
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: async (resp) => {
+          const result = await loginWithGoogle(resp.credential);
+          if (result.success) navigate('/');
+          else setError(result.message || 'Google sign-in failed');
+        },
+      });
+      const el = document.getElementById('googleBtn');
+      if (el) {
+        el.innerHTML = '';
+        window.google.accounts.id.renderButton(el, { theme: 'filled_black', size: 'large', width: 300, text: 'continue_with', shape: 'pill' });
+      }
+      return true;
+    };
+    if (!tryInit()) {
+      iv = setInterval(() => { if (tryInit()) clearInterval(iv); }, 300);
+      setTimeout(() => iv && clearInterval(iv), 6000);
+    }
+    return () => iv && clearInterval(iv);
+  }, [googleClientId, otpStep, loginWithGoogle, navigate]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -164,6 +193,13 @@ const Login = () => {
           <button type="submit" className={`login-button ${loading ? 'loading' : ''}`} disabled={loading}>
             {loading ? <>Signing In...</> : 'Sign In'}
           </button>
+
+          {googleClientId && (
+            <>
+              <div className="login-divider"><span>or</span></div>
+              <div id="googleBtn" style={{ display: 'flex', justifyContent: 'center' }}></div>
+            </>
+          )}
         </form>
         )}
 

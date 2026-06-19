@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import FinancialTrends from './FinancialTrends';
+import FinancialReports from './FinancialReports';
 import SpendingAlerts from './SpendingAlerts';
 import { fmtNaira } from '../utils/format';
 const FinancialHealth = ({ transactions = [] }) => {
@@ -90,6 +91,13 @@ const FinancialHealth = ({ transactions = [] }) => {
             <i className="fas fa-chart-bar"></i>
             <span>Trends</span>
           </button>
+          <button
+            className={`tab-btn ${activeTab === 'reports' ? 'active' : ''}`}
+            onClick={() => setActiveTab('reports')}
+          >
+            <i className="fas fa-file-lines"></i>
+            <span>Reports</span>
+          </button>
         </div>
       </div>
 
@@ -175,6 +183,8 @@ const FinancialHealth = ({ transactions = [] }) => {
       )}
 
       {activeTab === 'trends' && <FinancialTrends transactions={transactions} />}
+
+      {activeTab === 'reports' && <FinancialReports transactions={transactions} />}
 
       <style jsx="true">{`
         /* Financial Health Page Styles */

@@ -144,6 +144,20 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Google sign-in: exchange the Google credential (ID token) for our session.
+  const loginWithGoogle = async (credential) => {
+    try {
+      const response = await axios.post(`${API_URL}/api/auth/google`, { idToken: credential });
+      finishLogin(response.data);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Google sign-in failed',
+      };
+    }
+  };
+
   const register = async (name, email, password, phone) => {
     try {
       const response = await axios.post(`${API_URL}/api/register`, {
@@ -186,6 +200,7 @@ export const AuthProvider = ({ children }) => {
     user,
     login,
     verifyLoginOtp,
+    loginWithGoogle,
     register,
     logout,
     updateUser,

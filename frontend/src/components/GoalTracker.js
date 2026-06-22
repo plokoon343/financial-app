@@ -102,7 +102,7 @@ const GoalTracker = () => {
 
   // Lock a goal into a committed Savings Plan (3% fee to break before deadline).
   const lockPlan = async (goal) => {
-    if (!window.confirm(`Lock "${goal.name}" until ${new Date(goal.deadline).toLocaleDateString()}? Withdrawing before then charges a 3% early-break fee.`)) return;
+    if (!window.confirm(`Lock "${goal.name}" until ${new Date(goal.deadline).toLocaleDateString()}? It earns 10% a year, paid at maturity. Breaking it early forfeits the interest and charges a 3% fee.`)) return;
     try {
       const token = localStorage.getItem('token');
       await axios.post(`${API_URL}/api/goals/${goal._id}/lock`, {}, { headers: { Authorization: `Bearer ${token}` } });
@@ -344,7 +344,7 @@ const GoalTracker = () => {
                   </div>
                 </div>
               ) : (
-                <div className="goal-completed"><i className="fas fa-trophy"></i><span>Goal Achieved! 🎉</span></div>
+                <div className="goal-completed"><i className="fas fa-trophy"></i><span>Goal Achieved!</span></div>
               )}
 
               {/* Savings Plan: lock / break / withdraw */}
@@ -366,7 +366,7 @@ const GoalTracker = () => {
                     )}
                   </div>
                 )}
-                <small>Locking commits these funds until the deadline. Breaking a locked plan early costs a 3% fee.</small>
+                <small>Locked plans earn 10% a year, paid at maturity. Breaking a locked plan early forfeits the interest and costs a 3% fee.</small>
               </div>
 
               <button className="goal-modal-delete" onClick={() => removeGoal(activeGoal._id)}>

@@ -48,10 +48,10 @@ const FinancialHealth = ({ transactions = [] }) => {
 
   // A single concise status derived from the numbers (replaces prose advice).
   const getHealthStatus = (data) => {
-    if (data.netIncome < 0) return { icon: '🔴', label: 'Spending exceeds income' };
-    if (data.savingsRate >= 20) return { icon: '🟢', label: 'Healthy — strong savings rate' };
-    if (data.savingsRate >= 10) return { icon: '🟡', label: 'Stable — room to save more' };
-    return { icon: '🟠', label: 'Tight — savings rate is low' };
+    if (data.netIncome < 0) return { color: '#ef4444', label: 'Spending exceeds income' };
+    if (data.savingsRate >= 20) return { color: '#22c55e', label: 'Healthy — strong savings rate' };
+    if (data.savingsRate >= 10) return { color: '#f59e0b', label: 'Stable — room to save more' };
+    return { color: '#f97316', label: 'Tight — savings rate is low' };
   };
 
   if (loading && transactions.length === 0) {
@@ -70,7 +70,7 @@ const FinancialHealth = ({ transactions = [] }) => {
   const expenseRatio = healthData && healthData.totalIncome > 0
     ? (healthData.totalExpenses / healthData.totalIncome) * 100
     : 0;
-  const healthStatus = healthData ? getHealthStatus(healthData) : { icon: '', label: '' };
+  const healthStatus = healthData ? getHealthStatus(healthData) : { color: '', label: '' };
 
   return (
     <div className="financial-health-page">
@@ -174,7 +174,7 @@ const FinancialHealth = ({ transactions = [] }) => {
               <div className="insight-bar" title={`${expenseRatio.toFixed(0)}% of income spent`}>
                 <div className="insight-bar-fill" style={{ width: `${Math.min(expenseRatio, 100)}%`, background: expenseRatio > 90 ? '#e74c3c' : expenseRatio > 70 ? '#f39c12' : '#27ae60' }}></div>
               </div>
-              <p className="insight-status">{healthStatus.icon} {healthStatus.label}</p>
+              <p className="insight-status"><i className="fas fa-circle" style={{ color: healthStatus.color, fontSize: '0.7rem', marginRight: 8 }}></i>{healthStatus.label}</p>
             </div>
           </div>
 

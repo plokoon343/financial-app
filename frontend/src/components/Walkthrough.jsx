@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 const STEPS = [
-  { icon: 'fa-rocket', title: 'Welcome to Automonie 👋', body: 'Your personal finance copilot. Here\'s a 30-second tour of what you can do. You can replay this anytime from the sidebar.' },
+  { icon: 'fa-rocket', title: 'Welcome to Automonie', body: 'Your personal finance copilot. Here\'s a 30-second tour of what you can do. You can replay this anytime from the sidebar.' },
   { icon: 'fa-chart-line', title: 'Dashboard', body: 'Your overview: balances, recent activity and insights. Add a transaction manually, or import a bank statement (CSV, Excel, or PDF — even password-protected ones).' },
   { icon: 'fa-receipt', title: 'Transactions', body: 'Your full ledger. Filter by month, bank or category, sort by any column, edit inline, and delete single rows, a selection, or a whole imported statement.' },
   { icon: 'fa-chart-pie', title: 'Budget', body: 'Pick a month and set spending limits per category. As transactions come in, each budget shows spent vs. limit with alerts at 80% and 100%.' },
   { icon: 'fa-robot', title: 'Auto-Savings & Goals', body: 'Save automatically — a fixed amount from each income or a round-up on expenses — and link it to a savings goal.' },
-  { icon: 'fa-life-ring', title: 'Need help?', body: 'The Support page has FAQs and a contact form. That\'s it — you\'re ready to fly! 🚀' },
+  { icon: 'fa-life-ring', title: 'Need help?', body: 'The Support page has FAQs and a contact form. That\'s it — you\'re ready to fly!' },
 ];
 
 const Walkthrough = () => {

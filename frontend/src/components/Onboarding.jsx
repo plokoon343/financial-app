@@ -62,7 +62,7 @@ const Onboarding = () => {
         {step === 0 && (
           <>
             <div className="ob-icon"><i className="fas fa-user-pen"></i></div>
-            <h2>Welcome{form.name ? `, ${form.name.split(' ')[0]}` : ''}! 👋</h2>
+            <h2>Welcome{form.name ? `, ${form.name.split(' ')[0]}` : ''}!</h2>
             <p className="ob-sub">Let's set up your profile. This takes 20 seconds.</p>
             <div className="ob-field"><label>Full name</label>
               <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Your name" /></div>

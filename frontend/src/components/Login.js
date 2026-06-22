@@ -108,13 +108,13 @@ const Login = () => {
 
         {timedOut && !error && (
           <div className="error-message" style={{ background: 'rgba(59,130,246,0.12)', borderColor: '#3b82f6' }}>
-            <span className="error-icon">🔒</span> You were signed out after a period of inactivity. Please sign in again.
+            <i className="fas fa-lock error-icon"></i> You were signed out after a period of inactivity. Please sign in again.
           </div>
         )}
 
         {error && (
           <div className="error-message">
-            <span className="error-icon">⚠️</span> {error}
+            <i className="fas fa-triangle-exclamation error-icon"></i> {error}
           </div>
         )}
 

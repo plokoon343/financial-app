@@ -73,7 +73,7 @@ const NotificationBell = () => {
             {unread > 0 && <button onClick={markAllRead} className="nb-mark">Mark all read</button>}
           </div>
           <div className="nb-list">
-            {items.length === 0 && <div className="nb-empty">You're all caught up 🎉</div>}
+            {items.length === 0 && <div className="nb-empty"><i className="fas fa-circle-check" style={{ marginRight: 6, color: '#22c55e' }}></i> You're all caught up</div>}
             {items.map(n => (
               <button key={n._id} className={`nb-item ${n.read ? '' : 'unread'}`} onClick={() => openItem(n)}>
                 <i className={`fas ${iconFor(n.type)} nb-ic`}></i>

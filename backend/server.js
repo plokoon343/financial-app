@@ -253,6 +253,7 @@ const goalSchema = new mongoose.Schema({
   // a 3% early-break fee. `locked` is the commitment; `deadline` is maturity.
   locked:   { type: Boolean, default: false },
   lockedAt: { type: Date },
+  interestRate: { type: Number, default: 10 },  // annual % earned on a locked plan, paid at maturity
   createdAt: { type: Date, default: Date.now }
 });
 const Goal = mongoose.model('Goal', goalSchema);
@@ -1880,6 +1881,7 @@ app.post('/api/goals/:id/lock', auth, async (req, res) => {
     }
     goal.locked = true;
     goal.lockedAt = new Date();
+    goal.interestRate = PLAN_INTEREST_RATE;
     await goal.save();
     res.json(goal);
   } catch (error) {
@@ -1892,6 +1894,7 @@ app.post('/api/goals/:id/lock', auth, async (req, res) => {
 // before its deadline, a 3% early-break fee is deducted; matured/unlocked goals
 // withdraw in full.
 const EARLY_BREAK_FEE = 0.03;
+const PLAN_INTEREST_RATE = 10; // % per annum on locked savings plans
 app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
   try {
     const goal = await Goal.findOne({ _id: req.params.id, userId: req.user._id });
@@ -1903,7 +1906,16 @@ app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
     const matured = new Date() >= new Date(goal.deadline);
     const early = goal.locked && !matured;
     const fee = early ? Math.round(amount * EARLY_BREAK_FEE * 100) / 100 : 0;
-    const net = Math.round((amount - fee) * 100) / 100;
+
+    // A matured locked plan earns interest for its full locked term (lockedAt →
+    // deadline). Breaking early forfeits interest (and pays the 3% fee).
+    let interest = 0;
+    if (matured && goal.locked && goal.lockedAt) {
+      const rate = (goal.interestRate ?? PLAN_INTEREST_RATE) / 100;
+      const years = (new Date(goal.deadline) - new Date(goal.lockedAt)) / (365.25 * 24 * 60 * 60 * 1000);
+      interest = Math.round(amount * rate * Math.max(0, years) * 100) / 100;
+    }
+    const net = Math.round((amount - fee + interest) * 100) / 100;
 
     const wallet = await getOrCreateWallet(req.user._id);
     wallet.balance += net;
@@ -1920,11 +1932,13 @@ app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
       amount: net,
       description: early
         ? `Early break of locked plan: ${goal.name} (3% fee ₦${fee.toLocaleString()})`
-        : `Withdrawal from goal: ${goal.name}`,
+        : interest > 0
+          ? `Matured plan: ${goal.name} (+₦${interest.toLocaleString()} interest)`
+          : `Withdrawal from goal: ${goal.name}`,
       status: 'completed',
     }).save();
 
-    res.json({ goal, withdrawn: net, fee, early, newBalance: wallet.balance });
+    res.json({ goal, withdrawn: net, fee, interest, early, newBalance: wallet.balance });
   } catch (error) {
     console.error('Goal withdraw error:', error);
     res.status(500).json({ message: error.message || 'Server error' });

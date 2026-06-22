@@ -43,12 +43,12 @@ const ForgotPassword = () => {
           <p className="login-subtitle">Enter your email and we'll send you a reset link</p>
         </div>
 
-        {error && <div className="error-message"><span className="error-icon">⚠️</span> {error}</div>}
+        {error && <div className="error-message"><i className="fas fa-triangle-exclamation error-icon"></i> {error}</div>}
 
         {sent ? (
           <div>
             <div className="error-message" style={{ background: 'rgba(56,161,105,0.12)', color: '#38a169', border: '1px solid #38a169' }}>
-              <span className="error-icon">✅</span> If an account with that email exists, a reset link has been sent. It expires in 1 hour.
+              <i className="fas fa-circle-check error-icon"></i> If an account with that email exists, a reset link has been sent. It expires in 1 hour.
             </div>
             <div className="signup-section" style={{ marginTop: '1.5rem' }}>
               <Link to="/login" className="signup-link">← Back to login</Link>

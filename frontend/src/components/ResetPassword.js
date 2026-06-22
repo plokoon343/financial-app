@@ -51,13 +51,13 @@ const ResetPassword = () => {
           <p className="login-subtitle">Choose a new password for your account</p>
         </div>
 
-        {error && <div className="error-message"><span className="error-icon">⚠️</span> {error}</div>}
+        {error && <div className="error-message"><i className="fas fa-triangle-exclamation error-icon"></i> {error}</div>}
 
         {!token ? (
-          <div className="error-message"><span className="error-icon">⚠️</span> Missing reset token. Please use the link from your email.</div>
+          <div className="error-message"><i className="fas fa-triangle-exclamation error-icon"></i> Missing reset token. Please use the link from your email.</div>
         ) : done ? (
           <div className="error-message" style={{ background: 'rgba(56,161,105,0.12)', color: '#38a169', border: '1px solid #38a169' }}>
-            <span className="error-icon">✅</span> Password updated! Redirecting to login…
+            <i className="fas fa-circle-check error-icon"></i> Password updated! Redirecting to login…
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="login-form">

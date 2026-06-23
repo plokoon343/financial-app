@@ -28,7 +28,6 @@ const Settings = () => {
 
   // notifications + prefs
   const [emailAlerts, setEmailAlerts] = useState(true);
-  const [twoFactor, setTwoFactor] = useState(false);
   const [tipsOn, setTipsOn] = useState(tipsEnabled());
 
   // payout
@@ -50,7 +49,6 @@ const Settings = () => {
         const res = await axios.get(`${API_URL}/api/me`, authHeader());
         setEmail(res.data.email || '');
         setEmailAlerts(res.data.emailAlerts !== false);
-        setTwoFactor(!!res.data.twoFactorEnabled);
         setLastLogin(res.data.lastLogin || null);
       } catch { /* non-fatal */ }
     })();
@@ -181,13 +179,6 @@ const Settings = () => {
     setEmailAlerts(val);
     try { await axios.put(`${API_URL}/api/me`, { emailAlerts: val }, authHeader()); } catch { flash('Could not save preference', 'error'); }
   };
-  const save2FA = async (val) => {
-    setTwoFactor(val);
-    try {
-      await axios.put(`${API_URL}/api/me`, { twoFactorEnabled: val }, authHeader());
-      flash(val ? 'Two-step verification enabled. You’ll get an email code at each login.' : 'Two-step verification disabled.');
-    } catch { setTwoFactor(!val); flash('Could not update two-step verification', 'error'); }
-  };
   const toggleTips = () => { const n = !tipsOn; setTipsOn(n); setTipsEnabled(n); if (n) resetTips(); };
 
   // payout
@@ -315,7 +306,6 @@ const Settings = () => {
       {/* Notifications */}
       <div className="settings-card">
         <h3><i className="fas fa-bell"></i> Notifications</h3>
-        <div className="row-between"><div><strong>Two-step verification</strong><span className="hint">Require an emailed code at each login.</span></div><Toggle on={twoFactor} onClick={() => save2FA(!twoFactor)} /></div>
         <div className="row-between"><div><strong>Email alerts</strong><span className="hint">Important updates by email.</span></div><Toggle on={emailAlerts} onClick={() => saveEmailAlerts(!emailAlerts)} /></div>
         <div className="row-between"><div><strong>In-app alerts</strong><span className="hint">Ticket updates &amp; more in the bell. Always on.</span></div><Toggle on disabled /></div>
       </div>

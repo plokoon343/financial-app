@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { API_URL } from '../config';
 import './Login.css'; // reuse same CSS for consistency
-//import { API_URL } from '../config';
 // Theme configuration
 // const theme = {
 //   light: {
@@ -81,8 +82,11 @@ const Register = () => {
     return saved ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
-  const { register } = useAuth();
+  const { register, verifyLoginOtp } = useAuth();
   const navigate = useNavigate();
+  const [otpStep, setOtpStep] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [otpEmail, setOtpEmail] = useState('');
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
@@ -112,9 +116,24 @@ const Register = () => {
     setLoading(true);
     setError('');
     const result = await register(formData.name, formData.email, formData.password, formData.phone);
-    if (result.success) navigate('/');
+    if (result.success && result.otpRequired) { setOtpEmail(result.email); setOtpStep(true); }
+    else if (result.success) navigate('/');
     else setError(result.message);
     setLoading(false);
+  };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    if (!otp.trim()) { setError('Enter the verification code.'); return; }
+    setLoading(true); setError('');
+    const result = await verifyLoginOtp(otpEmail, otp.trim());
+    if (result.success) navigate('/');
+    else setError(result.message || 'Verification failed');
+    setLoading(false);
+  };
+
+  const handleResend = async () => {
+    try { await axios.post(`${API_URL}/api/resend-verification`, { email: otpEmail }); } catch { /* ignore */ }
   };
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
@@ -132,7 +151,7 @@ const Register = () => {
             <i className="fas fa-chart-simple logo-icon"></i>
             <h1>AUTOMONIE</h1>
           </div>
-          <p className="login-subtitle">Create your account</p>
+          <p className="login-subtitle">{otpStep ? 'Verify your email' : 'Create your account'}</p>
         </div>
 
         {error && (
@@ -141,6 +160,23 @@ const Register = () => {
           </div>
         )}
 
+        {otpStep ? (
+          <form onSubmit={handleVerify} className="login-form">
+            <div className="form-group">
+              <label htmlFor="otp" className="form-label">Verification code</label>
+              <input
+                id="otp" type="text" inputMode="numeric" maxLength={6} value={otp}
+                onChange={(e) => { setOtp(e.target.value); if (error) setError(''); }}
+                required placeholder="6-digit code" className="form-input" disabled={loading} autoFocus
+              />
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #94a3b8)', marginTop: '8px' }}>
+                We sent a code to {otpEmail}. It expires in 15 minutes.
+              </p>
+            </div>
+            <button type="submit" className="login-button" disabled={loading}>{loading ? 'Verifying...' : 'Verify & Continue'}</button>
+            <button type="button" className="demo-button" style={{ marginTop: '12px' }} onClick={handleResend}>Resend code</button>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
             <label htmlFor="name" className="form-label">Full Name</label>
@@ -239,6 +275,7 @@ const Register = () => {
             {loading ? 'Creating Account...' : 'Sign Up'}
           </button>
         </form>
+        )}
 
         <div className="signup-section" style={{ marginTop: '1.5rem', borderTop: 'none' }}>
           <p>Already have an account?</p>

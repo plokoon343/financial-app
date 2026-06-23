@@ -2882,6 +2882,49 @@ app.get('/api/bank/mono-config', auth, async (req, res) => {
   });
 });
 
+// Hosted Mono Connect page for the mobile app. The app opens this in an in-app
+// browser (expo-web-browser) passing a `redirect` deep link; the Mono widget
+// runs here and, on success, redirects to `redirect?code=...` which the app
+// captures. The public key is injected server-side (it is a public value).
+// NOTE: confirm the connect.js CDN/global when MONO_* keys are added.
+app.get('/bank/mono-connect', (req, res) => {
+  const redirect = String(req.query.redirect || '');
+  if (!redirect) return res.status(400).send('Missing redirect');
+  const publicKey = process.env.MONO_PUBLIC_KEY || '';
+  const sep = redirect.includes('?') ? '&' : '?';
+  res.set('Content-Type', 'text/html');
+  res.send(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect your bank</title>
+<style>html,body{height:100%;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0b1326;color:#e3e9f2;display:grid;place-items:center;text-align:center}
+.box{max-width:340px;padding:24px}.sp{width:38px;height:38px;border:4px solid rgba(255,255,255,.18);border-top-color:#00a862;border-radius:50%;margin:0 auto 16px;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}a.b{display:inline-block;margin-top:16px;background:#00a862;color:#fff;text-decoration:none;padding:11px 22px;border-radius:10px;font-weight:700}</style></head>
+<body><div class="box"><div class="sp"></div><p id="msg">Opening secure bank connection…</p>
+<a class="b" id="cancel" href="${redirect}${sep}status=closed">Cancel</a></div>
+<script src="https://connect.mono.co/connect.js"></script>
+<script>
+  (function(){
+    var KEY=${JSON.stringify(publicKey)};
+    var REDIRECT=${JSON.stringify(redirect)};
+    var SEP=${JSON.stringify(sep)};
+    function go(q){ window.location.replace(REDIRECT+SEP+q); }
+    if(!KEY){ document.getElementById('msg').textContent='Bank linking is not configured yet.'; return; }
+    var Ctor = window.Connect || window.MonoConnect || (window.mono&&window.mono.Connect);
+    if(!Ctor){ document.getElementById('msg').textContent='Could not load the bank connector. Please try again.'; return; }
+    try{
+      var connect = new Ctor({
+        key: KEY, scope: 'auth',
+        onSuccess: function(res){ var code=(res&&(res.code||res.getAuthCode&&res.getAuthCode()))||''; go('code='+encodeURIComponent(code)); },
+        onClose: function(){ go('status=closed'); },
+        onLoad: function(){ try{ connect.open(); }catch(e){} }
+      });
+      connect.setup && connect.setup();
+      connect.open && connect.open();
+    }catch(e){ document.getElementById('msg').textContent='Could not start the connection. Please try again.'; }
+  })();
+</script></body></html>`);
+});
+
 // Exchange the Mono Connect auth code for an account id and link it.
 app.post('/api/bank/connect', auth, async (req, res) => {
   if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });

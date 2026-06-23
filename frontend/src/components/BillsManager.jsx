@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import PayBill from './PayBill';
 
 const BillsManager = () => {
   const [debts, setDebts] = useState([]);
@@ -93,6 +94,9 @@ const BillsManager = () => {
       </div>
 
       {message && <div className={`bills-msg ${message.type}`}>{message.text}</div>}
+
+      {/* In-app bill payments (airtime, data, TV, electricity) */}
+      <PayBill />
 
       {/* Pay bar */}
       <div className="pay-bar">

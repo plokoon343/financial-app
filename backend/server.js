@@ -2963,6 +2963,203 @@ app.delete('/api/bank/unlink', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
+// --------------------------
+// Bill payments via VTpass (Airtime, Data, TV, Electricity). Keys-pending:
+// inert until VTPASS_* env vars are set. Paid in-app from the user's wallet —
+// we reserve the amount, call VTpass, and refund automatically if it declines.
+// --------------------------
+const VTPASS_BASE = () => (process.env.VTPASS_SANDBOX === 'true' || process.env.VTPASS_SANDBOX === '1')
+  ? 'https://sandbox.vtpass.com/api'
+  : 'https://vtpass.com/api';
+const vtpassConfigured = () => !!(process.env.VTPASS_API_KEY && process.env.VTPASS_SECRET_KEY && process.env.VTPASS_PUBLIC_KEY);
+const vtpassPostHeaders = () => ({ 'api-key': process.env.VTPASS_API_KEY, 'secret-key': process.env.VTPASS_SECRET_KEY, 'Content-Type': 'application/json' });
+const vtpassGetHeaders  = () => ({ 'api-key': process.env.VTPASS_API_KEY, 'public-key': process.env.VTPASS_PUBLIC_KEY });
+
+// VTpass requires request_id to start with the current date/time in West Africa Time.
+const vtpassRequestId = () => {
+  const d = new Date(Date.now() + 60 * 60 * 1000); // shift UTC → WAT (UTC+1, no DST)
+  const p = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}`;
+  return `AM${stamp}${Math.random().toString(36).slice(2, 10)}`;
+};
+
+// Supported providers per bill type, with their VTpass serviceIDs. Shown in the
+// UI even before keys are set so the page is browsable.
+const BILL_PROVIDERS = {
+  airtime: [
+    { id: 'mtn', name: 'MTN' }, { id: 'glo', name: 'Glo' },
+    { id: 'airtel', name: 'Airtel' }, { id: 'etisalat', name: '9mobile' },
+  ],
+  data: [
+    { id: 'mtn-data', name: 'MTN Data' }, { id: 'glo-data', name: 'Glo Data' },
+    { id: 'airtel-data', name: 'Airtel Data' }, { id: 'etisalat-data', name: '9mobile Data' },
+  ],
+  tv: [
+    { id: 'dstv', name: 'DStv' }, { id: 'gotv', name: 'GOtv' },
+    { id: 'startimes', name: 'StarTimes' }, { id: 'showmax', name: 'Showmax' },
+  ],
+  electricity: [
+    { id: 'ikeja-electric', name: 'Ikeja Electric (IKEDC)' },
+    { id: 'eko-electric', name: 'Eko Electric (EKEDC)' },
+    { id: 'abuja-electric', name: 'Abuja Electric (AEDC)' },
+    { id: 'kano-electric', name: 'Kano Electric (KEDCO)' },
+    { id: 'portharcourt-electric', name: 'Port Harcourt Electric (PHED)' },
+    { id: 'ibadan-electric', name: 'Ibadan Electric (IBEDC)' },
+    { id: 'enugu-electric', name: 'Enugu Electric (EEDC)' },
+    { id: 'benin-electric', name: 'Benin Electric (BEDC)' },
+    { id: 'jos-electric', name: 'Jos Electric (JED)' },
+    { id: 'kaduna-electric', name: 'Kaduna Electric (KAEDCO)' },
+  ],
+};
+const BILL_CATEGORY = { airtime: 'Airtime', data: 'Data', tv: 'TV', electricity: 'Electricity' };
+
+const billPaymentSchema = new mongoose.Schema({
+  userId:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  billType:      { type: String, enum: ['airtime', 'data', 'tv', 'electricity'], required: true },
+  serviceID:     { type: String, required: true },
+  provider:      { type: String, default: '' },
+  amount:        { type: Number, required: true },
+  phone:         { type: String, default: '' },
+  billersCode:   { type: String, default: '' },
+  variationCode: { type: String, default: '' },
+  requestId:     { type: String, required: true, unique: true },
+  providerRef:   { type: String, default: '' },
+  token:         { type: String, default: '' },   // electricity prepaid token
+  status:        { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
+  message:       { type: String, default: '' },
+}, { timestamps: true });
+billPaymentSchema.index({ userId: 1, createdAt: -1 });
+const BillPayment = mongoose.model('BillPayment', billPaymentSchema);
+
+// Config + provider catalogue for the Bills page.
+app.get('/api/bills/providers', auth, async (req, res) => {
+  res.json({ enabled: vtpassConfigured(), sandbox: VTPASS_BASE().includes('sandbox'), providers: BILL_PROVIDERS });
+});
+
+// Proxy VTpass variation codes (data plans, TV bouquets, meter types).
+app.get('/api/bills/variations', auth, async (req, res) => {
+  if (!vtpassConfigured()) return res.status(503).json({ message: 'Bill payments are not configured yet.' });
+  const serviceID = (req.query.serviceID || '').trim();
+  if (!serviceID) return res.status(400).json({ message: 'serviceID is required' });
+  try {
+    const r = await axios.get(`${VTPASS_BASE()}/service-variations`, { headers: vtpassGetHeaders(), params: { serviceID }, timeout: 20000 });
+    const list = r.data?.content?.varations || r.data?.content?.variations || [];
+    const variations = list.map((v) => ({ code: v.variation_code, name: v.name, amount: Number(v.variation_amount) || 0, fixedPrice: v.fixedPrice === 'Yes' }));
+    res.json({ serviceID, variations });
+  } catch (err) {
+    console.error('[bills/variations]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not load options. Try again.' });
+  }
+});
+
+// Verify a TV smartcard / electricity meter and return the customer name.
+app.post('/api/bills/verify', auth, async (req, res) => {
+  if (!vtpassConfigured()) return res.status(503).json({ message: 'Bill payments are not configured yet.' });
+  const { serviceID, billersCode, type } = req.body;
+  if (!serviceID || !billersCode) return res.status(400).json({ message: 'serviceID and billersCode are required' });
+  try {
+    const body = { billersCode: String(billersCode).trim(), serviceID };
+    if (type) body.type = type; // 'prepaid' | 'postpaid' for electricity
+    const r = await axios.post(`${VTPASS_BASE()}/merchant-verify`, body, { headers: vtpassPostHeaders(), timeout: 20000 });
+    const c = r.data?.content || {};
+    if (c.error || c.WrongBillersCode) return res.status(400).json({ message: c.error || 'Invalid number. Check and try again.' });
+    res.json({
+      customerName: c.Customer_Name || c.customerName || '',
+      address: c.Address || c.address || '',
+      outstanding: c.Outstanding || c.outstanding || '',
+      minAmount: Number(c.Min_Purchase_Amount) || 0,
+      dueDate: c.Due_Date || '',
+    });
+  } catch (err) {
+    console.error('[bills/verify]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not verify. Try again.' });
+  }
+});
+
+// Pay a bill from the wallet.
+app.post('/api/bills/pay', auth, async (req, res) => {
+  if (!vtpassConfigured()) return res.status(503).json({ message: 'Bill payments are not configured yet.' });
+  const { billType, serviceID, amount, phone, billersCode, variationCode } = req.body;
+  if (!billType || !BILL_PROVIDERS[billType]) return res.status(400).json({ message: 'Invalid bill type' });
+  if (!serviceID || !BILL_PROVIDERS[billType].some((p) => p.id === serviceID)) return res.status(400).json({ message: 'Select a valid provider' });
+  const amt = Math.round(Number(amount));
+  if (!amt || amt <= 0) return res.status(400).json({ message: 'Enter a valid amount' });
+  const recipient = String(phone || '').trim();
+  if (!recipient) return res.status(400).json({ message: 'Phone number is required' });
+  if ((billType === 'data' || billType === 'tv') && !variationCode) return res.status(400).json({ message: 'Select a plan/bouquet' });
+  if ((billType === 'tv' || billType === 'electricity') && !billersCode) {
+    return res.status(400).json({ message: billType === 'tv' ? 'Smartcard number is required' : 'Meter number is required' });
+  }
+
+  const wallet = await getOrCreateWallet(req.user._id);
+  if (wallet.balance < amt) return res.status(400).json({ message: 'Insufficient wallet balance' });
+
+  const providerName = (BILL_PROVIDERS[billType].find((p) => p.id === serviceID) || {}).name || serviceID;
+  const requestId = vtpassRequestId();
+
+  // Reserve funds up-front; the catch/decline paths refund.
+  wallet.balance -= amt;
+  await wallet.save();
+
+  let record;
+  try {
+    record = await BillPayment.create({
+      userId: req.user._id, billType, serviceID, provider: providerName,
+      amount: amt, phone: recipient, billersCode: billersCode || '', variationCode: variationCode || '',
+      requestId, status: 'pending',
+    });
+
+    const payload = { request_id: requestId, serviceID, amount: amt, phone: recipient };
+    if (billType === 'data' || billType === 'tv' || billType === 'electricity') payload.billersCode = String(billersCode || recipient).trim();
+    if (variationCode) payload.variation_code = variationCode;
+    if (billType === 'electricity') payload.type = req.body.meterType || 'prepaid';
+
+    const r = await axios.post(`${VTPASS_BASE()}/pay`, payload, { headers: vtpassPostHeaders(), timeout: 45000 });
+    const data = r.data || {};
+    const txn = data.content?.transactions || {};
+    const ok = data.code === '000' || txn.status === 'delivered';
+    const pending = data.code === '099' || txn.status === 'pending' || txn.status === 'initiated';
+
+    if (!ok && !pending) {
+      wallet.balance += amt; await wallet.save();
+      record.status = 'failed'; record.message = data.response_description || 'Payment declined'; await record.save();
+      return res.status(502).json({ message: 'Payment failed. You were not charged.' });
+    }
+
+    const token = txn.token || data.token || (data.purchased_code || '').toString();
+    record.status = pending ? 'pending' : 'completed';
+    record.providerRef = txn.transactionId || data.requestId || '';
+    record.token = token || '';
+    record.message = data.response_description || (pending ? 'Pending confirmation' : 'Successful');
+    await record.save();
+
+    const label = billType === 'airtime' ? `${providerName} Airtime`
+      : billType === 'data' ? `${providerName} Data`
+      : billType === 'tv' ? `${providerName} subscription`
+      : `${providerName} (meter ${billersCode})`;
+    const descr = `${label} — ${recipient}`;
+    await new WalletTransaction({ userId: req.user._id, type: 'withdrawal', amount: amt, description: descr, reference: requestId, status: record.status === 'pending' ? 'pending' : 'completed' }).save();
+    await new Transaction({ userId: req.user._id, date: new Date(), description: descr, amount: -Math.abs(amt), category: BILL_CATEGORY[billType], type: 'expense', source: 'manual' }).save();
+    await createNotification(req.user._id, { type: 'success', title: 'Bill paid', message: `${descr} • ₦${amt.toLocaleString()}` });
+
+    res.json({
+      status: record.status, message: record.message, amount: amt, balance: wallet.balance,
+      token: record.token || undefined, reference: requestId, description: descr,
+    });
+  } catch (err) {
+    console.error('[bills/pay]', err.response?.data || err.message);
+    wallet.balance += amt; await wallet.save();
+    if (record) { record.status = 'failed'; record.message = 'Network error'; await record.save().catch(() => {}); }
+    res.status(502).json({ message: 'Could not complete payment. You were not charged.' });
+  }
+});
+
+// Bill payment history.
+app.get('/api/bills/history', auth, async (req, res) => {
+  const items = await BillPayment.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(50);
+  res.json(items);
+});
+
 // 404 handler
 app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));
 

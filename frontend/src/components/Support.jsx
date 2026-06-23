@@ -59,7 +59,7 @@ const Support = () => {
       <div className="sp-card" style={{ marginBottom: '1.25rem' }}>
         <h3>Contact us directly</h3>
         <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.6rem' }}>
-          <li><i className="fas fa-envelope" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="mailto:support@automonie-ng.com">support@automonie-ng.com</a></li>
+          <li><i className="fas fa-envelope" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="mailto:superadmin@automonie.com">superadmin@automonie.com</a></li>
           <li><i className="fas fa-phone" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="tel:+2348000000000">+234 800 000 0000</a></li>
           <li><i className="fab fa-whatsapp" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="https://wa.me/2348000000000" target="_blank" rel="noreferrer">Chat on WhatsApp</a></li>
           <li><i className="fas fa-clock" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Mon–Fri, 9:00am–5:00pm WAT</li>

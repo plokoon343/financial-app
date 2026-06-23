@@ -167,17 +167,16 @@ export const AuthProvider = ({ children }) => {
         phone
       });
 
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      setUser(user);
-      
+      // New accounts must verify their email with a code before they're active.
+      if (response.data.otpRequired) {
+        return { success: true, otpRequired: true, email: response.data.email || email };
+      }
+      finishLogin(response.data);
       return { success: true };
     } catch (error) {
-      return { 
-        success: false, 
-        message: error.response?.data?.message || 'Registration failed' 
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Registration failed'
       };
     }
   };

@@ -170,6 +170,7 @@ const userSchema = new mongoose.Schema({
   lastLogin:     { type: Date },
   // Email-based 2-step verification (#21/#22).
   twoFactorEnabled: { type: Boolean, default: false },
+  emailVerified: { type: Boolean, default: false },   // new accounts verify their email via a code
   loginOtpHash:     { type: String },
   loginOtpExpiry:   { type: Date },
   // Tokens issued before this time are rejected (used by "log out of all devices").
@@ -1271,7 +1272,25 @@ app.post('/api/register', authLimiter, async (req, res) => {
     if (user) return res.status(400).json({ message: 'User already exists' });
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    user = new User({ name, email, password: hashedPassword, phone: cleanPhone.slice(0, 20) });
+    user = new User({ name, email, password: hashedPassword, phone: cleanPhone.slice(0, 20), emailVerified: false });
+
+    // Require email verification: email a 6-digit code (reusing the loginOtp
+    // fields) and withhold the token until it's verified. If email isn't
+    // configured, fall back to issuing the token so sign-up still works.
+    if (emailConfigured()) {
+      const otp = String(Math.floor(100000 + Math.random() * 900000));
+      user.loginOtpHash = hashToken(otp);
+      user.loginOtpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+      await user.save();
+      sendEmail({
+        to: user.email,
+        subject: 'Verify your Automonie email',
+        text: `Welcome to Automonie! Your verification code is ${otp}. It expires in 15 minutes.`,
+        html: `<p>Welcome to Automonie! Your verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 15 minutes.</p>`,
+      }).catch((e) => console.error('[register-verify] email failed:', e.message));
+      return res.status(201).json({ otpRequired: true, email: user.email });
+    }
+    user.emailVerified = true;
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
@@ -1285,22 +1304,24 @@ app.post('/api/login', authLimiter, async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-    // 2-step verification: email a one-time code instead of issuing a token now.
-    if (user.twoFactorEnabled) {
-      if (!emailConfigured()) {
-        return res.status(503).json({ message: 'Two-step verification is on but email is not configured. Contact support.' });
+    // New accounts must verify their email before signing in (we email a fresh
+    // code and reuse the OTP verify flow). Existing accounts predate this field
+    // (undefined) and are treated as already verified.
+    if (user.emailVerified === false) {
+      if (emailConfigured()) {
+        const otp = String(Math.floor(100000 + Math.random() * 900000));
+        user.loginOtpHash = hashToken(otp);
+        user.loginOtpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+        await user.save();
+        sendEmail({
+          to: user.email,
+          subject: 'Verify your Automonie email',
+          text: `Your verification code is ${otp}. It expires in 15 minutes.`,
+          html: `<p>Your verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 15 minutes.</p>`,
+        }).catch((e) => console.error('[login-verify] email failed:', e.message));
+        return res.json({ otpRequired: true, email: user.email });
       }
-      const otp = ('' + Math.floor(100000 + Math.random() * 900000)); // 6 digits
-      user.loginOtpHash = hashToken(otp);
-      user.loginOtpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-      await user.save();
-      sendEmail({
-        to: user.email,
-        subject: 'Your Automonie login code',
-        text: `Your Automonie verification code is ${otp}. It expires in 10 minutes.`,
-        html: `<p>Your Automonie verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 10 minutes. If you didn't try to sign in, change your password.</p>`,
-      }).catch(e => console.error('[login-otp] email failed:', e.message));
-      return res.json({ otpRequired: true, email: user.email });
+      user.emailVerified = true; // email not configured → don't lock them out
     }
 
     user.lastLogin = new Date();
@@ -1327,11 +1348,33 @@ app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
     }
     user.loginOtpHash = undefined;
     user.loginOtpExpiry = undefined;
+    user.emailVerified = true;
     user.lastLogin = new Date();
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Resend the email-verification code for an unverified account.
+app.post('/api/resend-verification', authLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email: (email || '').toLowerCase().trim() });
+    if (user && user.emailVerified === false && emailConfigured()) {
+      const otp = String(Math.floor(100000 + Math.random() * 900000));
+      user.loginOtpHash = hashToken(otp);
+      user.loginOtpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+      await user.save();
+      sendEmail({
+        to: user.email,
+        subject: 'Verify your Automonie email',
+        text: `Your verification code is ${otp}. It expires in 15 minutes.`,
+        html: `<p>Your verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 15 minutes.</p>`,
+      }).catch(() => {});
+    }
+    res.json({ message: 'If that account needs verification, a new code has been sent.' });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // Google sign-in (keys-pending). Verifies a Google ID token, then finds or

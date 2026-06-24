@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
-import { categoriesFor, ALL_CATEGORIES } from '../constants/categories';
+import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { FeatureTip, InfoTip } from './FeatureTip';
 import { fmtNaira } from '../utils/format';
 
@@ -296,8 +296,10 @@ const Transactions = () => {
                   </select>
                 </td>
                 <td>
-                  <select value={editForm.category} onChange={e => setEditForm({ ...editForm, category: e.target.value })}>
-                    {categoriesFor(editForm.type).map(c => <option key={c} value={c}>{c}</option>)}
+                  <select value={editForm.category} onChange={e => { const v = resolveCategoryChoice(editForm.type, e.target.value); if (v) setEditForm({ ...editForm, category: v }); }}>
+                    {allCategoriesFor(editForm.type).map(c => <option key={c} value={c}>{c}</option>)}
+                    {editForm.category && !allCategoriesFor(editForm.type).includes(editForm.category) && <option value={editForm.category}>{editForm.category}</option>}
+                    <option value={ADD_NEW}>➕ Add new…</option>
                   </select>
                 </td>
                 <td>{t.bank || '—'}</td>
@@ -314,9 +316,10 @@ const Transactions = () => {
                 <td className={`nowrap ${t.type === 'income' ? 'pos' : 'neg'}`}>{t.type === 'income' ? '+' : '−'}{money(t.amount)}</td>
                 <td className="nowrap">{t.type === 'income' ? 'Income' : 'Expense'}</td>
                 <td>
-                  <select className="cat-select" value={ALL_CATEGORIES.includes(t.category) ? t.category : ''} onChange={e => quickCategory(t, e.target.value)}>
-                    {!ALL_CATEGORIES.includes(t.category) && <option value="">{t.category}</option>}
-                    {categoriesFor(t.type).map(c => <option key={c} value={c}>{c}</option>)}
+                  <select className="cat-select" value={allCategoriesFor(t.type).includes(t.category) ? t.category : ''} onChange={e => { const v = resolveCategoryChoice(t.type, e.target.value); if (v) quickCategory(t, v); }}>
+                    {!allCategoriesFor(t.type).includes(t.category) && <option value="">{t.category}</option>}
+                    {allCategoriesFor(t.type).map(c => <option key={c} value={c}>{c}</option>)}
+                    <option value={ADD_NEW}>➕ Add new…</option>
                   </select>
                 </td>
                 <td className="nowrap">{t.bank || '—'}</td>

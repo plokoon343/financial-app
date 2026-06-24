@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { API_URL } from '../config';
-import { categoriesFor } from '../constants/categories';
+import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { fmtNaira } from '../utils/format';
 import {
   FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
@@ -389,7 +389,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                     <td style={{ padding: '0.5rem 0.7rem' }} onClick={(e) => e.stopPropagation()}>
                       <select
                         value={tx.category || 'Other'}
-                        onChange={(e) => updateTxCategory(idx, e.target.value)}
+                        onChange={(e) => { const v = resolveCategoryChoice(tx.type, e.target.value); if (v) updateTxCategory(idx, v); }}
                         title={tx.learned ? 'Category you taught the app' : 'Auto-categorized — change to teach the app'}
                         style={{
                           background: tx.learned ? (darkMode ? '#2c5282' : '#ebf8ff') : (darkMode ? '#4a5568' : '#edf2f7'),
@@ -398,12 +398,13 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                           padding: '3px 6px', fontSize: '0.73rem', cursor: 'pointer', maxWidth: '140px',
                         }}
                       >
-                        {categoriesFor(tx.type).map((c) => (
+                        {allCategoriesFor(tx.type).map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
-                        {tx.category && !categoriesFor(tx.type).includes(tx.category) && (
+                        {tx.category && !allCategoriesFor(tx.type).includes(tx.category) && (
                           <option value={tx.category}>{tx.category}</option>
                         )}
+                        <option value={ADD_NEW}>➕ Add new category…</option>
                       </select>
                     </td>
                   </tr>
@@ -747,16 +748,17 @@ const Dashboard = () => {
                       </label>
                       <select
                         value={formData.category}
-                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                        onChange={(e) => { const v = resolveCategoryChoice(formData.type, e.target.value); if (v) setFormData({ ...formData, category: v }); }}
                         onFocus={onFocus}
                         onBlur={onBlur}
                         required
                         style={{ ...getInput(), appearance: 'none', cursor: 'pointer' }}
                       >
                         <option value="">Select category</option>
-                        {categoriesFor(formData.type).map((c) => (
+                        {allCategoriesFor(formData.type).map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
+                        <option value={ADD_NEW}>➕ Add new category…</option>
                       </select>
                     </div>
                     <div>

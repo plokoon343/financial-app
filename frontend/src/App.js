@@ -26,6 +26,7 @@ const GoalTracker = lazy(() => import('./components/GoalTracker'));
 const DebtManager = lazy(() => import('./components/DebtManager'));
 const SubscriptionManager = lazy(() => import('./components/SubscriptionManager'));
 const BillsManager = lazy(() => import('./components/BillsManager'));
+const PayBills = lazy(() => import('./components/PayBills'));
 const NetWorthCalculator = lazy(() => import('./components/NetWorthCalculator'));
 const AutoSavings = lazy(() => import('./components/AutoSavings'));
 const ConnectBank = lazy(() => import('./components/ConnectBank'));
@@ -108,6 +109,7 @@ function AppContent() {
           <Route path="debt" element={<DebtManager debts={debts} setDebts={setDebts} />} />
           <Route path="subscriptions" element={<SubscriptionManager subscriptions={subscriptions} setSubscriptions={setSubscriptions} />} />
           <Route path="bills" element={<BillsManager />} />
+          <Route path="pay-bills" element={<PayBills />} />
           <Route path="networth" element={<NetWorthCalculator />} />
           <Route path="auto-savings" element={<AutoSavings />} />
           <Route path="connect-bank" element={<ConnectBank />} />

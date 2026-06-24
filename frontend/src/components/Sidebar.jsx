@@ -65,6 +65,7 @@ const Sidebar = () => {
       { path: '/debt', label: 'Debt', icon: 'credit_card' },
       { path: '/subscriptions', label: 'Subscriptions', icon: 'subscriptions' },
       { path: '/bills', label: 'Bills', icon: 'receipt' },
+      { path: '/pay-bills', label: 'Pay Bills', icon: 'bolt' },
       { path: '/networth', label: 'Net Worth', icon: 'show_chart' },
     ]},
     { title: 'Insights', items: [

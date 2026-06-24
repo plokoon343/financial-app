@@ -15,7 +15,7 @@ const TYPES = [
 
 const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
-const PayBill = () => {
+const PayBill = ({ onPaid }) => {
   const [enabled, setEnabled] = useState(true);
   const [sandbox, setSandbox] = useState(false);
   const [providers, setProviders] = useState({ airtime: [], data: [], tv: [], electricity: [] });
@@ -112,6 +112,7 @@ const PayBill = () => {
       flash(`${r.data.description || 'Bill paid'} — ${fmtNaira(r.data.amount)}${pendingNote}.`);
       if (r.data.token) setToken(r.data.token);
       window.dispatchEvent(new CustomEvent('wallet-updated', { detail: { balance: r.data.balance } }));
+      if (typeof onPaid === 'function') onPaid();
       // Reset the amount/recipient but keep the provider selected for repeat top-ups.
       if (billType === 'airtime' || billType === 'electricity') setAmount('');
     } catch (err) {

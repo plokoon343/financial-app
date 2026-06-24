@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Pie } from 'react-chartjs-2';
 import { Chart, registerables } from 'chart.js';
 import { API_URL } from '../config';
-import { EXPENSE_CATEGORIES } from '../constants/categories';
+import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { FeatureTip } from './FeatureTip';
 import { fmtNaira as fmtMoney } from '../utils/format';
 Chart.register(...registerables);
@@ -296,14 +296,15 @@ const Budget = () => {
                   <select
                     id="category"
                     value={formData.category}
-                    onChange={(e) => setFormData({...formData, category: e.target.value})}
+                    onChange={(e) => { const v = resolveCategoryChoice('expense', e.target.value); if (v) setFormData({...formData, category: v}); }}
                     required
                     className="form-control"
                   >
                     <option value="">Select a category</option>
-                    {EXPENSE_CATEGORIES.map((c) => (
+                    {allCategoriesFor('expense').map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
+                    <option value={ADD_NEW}>➕ Add new category…</option>
                   </select>
                 </div>
               </div>

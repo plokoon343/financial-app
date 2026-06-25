@@ -2890,8 +2890,12 @@ app.get('/api/bank/mono-config', auth, async (req, res) => {
 app.get('/bank/mono-connect', (req, res) => {
   const redirect = String(req.query.redirect || '');
   if (!redirect) return res.status(400).send('Missing redirect');
+  // Only allow the app's own deep links — blocks open-redirect / reflected XSS.
+  if (!/^(finpilot:|exp:|exps:)\/\//i.test(redirect)) return res.status(400).send('Invalid redirect');
   const publicKey = process.env.MONO_PUBLIC_KEY || '';
   const sep = redirect.includes('?') ? '&' : '?';
+  const htmlEsc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const jsStr = (s) => JSON.stringify(s).replace(/</g, '\\u003c');
   res.set('Content-Type', 'text/html');
   res.send(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2900,13 +2904,13 @@ app.get('/bank/mono-connect', (req, res) => {
 .box{max-width:340px;padding:24px}.sp{width:38px;height:38px;border:4px solid rgba(255,255,255,.18);border-top-color:#00a862;border-radius:50%;margin:0 auto 16px;animation:s 1s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}a.b{display:inline-block;margin-top:16px;background:#00a862;color:#fff;text-decoration:none;padding:11px 22px;border-radius:10px;font-weight:700}</style></head>
 <body><div class="box"><div class="sp"></div><p id="msg">Opening secure bank connection…</p>
-<a class="b" id="cancel" href="${redirect}${sep}status=closed">Cancel</a></div>
+<a class="b" id="cancel" href="${htmlEsc(redirect + sep + 'status=closed')}">Cancel</a></div>
 <script src="https://connect.mono.co/connect.js"></script>
 <script>
   (function(){
-    var KEY=${JSON.stringify(publicKey)};
-    var REDIRECT=${JSON.stringify(redirect)};
-    var SEP=${JSON.stringify(sep)};
+    var KEY=${jsStr(publicKey)};
+    var REDIRECT=${jsStr(redirect)};
+    var SEP=${jsStr(sep)};
     function go(q){ window.location.replace(REDIRECT+SEP+q); }
     if(!KEY){ document.getElementById('msg').textContent='Bank linking is not configured yet.'; return; }
     var Ctor = window.Connect || window.MonoConnect || (window.mono&&window.mono.Connect);

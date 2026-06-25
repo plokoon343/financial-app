@@ -34,10 +34,10 @@ const SpendingAlerts = () => {
 
   const getAlertIcon = (type) => {
     switch (type) {
-      case 'danger': return '⚠️';
-      case 'warning': return '🔔';
-      case 'success': return '✅';
-      default: return 'ℹ️';
+      case 'danger': return 'fas fa-triangle-exclamation';
+      case 'warning': return 'fas fa-bell';
+      case 'success': return 'fas fa-circle-check';
+      default: return 'fas fa-circle-info';
     }
   };
 
@@ -67,7 +67,7 @@ const SpendingAlerts = () => {
               className="alert-item"
               style={{ borderLeftColor: getAlertColor(alert.type) }}
             >
-              <div className="alert-icon">{getAlertIcon(alert.type)}</div>
+              <div className="alert-icon" style={{ color: getAlertColor(alert.type) }}><i className={getAlertIcon(alert.type)}></i></div>
               <div className="alert-content">
                 <div className="alert-message">{alert.message}</div>
                 <div className="alert-details">

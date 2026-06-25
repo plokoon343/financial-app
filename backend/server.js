@@ -2951,45 +2951,73 @@ app.post('/api/bank/connect', auth, async (req, res) => {
   }
 });
 
-// Pull transactions from the linked account and import new ones.
+// Pull + import new transactions from a user's linked Mono account. Shared by
+// the manual sync endpoint and the scheduled cron sync.
+async function syncMonoForUser(user) {
+  const lb = user.linkedBank || {};
+  if (!lb.accountId) return { imported: 0, total: 0, lastSynced: lb.lastSynced || null };
+  const r = await axios.get(`${MONO_BASE}/accounts/${lb.accountId}/transactions`, {
+    headers: monoHeaders(), params: { paginate: false }, timeout: 30000,
+  });
+  const raw = r.data?.data || r.data?.transactions || [];
+  // Map Mono txns → our model. Mono amounts are in kobo; debit=expense, credit=income.
+  const mapped = raw.map((t) => {
+    const amt = Math.abs(Number(t.amount) || 0) / 100;
+    const type = (t.type === 'credit') ? 'income' : 'expense';
+    const description = (t.narration || t.description || 'Bank transaction').toString().trim();
+    const date = new Date(t.date).toISOString().slice(0, 10);
+    return { date, description, amount: amt, type, category: categorizeTransaction(description, type) };
+  }).filter((t) => t.amount > 0 && t.date);
+
+  // Dedupe against what the user already has.
+  const existing = await Transaction.find({ userId: user._id }, { date: 1, amount: 1, description: 1 }).lean();
+  const seen = new Set(existing.map((t) => `${new Date(t.date).toISOString().slice(0, 10)}|${Math.abs(t.amount)}|${t.description}`));
+  const importBatch = new mongoose.Types.ObjectId().toString();
+  const importedAt = new Date();
+  const docs = mapped
+    .filter((t) => !seen.has(`${t.date}|${t.amount}|${t.description}`))
+    .map((t) => new Transaction({
+      userId: user._id, date: new Date(t.date), description: t.description,
+      amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
+      category: t.category, type: t.type, source: 'import',
+      bank: lb.institution || 'Linked bank', importBatch, importedAt,
+    }));
+  if (docs.length) await Transaction.insertMany(docs, { ordered: false });
+  user.linkedBank.lastSynced = importedAt;
+  await user.save();
+  return { imported: docs.length, total: mapped.length, lastSynced: importedAt };
+}
+
+// Pull transactions from the linked account and import new ones (manual).
 app.post('/api/bank/sync', auth, async (req, res) => {
   if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });
-  const lb = req.user.linkedBank || {};
-  if (!lb.accountId) return res.status(400).json({ message: 'No bank account linked' });
+  if (!req.user.linkedBank?.accountId) return res.status(400).json({ message: 'No bank account linked' });
   try {
-    const r = await axios.get(`${MONO_BASE}/accounts/${lb.accountId}/transactions`, {
-      headers: monoHeaders(), params: { paginate: false }, timeout: 30000,
-    });
-    const raw = r.data?.data || r.data?.transactions || [];
-    // Map Mono txns → our model. Mono amounts are in kobo; debit=expense, credit=income.
-    const mapped = raw.map((t) => {
-      const amt = Math.abs(Number(t.amount) || 0) / 100;
-      const type = (t.type === 'credit') ? 'income' : 'expense';
-      const description = (t.narration || t.description || 'Bank transaction').toString().trim();
-      const date = new Date(t.date).toISOString().slice(0, 10);
-      return { date, description, amount: amt, type, category: categorizeTransaction(description, type) };
-    }).filter((t) => t.amount > 0 && t.date);
-
-    // Dedupe against what the user already has.
-    const existing = await Transaction.find({ userId: req.user._id }, { date: 1, amount: 1, description: 1 }).lean();
-    const seen = new Set(existing.map((t) => `${new Date(t.date).toISOString().slice(0, 10)}|${Math.abs(t.amount)}|${t.description}`));
-    const importBatch = new mongoose.Types.ObjectId().toString();
-    const importedAt = new Date();
-    const docs = mapped
-      .filter((t) => !seen.has(`${t.date}|${t.amount}|${t.description}`))
-      .map((t) => new Transaction({
-        userId: req.user._id, date: new Date(t.date), description: t.description,
-        amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
-        category: t.category, type: t.type, source: 'import',
-        bank: lb.institution || 'Linked bank', importBatch, importedAt,
-      }));
-    if (docs.length) await Transaction.insertMany(docs, { ordered: false });
-    req.user.linkedBank.lastSynced = importedAt;
-    await req.user.save();
-    res.json({ imported: docs.length, total: mapped.length, lastSynced: importedAt });
+    res.json(await syncMonoForUser(req.user));
   } catch (err) {
     console.error('[bank/sync]', err.response?.data || err.message);
     res.status(502).json({ message: 'Could not sync transactions. Try again.' });
+  }
+});
+
+// Scheduled auto-sync for every linked account. Protected by a shared secret so
+// an external scheduler (e.g. cron-job.org / a Render cron job) can trigger it —
+// Render's free tier sleeps, so an in-process cron wouldn't fire reliably.
+app.post('/api/cron/sync-banks', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });
+  try {
+    const users = await User.find({ 'linkedBank.accountId': { $nin: [null, ''] } });
+    let imported = 0, synced = 0, failed = 0;
+    for (const u of users) {
+      try { imported += (await syncMonoForUser(u)).imported; synced += 1; }
+      catch (e) { failed += 1; console.error('[cron/sync-banks]', u._id.toString(), e.response?.data || e.message); }
+    }
+    res.json({ accounts: users.length, synced, failed, imported });
+  } catch (e) {
+    console.error('[cron/sync-banks]', e.message);
+    res.status(500).json({ message: 'Sync failed' });
   }
 });
 

@@ -15,6 +15,7 @@ import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
 import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
+import { Loader, Splash } from './components/Logo';
 
 // Lazy: page bodies are loaded on demand to shrink the initial bundle.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -37,8 +38,7 @@ const Support = lazy(() => import('./components/Support'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
-    <div style={{ width: 38, height: 38, border: '3px solid var(--glass-border)', borderTopColor: 'var(--accent-primary, #70db9d)', borderRadius: '50%', animation: 'spin 0.9s linear infinite' }} />
-    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <Loader size={56} />
   </div>
 );
 
@@ -80,6 +80,7 @@ function AppContent() {
 
   return (
     <div className={`App ${darkMode ? 'dark-theme' : ''}`}>
+      <Splash />
       <ServerWaker />
       <Routes>
         <Route path="/login" element={<Login />} />

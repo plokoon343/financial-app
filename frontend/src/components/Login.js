@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { LogoFull } from './Logo';
 import './Login.css';
 
 const Login = () => {
@@ -100,8 +101,7 @@ const Login = () => {
       <div className="login-card">
         <div className="login-header">
           <div className="logo">
-            <i className="fas fa-chart-simple logo-icon"></i>  {/* Favicon-style icon */}
-            <h1>AUTOMONIE</h1>
+            <LogoFull height={40} />
           </div>
           <p className="login-subtitle">{otpStep ? 'Enter the code we emailed you' : 'Sign in to manage your finances'}</p>
         </div>

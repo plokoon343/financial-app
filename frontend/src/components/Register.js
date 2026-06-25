@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
+import { LogoFull } from './Logo';
 import './Login.css'; // reuse same CSS for consistency
 // Theme configuration
 // const theme = {
@@ -148,8 +149,7 @@ const Register = () => {
       <div className="login-card">
         <div className="login-header">
           <div className="logo">
-            <i className="fas fa-chart-simple logo-icon"></i>
-            <h1>AUTOMONIE</h1>
+            <LogoFull height={40} />
           </div>
           <p className="login-subtitle">{otpStep ? 'Verify your email' : 'Create your account'}</p>
         </div>

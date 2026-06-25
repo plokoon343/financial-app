@@ -1,0 +1,30 @@
+/* Automonie logo + branded loaders */
+.am-mark { display: block; user-select: none; }
+.am-pulse { animation: am-pulse 1.4s ease-in-out infinite; transform-origin: center; }
+@keyframes am-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+
+.am-full { display: inline-block; user-select: none; }
+.am-full img { display: block; height: 100%; width: auto; }
+.am-auto { position: relative; }
+.am-fd { display: block; }
+.am-fl { display: none; }
+.dark-theme .am-fd { display: none; }
+.dark-theme .am-fl { display: block; }
+
+.am-loader { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.am-loader-vid { display: block; width: auto; }
+.am-loader-label { color: var(--text-secondary, #5b6b82); font-size: 0.9rem; font-weight: 600; }
+
+.am-splash {
+  position: fixed; inset: 0; z-index: 6000;
+  background: #0b1326;
+  display: flex; align-items: center; justify-content: center;
+}
+.am-splash-vid { max-width: 78%; max-height: 70%; object-fit: contain; }
+
+@media (prefers-reduced-motion: reduce) {
+  .am-pulse { animation: none; }
+}

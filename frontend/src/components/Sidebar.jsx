@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import { LogoFull } from './Logo';
 const Sidebar = () => {
   const { user, logout, darkMode, toggleDarkMode } = useAuth();
   const location = useLocation();
@@ -91,8 +92,7 @@ const Sidebar = () => {
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <Link to="/" className="sidebar-logo" onClick={toggleSidebar}>
-            <span className="material-symbols-outlined">rocket_launch</span>
-            <span>AUTOMONIE</span>
+            <LogoFull height={26} variant="light" />
           </Link>
         </div>
 

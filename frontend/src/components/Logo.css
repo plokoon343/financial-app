@@ -15,16 +15,21 @@
 .dark-theme .am-fl { display: block; }
 
 .am-loader { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-.am-loader-vid { display: block; width: auto; }
 .am-loader-label { color: var(--text-secondary, #5b6b82); font-size: 0.9rem; font-weight: 600; }
 
+/* Brief logo reveal on app open */
 .am-splash {
   position: fixed; inset: 0; z-index: 6000;
   background: #0b1326;
   display: flex; align-items: center; justify-content: center;
+  animation: am-splash-fade 0.45s ease forwards;
+  animation-delay: 1.3s;
 }
-.am-splash-vid { max-width: 78%; max-height: 70%; object-fit: contain; }
+.am-splash-inner { animation: am-splash-pop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes am-splash-pop { from { opacity: 0; transform: scale(0.86); } to { opacity: 1; transform: scale(1); } }
+@keyframes am-splash-fade { to { opacity: 0; visibility: hidden; } }
 
 @media (prefers-reduced-motion: reduce) {
   .am-pulse { animation: none; }
+  .am-splash, .am-splash-inner { animation: none; }
 }

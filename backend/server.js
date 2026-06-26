@@ -123,6 +123,21 @@ app.use(cors({
 
 app.use(express.json({ limit: '5mb' })); // allow large statement imports (was 100kb)
 
+// Strip MongoDB operator keys ($..., or keys with dots) from request body/query
+// so user input can't inject query operators (e.g. { email: { $ne: null } }).
+function stripMongoOperators(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 6) return;
+  for (const key of Object.keys(obj)) {
+    if (key.startsWith('$') || key.includes('.')) delete obj[key];
+    else stripMongoOperators(obj[key], depth + 1);
+  }
+}
+app.use((req, _res, next) => {
+  stripMongoOperators(req.body);
+  stripMongoOperators(req.query);
+  next();
+});
+
 // Throttle auth endpoints to slow brute-force / credential stuffing.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -2897,6 +2912,12 @@ app.get('/bank/mono-connect', (req, res) => {
   const htmlEsc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const jsStr = (s) => JSON.stringify(s).replace(/</g, '\\u003c');
   res.set('Content-Type', 'text/html');
+  // Override helmet's default CSP for this page so the Mono Connect widget
+  // (external script + inline init + its iframe/network calls) can load.
+  res.set('Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://connect.mono.co https://*.mono.co; " +
+    "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; " +
+    "connect-src https:; frame-src https:;");
   res.send(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Connect your bank</title>

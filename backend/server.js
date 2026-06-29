@@ -3256,6 +3256,91 @@ app.get('/api/bills/history', auth, async (req, res) => {
   res.json(items);
 });
 
+// --------------------------
+// Cashflow forecast: project the wallet balance forward from recurring income,
+// bills, subscriptions, debt payments and average discretionary spend.
+// --------------------------
+app.get('/api/cashflow/forecast', auth, async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 90, 7), 180);
+    const userId = req.user._id;
+    const [wallet, txns, bills, subs, debts] = await Promise.all([
+      getOrCreateWallet(userId),
+      Transaction.find({ userId }).select('date amount type').sort({ date: -1 }).limit(3000).lean(),
+      RecurringBill.find({ userId, status: { $ne: 'paused' } }).lean(),
+      Subscription.find({ userId, status: 'active' }).lean(),
+      Debt.find({ userId, balance: { $gt: 0 } }).lean(),
+    ]);
+
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    // Average daily discretionary spend over the last 90 days of expenses.
+    const winStart = new Date(today); winStart.setDate(winStart.getDate() - 90);
+    const recentExp = txns.filter((t) => t.type === 'expense' && new Date(t.date) >= winStart);
+    const dailyBurn = recentExp.reduce((s, t) => s + Math.abs(t.amount), 0) / 90;
+
+    // Monthly income + assumed pay day (most common day-of-month among income txns).
+    const monthlyIncome = req.user.monthlyIncome || 0;
+    const incomeTxns = txns.filter((t) => t.type === 'income');
+    let payDay = 28;
+    if (incomeTxns.length) {
+      const counts = {};
+      incomeTxns.forEach((t) => { const d = new Date(t.date).getDate(); counts[d] = (counts[d] || 0) + 1; });
+      payDay = Number(Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0]) || 28;
+    }
+    const subDay = (s) => s.scheduledPayment?.dayOfMonth || (s.nextPayment ? new Date(s.nextPayment).getDate() : 1);
+    const dayOutflow = (dom) => {
+      let out = 0;
+      for (const b of bills) if (b.frequency === 'monthly' && b.dueDate === dom) out += b.amount;
+      for (const s of subs) if (s.frequency === 'monthly' && subDay(s) === dom) out += s.cost;
+      for (const dt of debts) if (dt.scheduledPayment?.enabled && dt.scheduledPayment.dayOfMonth === dom) out += (dt.scheduledPayment.amount || 0);
+      return out;
+    };
+
+    let balance = wallet.balance;
+    const series = [{ date: today.toISOString().slice(0, 10), balance: Math.round(balance) }];
+    let lowest = { date: series[0].date, balance: Math.round(balance) };
+    let shortfallDate = null, totalIn = 0, totalOut = 0, nextIncomeIdx = days + 1;
+
+    for (let i = 1; i <= days; i++) {
+      const d = new Date(today); d.setDate(d.getDate() + i);
+      const dom = d.getDate();
+      const inflow = (monthlyIncome && dom === payDay) ? monthlyIncome : 0;
+      const outflow = dayOutflow(dom) + dailyBurn;
+      if (inflow && i < nextIncomeIdx) nextIncomeIdx = i;
+      balance += inflow - outflow;
+      totalIn += inflow; totalOut += outflow;
+      const iso = d.toISOString().slice(0, 10);
+      series.push({ date: iso, balance: Math.round(balance) });
+      if (balance < lowest.balance) lowest = { date: iso, balance: Math.round(balance) };
+      if (shortfallDate === null && balance < 0) shortfallDate = iso;
+    }
+
+    // Safe to spend today = balance minus committed obligations (not discretionary
+    // burn) before the next income lands.
+    let committed = 0;
+    for (let i = 1; i < nextIncomeIdx && i <= days; i++) {
+      const d = new Date(today); d.setDate(d.getDate() + i);
+      committed += dayOutflow(d.getDate());
+    }
+
+    res.json({
+      days,
+      currentBalance: Math.round(wallet.balance),
+      dailyBurn: Math.round(dailyBurn),
+      monthlyIncome, payDay,
+      safeToSpend: Math.max(0, Math.round(wallet.balance - committed)),
+      projectedEnd: series[series.length - 1].balance,
+      lowest, shortfallDate,
+      totals: { income: Math.round(totalIn), expense: Math.round(totalOut) },
+      series,
+    });
+  } catch (e) {
+    console.error('[cashflow/forecast]', e.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // 404 handler
 app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));
 

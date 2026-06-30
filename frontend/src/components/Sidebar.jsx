@@ -56,6 +56,7 @@ const Sidebar = () => {
     ]},
     { title: 'Money', items: [
       { path: '/', label: 'Dashboard', icon: 'dashboard' },
+      { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
       { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
       { path: '/wallet', label: 'Wallet', icon: 'wallet' },
@@ -68,9 +69,6 @@ const Sidebar = () => {
       { path: '/bills', label: 'Bills', icon: 'receipt' },
       { path: '/pay-bills', label: 'Pay Bills', icon: 'bolt' },
       { path: '/networth', label: 'Net Worth', icon: 'show_chart' },
-    ]},
-    { title: 'Insights', items: [
-      { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
     ]},
     { title: 'Help', items: [
       { path: '/support', label: 'Support & FAQ', icon: 'help' },

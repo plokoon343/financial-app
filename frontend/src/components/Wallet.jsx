@@ -17,6 +17,8 @@ const Wallet = () => {
   const [acctNumber, setAcctNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
+  const [vAcct, setVAcct] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const fetchWallet = async () => {
     try {
@@ -34,7 +36,18 @@ const Wallet = () => {
 
   useEffect(() => {
     fetchWallet();
+    const token = localStorage.getItem('token');
+    axios.get(`${API_URL}/api/wallet/virtual-account`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => setVAcct(r.data))
+      .catch(() => {});
   }, []);
+
+  const copyAcct = () => {
+    if (!vAcct?.accountNumber) return;
+    navigator.clipboard?.writeText(vAcct.accountNumber);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -122,6 +135,23 @@ const Wallet = () => {
           </div>
         </div>
       </div>
+
+      {vAcct && vAcct.accountNumber && (
+        <div className="fund-card glass-effect">
+          <div className="fund-head"><i className="fas fa-building-columns"></i> Fund by bank transfer</div>
+          <p className="fund-sub">Transfer to your dedicated account from any bank and your wallet is credited automatically.</p>
+          <div className="fund-grid">
+            <div className="fund-item"><span className="fund-l">Bank</span><span className="fund-v">{vAcct.bankName}</span></div>
+            <div className="fund-item"><span className="fund-l">Account number</span>
+              <span className="fund-v acctno">{vAcct.accountNumber}
+                <button type="button" className="copy-btn" onClick={copyAcct} title="Copy account number"><i className={`fas ${copied ? 'fa-check' : 'fa-copy'}`}></i></button>
+              </span>
+            </div>
+            <div className="fund-item"><span className="fund-l">Account name</span><span className="fund-v">{vAcct.accountName}</span></div>
+          </div>
+          {vAcct.dummy && <p className="fund-note"><i className="fas fa-circle-info"></i> Demo account — live bank funding activates once Paystack is fully set up.</p>}
+        </div>
+      )}
 
       <div className="wallet-form glass-effect">
         <h3>Add / Withdraw Money</h3>
@@ -326,6 +356,23 @@ const Wallet = () => {
           justify-content: center;
           gap: 6px;
         }
+        .fund-card {
+          background: var(--card-bg);
+          backdrop-filter: blur(20px);
+          border-radius: var(--radius-lg);
+          padding: 18px;
+          margin-bottom: 30px;
+          border: 1px solid var(--glass-border);
+        }
+        .fund-head { font-size: 1.15rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+        .fund-sub { color: var(--text-secondary); font-size: 0.9rem; margin: 6px 0 14px; }
+        .fund-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+        .fund-item { background: var(--glass-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px 14px; }
+        .fund-l { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 4px; }
+        .fund-v { color: var(--text-primary); font-weight: 700; font-size: 1.05rem; }
+        .fund-v.acctno { display: flex; align-items: center; gap: 10px; letter-spacing: 1px; }
+        .copy-btn { background: var(--glass-bg); border: 1px solid var(--border-color); color: var(--accent-primary); border-radius: 8px; padding: 4px 9px; cursor: pointer; }
+        .fund-note { font-size: 0.8rem; color: var(--text-secondary); margin: 12px 0 0; display: flex; align-items: center; gap: 6px; }
         .wallet-form {
           background: var(--card-bg);
           backdrop-filter: blur(20px);

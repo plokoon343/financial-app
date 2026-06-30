@@ -137,7 +137,7 @@ const Transactions = () => {
     catch { flash('Batch delete failed', 'error'); }
   };
   const deleteBatch = async (b) => {
-    if (!window.confirm(`Delete the entire "${b.bank}" statement (${b.count} transactions)?`)) return;
+    if (!window.confirm(`Delete the entire "${b.bank}" statement (${b.count} transactions)?\n\nThis permanently removes these transactions everywhere — including your Financial Health and reports. This cannot be undone.`)) return;
     try {
       await axios.delete(`${API_URL}/api/transactions/batch/${b.id}`, auth());
       setAll(prev => prev.filter(t => t.importBatch !== b.id));

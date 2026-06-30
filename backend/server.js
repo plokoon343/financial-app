@@ -14,6 +14,7 @@ const { Readable } = require('stream');
 const axios = require('axios');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const Anthropic = require('@anthropic-ai/sdk');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -156,6 +157,15 @@ const sensitiveLimiter = rateLimit({
   message: { message: 'Too many requests. Please slow down and try again shortly.' },
 });
 
+// AI assistant calls cost money per request — keep the per-user volume sane.
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'You are sending messages too quickly. Please wait a moment.' },
+});
+
 // --------------------------
 // MongoDB Connection
 // --------------------------
@@ -176,6 +186,10 @@ const userSchema = new mongoose.Schema({
   googleId: { type: String },   // set when the account is linked to Google sign-in
   role: { type: String, enum: ['user', 'superadmin'], default: 'user' },
   isActive: { type: Boolean, default: true },
+  // Subscription tier. 'pro' unlocks the AI assistant + advanced features (Paystack
+  // billing wires `plan`/`planExpiry` later; for now the AI assistant is open to all).
+  plan:       { type: String, enum: ['free', 'pro'], default: 'free' },
+  planExpiry: { type: Date },
   // Profile / onboarding
   phone:         { type: String, default: '' },
   monthlyIncome: { type: Number, default: 0 },
@@ -3482,6 +3496,359 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
   } catch (e) {
     console.error('[cashflow/forecast]', e.message);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// --------------------------
+// AI Assistant (Claude) — natural-language Q&A over the user's own finances
+// --------------------------
+// Activated by setting ANTHROPIC_API_KEY on the host. Until then the endpoint
+// returns a friendly "coming soon" reply (same keys-pending pattern as the
+// Mono/VTpass/Paystack integrations) so the UI degrades gracefully.
+const aiConfigured = () => !!process.env.ANTHROPIC_API_KEY;
+// Model is overridable, but defaults to Anthropic's current flagship.
+const AI_MODEL = process.env.AI_MODEL || 'claude-opus-4-8';
+const anthropic = aiConfigured() ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+
+const naira = (n) => '₦' + Math.round(Number(n) || 0).toLocaleString('en-NG');
+const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+// Build a compact, structured snapshot of the user's finances for the model.
+// We summarise rather than dump every row — keeps token cost down and avoids
+// leaking more raw data than needed. NGN throughout.
+const buildFinancialContext = async (user) => {
+  const userId = user._id;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const since90 = new Date(today); since90.setDate(since90.getDate() - 90);
+  const thisMonth = monthKey(today);
+
+  const [wallet, txns, budgets, goals, bills, subs, debts] = await Promise.all([
+    getOrCreateWallet(userId),
+    Transaction.find({ userId }).select('date description amount category type').sort({ date: -1 }).limit(600).lean(),
+    Budget.find({ userId, month: thisMonth }).lean(),
+    Goal.find({ userId }).lean(),
+    RecurringBill.find({ userId, status: { $ne: 'paused' } }).lean(),
+    Subscription.find({ userId, status: 'active' }).lean(),
+    Debt.find({ userId, balance: { $gt: 0 } }).lean(),
+  ]);
+
+  const recent = txns.filter((t) => new Date(t.date) >= since90);
+  const sum = (arr) => arr.reduce((s, t) => s + Math.abs(t.amount), 0);
+  const income90 = sum(recent.filter((t) => t.type === 'income'));
+  const expense90 = sum(recent.filter((t) => t.type === 'expense'));
+
+  // This-month income/expense + per-category expense breakdown.
+  const monthTxns = txns.filter((t) => monthKey(new Date(t.date)) === thisMonth);
+  const incomeMonth = sum(monthTxns.filter((t) => t.type === 'income'));
+  const expenseMonth = sum(monthTxns.filter((t) => t.type === 'expense'));
+  const byCat = {};
+  monthTxns.filter((t) => t.type === 'expense').forEach((t) => {
+    byCat[t.category] = (byCat[t.category] || 0) + Math.abs(t.amount);
+  });
+  const topCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // Budgets vs actual this month.
+  const budgetLines = budgets.map((b) => {
+    const spent = byCat[b.category] || 0;
+    return `  - ${b.category}: budget ${naira(b.amount)}, spent ${naira(spent)} (${b.amount ? Math.round((spent / b.amount) * 100) : 0}%)`;
+  });
+
+  const lines = [];
+  lines.push(`User: ${user.name?.split(' ')[0] || 'there'}`);
+  lines.push(`Currency: NGN (Nigerian Naira). Today: ${today.toISOString().slice(0, 10)}.`);
+  if (user.monthlyIncome) lines.push(`Stated monthly income: ${naira(user.monthlyIncome)}`);
+  if (user.primaryGoal) lines.push(`Primary goal: ${user.primaryGoal}`);
+  lines.push('');
+  lines.push(`Wallet balance: ${naira(wallet.balance)}  |  Savings: ${naira(wallet.savingsBalance)}`);
+  lines.push('');
+  lines.push(`This month (${thisMonth}): income ${naira(incomeMonth)}, expenses ${naira(expenseMonth)}, net ${naira(incomeMonth - expenseMonth)}.`);
+  lines.push(`Last 90 days: income ${naira(income90)}, expenses ${naira(expense90)}, avg monthly spend ≈ ${naira(expense90 / 3)}.`);
+  if (topCats.length) {
+    lines.push('Top expense categories this month:');
+    topCats.forEach(([c, v]) => lines.push(`  - ${c}: ${naira(v)}`));
+  }
+  if (budgetLines.length) { lines.push('Budgets this month:'); lines.push(...budgetLines); }
+  if (goals.length) {
+    lines.push('Savings goals:');
+    goals.forEach((g) => lines.push(
+      `  - ${g.name}: ${naira(g.current)} of ${naira(g.target)} (${g.target ? Math.round((g.current / g.target) * 100) : 0}%), due ${new Date(g.deadline).toISOString().slice(0, 10)}${g.locked ? ', LOCKED plan' : ''}`,
+    ));
+  }
+  if (bills.length) {
+    lines.push('Recurring bills:');
+    bills.slice(0, 12).forEach((b) => lines.push(`  - ${b.name}: ${naira(b.amount)} ${b.frequency || 'monthly'}${b.dueDate ? `, day ${b.dueDate}` : ''}`));
+  }
+  if (subs.length) {
+    lines.push('Subscriptions:');
+    subs.slice(0, 12).forEach((s) => lines.push(`  - ${s.name}: ${naira(s.cost)} ${s.frequency || 'monthly'}`));
+  }
+  if (debts.length) {
+    lines.push('Debts outstanding:');
+    debts.forEach((d) => lines.push(`  - ${d.name}: ${naira(d.balance)} balance${d.interestRate ? ` @ ${d.interestRate}%` : ''}`));
+  }
+  // A modest tail of recent transactions for "what did I spend on X" questions.
+  lines.push('');
+  lines.push('Most recent transactions (newest first):');
+  txns.slice(0, 40).forEach((t) => lines.push(
+    `  ${new Date(t.date).toISOString().slice(0, 10)}  ${t.type === 'income' ? '+' : '-'}${naira(Math.abs(t.amount))}  ${t.category}  ${(t.description || '').slice(0, 50)}`,
+  ));
+
+  return lines.join('\n');
+};
+
+const AI_SYSTEM_PROMPT = `You are Automonie's built-in finance assistant for a Nigerian personal-finance app. You help the user understand their money AND take actions in the app on their behalf.
+
+You can do two kinds of things:
+1. INSIGHTS & REPORTS — answer questions and produce summaries/reports from the user's financial snapshot (provided in their message). Examples: "where is my money going", "give me a spending report for this month", "am I on track with my budgets".
+2. ACTIONS — actually create things in the app using the provided tools: log a transaction, set a budget, create a savings goal, add a subscription to track, or set up a recurring bill.
+
+Rules:
+- All amounts are in Nigerian Naira (₦). Format money with the ₦ symbol and thousands separators.
+- For insights/reports, use ONLY the snapshot data. Never invent transactions, balances, or numbers. If the data doesn't cover the question, say so and suggest what to track.
+- For actions, use the matching tool. If a required detail is missing or ambiguous (e.g. the amount, the goal's target, or a deadline), ASK a short clarifying question instead of guessing. Never fabricate values for an action.
+- After performing an action, confirm briefly what you did (the tool result tells you if it succeeded).
+- You can only CREATE records. You cannot move money, pay bills, contribute to goals, delete, or edit existing items — if asked, explain they can do that from the relevant screen.
+- Be concise and practical — this renders in a small chat window. Lead with the answer, then one supporting detail or tip.
+- Give general budgeting/savings guidance, but no regulated investment, tax, or legal advice; suggest a professional for those. Be encouraging and non-judgmental.`;
+
+// Tools the assistant can call. All are CREATE-only and scoped to the requesting
+// user — nothing here moves real money (no wallet debits, goal contributions, or
+// bill payments), so actions are low-risk and reversible from the UI.
+const AI_TOOLS = [
+  {
+    name: 'create_transaction',
+    description: 'Log a new income or expense transaction for the user. Use when the user says they earned, received, spent, paid, or bought something.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['income', 'expense'] },
+        amount: { type: 'number', description: 'Positive amount in NGN' },
+        category: { type: 'string', description: 'e.g. Food, Transport, Salary, Bills' },
+        description: { type: 'string', description: 'Short note, e.g. "Lunch at Chicken Republic"' },
+        date: { type: 'string', description: 'YYYY-MM-DD; defaults to today if omitted' },
+      },
+      required: ['type', 'amount', 'category', 'description'],
+    },
+  },
+  {
+    name: 'create_budget',
+    description: "Set a monthly spending budget for a category. Use when the user wants to budget or cap spending on something.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        category: { type: 'string' },
+        amount: { type: 'number', description: 'Monthly limit in NGN' },
+        month: { type: 'string', description: "YYYY-MM; defaults to the current month" },
+      },
+      required: ['category', 'amount'],
+    },
+  },
+  {
+    name: 'create_goal',
+    description: 'Create a savings goal the user is working toward.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        target: { type: 'number', description: 'Target amount in NGN' },
+        deadline: { type: 'string', description: 'YYYY-MM-DD target date' },
+        category: { type: 'string', description: 'Optional, defaults to General' },
+      },
+      required: ['name', 'target', 'deadline'],
+    },
+  },
+  {
+    name: 'add_subscription',
+    description: 'Add a recurring subscription to track (e.g. Netflix, DSTV, gym). Tracking only — it does not auto-pay.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        cost: { type: 'number', description: 'Recurring cost in NGN' },
+        frequency: { type: 'string', enum: ['monthly', 'yearly'] },
+        category: { type: 'string' },
+      },
+      required: ['name', 'cost'],
+    },
+  },
+  {
+    name: 'create_bill',
+    description: 'Set up a recurring bill reminder (e.g. rent, electricity) due on a day of the month. Reminder/tracking only — it does not auto-pay.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        amount: { type: 'number', description: 'Amount in NGN' },
+        dueDate: { type: 'number', description: 'Day of month (1-31) the bill is due' },
+        frequency: { type: 'string', enum: ['monthly', 'yearly'] },
+        category: { type: 'string' },
+      },
+      required: ['name', 'amount', 'dueDate'],
+    },
+  },
+];
+
+// Execute one assistant tool call against the DB, scoped to `user`. Returns a
+// { ok, summary } result that is fed back to the model and surfaced to the UI.
+const executeAiTool = async (name, input, user) => {
+  const userId = user._id;
+  try {
+    if (name === 'create_transaction') {
+      const { type, category, description } = input;
+      const amount = Math.abs(Number(input.amount));
+      if (!['income', 'expense'].includes(type) || !amount || !category || !description) {
+        return { ok: false, summary: 'Missing required fields for the transaction.' };
+      }
+      const date = input.date && !isNaN(Date.parse(input.date)) ? new Date(input.date) : new Date();
+      const txn = new Transaction({
+        userId, date, description: String(description).trim(),
+        amount: type === 'expense' ? -amount : amount,
+        category: String(category).trim(), type, source: 'manual',
+      });
+      await txn.save();
+      await applySavingsRule(userId, txn.amount, txn.type);
+      if (type === 'expense') checkBudgetAlert(userId, txn.category, date.toISOString().slice(0, 7));
+      return { ok: true, summary: `Logged ${type} of ${naira(amount)} — ${category} (${txn.description}).`, kind: 'transaction' };
+    }
+
+    if (name === 'create_budget') {
+      const category = String(input.category || '').trim();
+      const amount = Math.abs(Number(input.amount));
+      if (!category || !amount) return { ok: false, summary: 'Category and amount are required for a budget.' };
+      const month = /^\d{4}-\d{2}$/.test(input.month || '') ? input.month : new Date().toISOString().slice(0, 7);
+      if (await Budget.findOne({ userId, category, month })) {
+        return { ok: false, summary: `A budget for ${category} already exists for ${month}. They can edit it on the Budget screen.` };
+      }
+      await new Budget({ userId, category, amount, month }).save();
+      return { ok: true, summary: `Set a ${naira(amount)} budget for ${category} (${month}).`, kind: 'budget' };
+    }
+
+    if (name === 'create_goal') {
+      const name2 = String(input.name || '').trim();
+      const target = Math.abs(Number(input.target));
+      if (!name2 || !target || !input.deadline || isNaN(Date.parse(input.deadline))) {
+        return { ok: false, summary: 'A name, target amount, and a valid deadline date are required for a goal.' };
+      }
+      await new Goal({ userId, name: name2, target, current: 0, deadline: new Date(input.deadline), category: input.category || 'General' }).save();
+      return { ok: true, summary: `Created goal "${name2}" — target ${naira(target)} by ${new Date(input.deadline).toISOString().slice(0, 10)}.`, kind: 'goal' };
+    }
+
+    if (name === 'add_subscription') {
+      const name2 = String(input.name || '').trim();
+      const cost = Math.abs(Number(input.cost));
+      if (!name2 || !cost) return { ok: false, summary: 'A name and cost are required for a subscription.' };
+      await new Subscription({
+        userId, name: name2, cost, frequency: input.frequency || 'monthly',
+        category: input.category || 'Entertainment', status: 'active',
+        nextPayment: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      }).save();
+      return { ok: true, summary: `Now tracking subscription "${name2}" — ${naira(cost)} ${input.frequency || 'monthly'}.`, kind: 'subscription' };
+    }
+
+    if (name === 'create_bill') {
+      const name2 = String(input.name || '').trim();
+      const amount = Math.abs(Number(input.amount));
+      const dueDate = Math.min(Math.max(parseInt(input.dueDate, 10) || 0, 1), 31);
+      if (!name2 || !amount || !dueDate) return { ok: false, summary: 'A name, amount, and due day (1-31) are required for a bill.' };
+      const now = new Date();
+      let nextDue = new Date(now.getFullYear(), now.getMonth(), dueDate);
+      if (nextDue < now) nextDue = new Date(now.getFullYear(), now.getMonth() + 1, dueDate);
+      await new RecurringBill({
+        userId, name: name2, amount, dueDate, frequency: input.frequency || 'monthly',
+        category: input.category || 'Bills', autoPay: false, nextDue, status: 'active',
+      }).save();
+      return { ok: true, summary: `Set up bill reminder "${name2}" — ${naira(amount)} due on day ${dueDate} each ${input.frequency === 'yearly' ? 'year' : 'month'}.`, kind: 'bill' };
+    }
+
+    return { ok: false, summary: `Unknown action: ${name}.` };
+  } catch (e) {
+    console.error('[executeAiTool]', name, e.message);
+    return { ok: false, summary: 'That action failed to save. Please try again or do it from the relevant screen.' };
+  }
+};
+
+app.get('/api/ai/status', auth, async (req, res) => {
+  res.json({ configured: aiConfigured(), model: aiConfigured() ? AI_MODEL : null, plan: req.user.plan || 'free' });
+});
+
+app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
+  try {
+    const message = (req.body?.message || '').toString().trim();
+    if (!message) return res.status(400).json({ message: 'Please enter a question.' });
+    if (message.length > 2000) return res.status(400).json({ message: 'Message is too long (max 2000 characters).' });
+
+    if (!aiConfigured()) {
+      return res.json({
+        configured: false,
+        reply: "The AI assistant isn't switched on for this account yet — it's coming soon. In the meantime you can explore your Dashboard, Financial Health, and Cashflow for insights into your spending.",
+      });
+    }
+
+    // Sanitise client-supplied history into a clean alternating turn list.
+    const history = Array.isArray(req.body?.history) ? req.body.history.slice(-10) : [];
+    const priorTurns = history
+      .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+      .map((m) => ({ role: m.role, content: m.content.toString().slice(0, 4000) }));
+
+    const context = await buildFinancialContext(req.user);
+
+    const messages = [
+      ...priorTurns,
+      {
+        role: 'user',
+        content: `Here is my current financial snapshot:\n\n${context}\n\n---\n\nMy question/request: ${message}`,
+      },
+    ];
+
+    // Agentic loop: let the model call CREATE tools, execute them, feed results
+    // back, and continue until it produces a final text answer. Capped so a
+    // misbehaving turn can't loop forever.
+    const actions = [];
+    let reply = '';
+    for (let step = 0; step < 6; step++) {
+      const completion = await anthropic.messages.create({
+        model: AI_MODEL,
+        max_tokens: 1024,
+        system: AI_SYSTEM_PROMPT,
+        tools: AI_TOOLS,
+        messages,
+      });
+
+      const textOut = (completion.content || [])
+        .filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+      if (textOut) reply = textOut;
+
+      const toolUses = (completion.content || []).filter((b) => b.type === 'tool_use');
+      if (completion.stop_reason !== 'tool_use' || toolUses.length === 0) break;
+
+      // Echo the assistant turn (must include the tool_use blocks) then answer
+      // each tool call in a single user turn.
+      messages.push({ role: 'assistant', content: completion.content });
+      const toolResults = [];
+      for (const tu of toolUses) {
+        const result = await executeAiTool(tu.name, tu.input || {}, req.user);
+        actions.push({ tool: tu.name, ok: result.ok, kind: result.kind, summary: result.summary });
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: tu.id,
+          content: result.summary,
+          is_error: !result.ok,
+        });
+      }
+      messages.push({ role: 'user', content: toolResults });
+    }
+
+    res.json({
+      configured: true,
+      reply: reply || "Sorry, I couldn't generate a response. Please try rephrasing.",
+      actions,
+      // True if anything was created — the UI uses this to refresh data views.
+      changed: actions.some((a) => a.ok),
+    });
+  } catch (e) {
+    console.error('[ai/chat]', e.status || '', e.message);
+    if (e.status === 429) return res.status(429).json({ message: 'The assistant is busy right now. Please try again in a moment.' });
+    res.status(500).json({ message: 'The assistant ran into a problem. Please try again.' });
   }
 });
 

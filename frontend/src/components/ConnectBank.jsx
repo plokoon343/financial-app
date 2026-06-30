@@ -63,11 +63,11 @@ const ConnectBank = () => {
     }
   };
 
-  const unlink = async () => {
-    if (!window.confirm('Disconnect your bank? Auto-import will stop. Imported transactions stay.')) return;
+  const unlink = async (accountId) => {
+    if (!window.confirm('Disconnect this bank? Auto-import will stop. Imported transactions stay.')) return;
     setBusy(true);
     try {
-      await axios.delete(`${API_URL}/api/bank/unlink`, authHeader());
+      await axios.delete(`${API_URL}/api/bank/unlink`, { ...authHeader(), params: { accountId } });
       flash('Bank disconnected.');
       loadConfig();
     } catch {
@@ -95,34 +95,39 @@ const ConnectBank = () => {
           <h3>Coming soon</h3>
           <p>Secure bank connections are being set up. You’ll be able to link your bank here shortly. In the meantime, you can import statements from the Transactions page.</p>
         </div>
-      ) : cfg.connected ? (
-        <div className="cb-card">
-          <div className="cb-linked">
-            <div className="cb-bank-ic"><i className="fas fa-check-circle"></i></div>
-            <div>
-              <strong>{cfg.institution || 'Bank account'}</strong>
-              <span className="cb-sub">{cfg.accountName || 'Linked'} · {cfg.lastSynced ? `last synced ${new Date(cfg.lastSynced).toLocaleString()}` : 'not synced yet'}</span>
-            </div>
-          </div>
-          <div className="cb-actions">
-            <button className="cb-btn primary" onClick={sync} disabled={busy}>
-              <i className="fas fa-sync-alt"></i> {busy ? 'Working…' : 'Sync now'}
-            </button>
-            <button className="cb-btn ghost" onClick={unlink} disabled={busy}>
-              <i className="fas fa-unlink"></i> Disconnect
-            </button>
-          </div>
-        </div>
       ) : (
-        <div className="cb-card cb-connect">
-          <div className="cb-bank-ic big"><i className="fas fa-link"></i></div>
-          <h3>No bank connected yet</h3>
-          <p>Securely connect through Mono. We never see your bank login — only your transactions, to keep your books current.</p>
-          <button className="cb-btn primary lg" onClick={openConnect} disabled={busy}>
-            <i className="fas fa-building-columns"></i> Connect bank account
-          </button>
-          <p className="cb-secure"><i className="fas fa-lock"></i> Bank-grade, read-only access</p>
-        </div>
+        <>
+          {(cfg.banks || []).map((b) => (
+            <div className="cb-card" key={b.accountId} style={{ marginBottom: 12 }}>
+              <div className="cb-linked">
+                <div className="cb-bank-ic"><i className="fas fa-check-circle"></i></div>
+                <div>
+                  <strong>{b.institution || 'Bank account'}</strong>
+                  <span className="cb-sub">{b.accountName || 'Linked'} · {b.lastSynced ? `last synced ${new Date(b.lastSynced).toLocaleString()}` : 'not synced yet'}</span>
+                </div>
+              </div>
+              <div className="cb-actions">
+                <button className="cb-btn ghost" onClick={() => unlink(b.accountId)} disabled={busy}>
+                  <i className="fas fa-unlink"></i> Disconnect
+                </button>
+              </div>
+            </div>
+          ))}
+          {cfg.banks?.length > 0 && (
+            <button className="cb-btn primary lg" onClick={sync} disabled={busy} style={{ marginBottom: 16 }}>
+              <i className="fas fa-sync-alt"></i> {busy ? 'Working…' : 'Sync all banks'}
+            </button>
+          )}
+          <div className="cb-card cb-connect">
+            <div className="cb-bank-ic big"><i className="fas fa-link"></i></div>
+            <h3>{cfg.banks?.length ? 'Add another bank' : 'No bank connected yet'}</h3>
+            <p>Securely connect through Mono. We never see your bank login — only your transactions, to keep your books current.</p>
+            <button className="cb-btn primary lg" onClick={openConnect} disabled={busy}>
+              <i className="fas fa-building-columns"></i> {cfg.banks?.length ? 'Connect another bank' : 'Connect bank account'}
+            </button>
+            <p className="cb-secure"><i className="fas fa-lock"></i> Bank-grade, read-only access</p>
+          </div>
+        </>
       )}
 
       <style jsx="true">{`

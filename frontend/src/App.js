@@ -15,7 +15,7 @@ import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
 import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
-import { Loader, Splash } from './components/Logo';
+import { Loader } from './components/Logo';
 
 // Lazy: page bodies are loaded on demand to shrink the initial bundle.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -80,7 +80,6 @@ function AppContent() {
 
   return (
     <div className={`App ${darkMode ? 'dark-theme' : ''}`}>
-      <Splash />
       <ServerWaker />
       <Routes>
         <Route path="/login" element={<Login />} />

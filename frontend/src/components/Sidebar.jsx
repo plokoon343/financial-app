@@ -52,7 +52,7 @@ const Sidebar = () => {
   // Grouped navigation
   const navGroups = [
     { title: 'Banking', items: [
-      { path: '/connect-bank', label: 'Connect Bank', icon: 'account_balance', key: true },
+      { path: '/connect-bank', label: 'Connect Bank', icon: 'account_balance' },
     ]},
     { title: 'Money', items: [
       { path: '/', label: 'Dashboard', icon: 'dashboard' },

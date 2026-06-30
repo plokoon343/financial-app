@@ -121,7 +121,7 @@ app.use(cors({
   },
 }));
 
-app.use(express.json({ limit: '5mb' })); // allow large statement imports (was 100kb)
+app.use(express.json({ limit: '5mb', verify: (req, _res, buf) => { req.rawBody = buf; } })); // raw body kept for webhook signature checks
 
 // Strip MongoDB operator keys ($..., or keys with dots) from request body/query
 // so user input can't inject query operators (e.g. { email: { $ne: null } }).
@@ -204,6 +204,16 @@ const userSchema = new mongoose.Schema({
     accountNumber:   { type: String, default: '' },
     accountName:     { type: String, default: '' },
     verified:        { type: Boolean, default: false }
+  },
+  // Dedicated NGN account for funding the wallet (Paystack DVA, or a 'dummy'
+  // placeholder until Paystack DVA is activated). Deposits to it credit the wallet.
+  virtualAccount: {
+    provider:      { type: String, default: '' },   // 'paystack' | 'dummy'
+    customerCode:  { type: String, default: '' },
+    accountNumber: { type: String, default: '' },
+    accountName:   { type: String, default: '' },
+    bankName:      { type: String, default: '' },
+    active:        { type: Boolean, default: false },
   },
   // Wallet payout destination. One active method at a time: 'card' or 'titan'.
   // For cards we deliberately store only the last 4 digits (never the full PAN or CVV).
@@ -2817,6 +2827,91 @@ app.get('/api/bank/resolve', auth, async (req, res) => {
     }
     console.error('Paystack resolve error:', err.response?.data || err.message);
     return res.status(500).json({ message: 'Account verification failed. Please try again.' });
+  }
+});
+
+// --------------------------
+// Wallet funding via a dedicated NGN virtual account (Paystack DVA). Until DVA
+// is activated, a 'dummy' placeholder account is issued so the UI works; real
+// deposits begin once PAYSTACK_SECRET_KEY + DVA are live.
+// --------------------------
+const paystackConfigured = () => !!process.env.PAYSTACK_SECRET_KEY;
+const paystackHeaders = () => ({ Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' });
+const dummyAccountNumber = (userId) => {
+  let n = '';
+  for (const c of userId.toString().slice(-9)) n += (parseInt(c, 16) % 10).toString();
+  return ('90' + n).slice(0, 10).padEnd(10, '0');
+};
+
+app.get('/api/wallet/virtual-account', auth, async (req, res) => {
+  try {
+    const va = req.user.virtualAccount;
+    if (va && va.accountNumber) {
+      const o = va.toObject ? va.toObject() : va;
+      return res.json({ ...o, dummy: o.provider === 'dummy' });
+    }
+    if (!paystackConfigured()) {
+      req.user.virtualAccount = {
+        provider: 'dummy', customerCode: '',
+        accountNumber: dummyAccountNumber(req.user._id),
+        accountName: req.user.name || 'Automonie User',
+        bankName: 'Test Bank (activation pending)', active: false,
+      };
+      await req.user.save();
+      return res.json({ ...req.user.virtualAccount.toObject(), dummy: true });
+    }
+    const [first, ...rest] = (req.user.name || 'Automonie User').split(' ');
+    const cust = await axios.post('https://api.paystack.co/customer',
+      { email: req.user.email, first_name: first, last_name: rest.join(' ') || first, phone: req.user.phone || undefined },
+      { headers: paystackHeaders(), timeout: 20000 });
+    const customerCode = cust.data?.data?.customer_code;
+    const dva = await axios.post('https://api.paystack.co/dedicated_account',
+      { customer: customerCode, preferred_bank: process.env.PAYSTACK_DVA_BANK || 'wema-bank' },
+      { headers: paystackHeaders(), timeout: 20000 });
+    const acct = dva.data?.data || {};
+    req.user.virtualAccount = {
+      provider: 'paystack', customerCode,
+      accountNumber: acct.account_number || '',
+      accountName: acct.account_name || req.user.name,
+      bankName: acct.bank?.name || 'Wema Bank', active: true,
+    };
+    await req.user.save();
+    res.json({ ...req.user.virtualAccount.toObject(), dummy: false });
+  } catch (err) {
+    console.error('[wallet/virtual-account]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not set up your funding account. Try again.' });
+  }
+});
+
+// Paystack webhook — credits the wallet when money lands in a user's DVA.
+app.post('/api/paystack/webhook', async (req, res) => {
+  try {
+    const secret = process.env.PAYSTACK_SECRET_KEY;
+    if (!secret) return res.sendStatus(200);
+    const crypto = require('crypto');
+    const hash = crypto.createHmac('sha512', secret).update(req.rawBody || Buffer.from('')).digest('hex');
+    if (hash !== req.headers['x-paystack-signature']) return res.sendStatus(401);
+    const event = req.body;
+    if (event?.event === 'charge.success') {
+      const d = event.data || {};
+      const reference = d.reference;
+      const amount = Math.round(d.amount || 0) / 100;
+      const customerCode = d.customer?.customer_code;
+      if (reference && amount > 0 && customerCode && !(await WalletTransaction.findOne({ reference }))) {
+        const user = await User.findOne({ 'virtualAccount.customerCode': customerCode });
+        if (user) {
+          const wallet = await getOrCreateWallet(user._id);
+          wallet.balance += amount;
+          await wallet.save();
+          await new WalletTransaction({ userId: user._id, type: 'deposit', amount, description: 'Bank transfer deposit', reference, status: 'completed' }).save();
+          await createNotification(user._id, { type: 'success', title: 'Wallet funded', message: `₦${amount.toLocaleString()} received via bank transfer.` });
+        }
+      }
+    }
+    res.sendStatus(200);
+  } catch (e) {
+    console.error('[paystack/webhook]', e.message);
+    res.sendStatus(200);
   }
 });
 

@@ -56,6 +56,7 @@ const Sidebar = () => {
     ]},
     { title: 'Money', items: [
       { path: '/', label: 'Dashboard', icon: 'dashboard' },
+      { path: '/assistant', label: 'AI Assistant', icon: 'smart_toy' },
       { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
       { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },

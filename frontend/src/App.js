@@ -32,6 +32,7 @@ const NetWorthCalculator = lazy(() => import('./components/NetWorthCalculator'))
 const AutoSavings = lazy(() => import('./components/AutoSavings'));
 const ConnectBank = lazy(() => import('./components/ConnectBank'));
 const Transactions = lazy(() => import('./components/Transactions'));
+const AiAssistant = lazy(() => import('./components/AiAssistant'));
 const Profile = lazy(() => import('./components/Profile'));
 const Settings = lazy(() => import('./components/Settings'));
 const Support = lazy(() => import('./components/Support'));
@@ -102,6 +103,7 @@ function AppContent() {
         }>
           <Route index element={<Dashboard transactions={transactions} setTransactions={setTransactions} />} />
           <Route path="transactions" element={<Transactions />} />
+          <Route path="assistant" element={<AiAssistant />} />
           <Route path="budget" element={<Budget budgets={budgets} setBudgets={setBudgets} transactions={transactions} />} />
           <Route path="financial-health" element={<FinancialHealth transactions={transactions} />} />
           <Route path="wallet" element={<Wallet />} />

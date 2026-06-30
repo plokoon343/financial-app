@@ -190,7 +190,7 @@ const userSchema = new mongoose.Schema({
   loginOtpExpiry:   { type: Date },
   // Tokens issued before this time are rejected (used by "log out of all devices").
   sessionsValidFrom: { type: Date },
-  // Linked bank account via Mono (auto-import). accountId is Mono's account id.
+  // Legacy single linked account (migrated into linkedBanks[] on next connect/sync).
   linkedBank: {
     provider:    { type: String, default: '' },   // 'mono'
     accountId:   { type: String, default: '' },
@@ -198,6 +198,14 @@ const userSchema = new mongoose.Schema({
     accountName: { type: String, default: '' },
     lastSynced:  { type: Date },
   },
+  // Multiple linked bank accounts via Mono (auto-import).
+  linkedBanks: [{
+    provider:    { type: String, default: 'mono' },
+    accountId:   { type: String, default: '' },
+    institution: { type: String, default: '' },
+    accountName: { type: String, default: '' },
+    lastSynced:  { type: Date },
+  }],
   bankDetails: {
     bankName:        { type: String, default: '' },
     bankCode:        { type: String, default: '' },
@@ -2980,15 +2988,34 @@ const monoConfigured = () => !!(process.env.MONO_SECRET_KEY && process.env.MONO_
 const monoHeaders = () => ({ 'mono-sec-key': process.env.MONO_SECRET_KEY, 'Content-Type': 'application/json' });
 
 // Config for the frontend widget + current link status.
+// All of a user's linked accounts (falls back to the legacy single field).
+const userBankAccounts = (user) => {
+  if (user.linkedBanks && user.linkedBanks.length) return user.linkedBanks;
+  if (user.linkedBank?.accountId) return [user.linkedBank];
+  return [];
+};
+// Move the legacy single linkedBank into the linkedBanks array (once).
+const migrateLegacyBank = (user) => {
+  if (!user.linkedBanks) user.linkedBanks = [];
+  if (!user.linkedBanks.length && user.linkedBank?.accountId) {
+    user.linkedBanks.push({
+      provider: user.linkedBank.provider || 'mono', accountId: user.linkedBank.accountId,
+      institution: user.linkedBank.institution || '', accountName: user.linkedBank.accountName || '',
+      lastSynced: user.linkedBank.lastSynced || null,
+    });
+    user.linkedBank = { provider: '', accountId: '', institution: '', accountName: '', lastSynced: null };
+  }
+};
+
 app.get('/api/bank/mono-config', auth, async (req, res) => {
-  const lb = req.user.linkedBank || {};
+  const banks = userBankAccounts(req.user).map((b) => ({
+    accountId: b.accountId, institution: b.institution || '', accountName: b.accountName || '', lastSynced: b.lastSynced || null,
+  }));
   res.json({
     enabled: monoConfigured(),
     publicKey: process.env.MONO_PUBLIC_KEY || '',
-    connected: !!lb.accountId,
-    institution: lb.institution || '',
-    accountName: lb.accountName || '',
-    lastSynced: lb.lastSynced || null,
+    connected: banks.length > 0,
+    banks,
   });
 });
 
@@ -3062,7 +3089,11 @@ app.post('/api/bank/connect', auth, async (req, res) => {
       institution = acct.institution?.name || '';
       accountName = acct.name || '';
     } catch { /* metadata is best-effort */ }
-    req.user.linkedBank = { provider: 'mono', accountId, institution, accountName, lastSynced: null };
+    migrateLegacyBank(req.user);
+    if (req.user.linkedBanks.some((b) => b.accountId === accountId)) {
+      return res.json({ connected: true, institution, accountName, alreadyLinked: true });
+    }
+    req.user.linkedBanks.push({ provider: 'mono', accountId, institution, accountName, lastSynced: null });
     await req.user.save();
     res.json({ connected: true, institution, accountName });
   } catch (err) {
@@ -3071,12 +3102,11 @@ app.post('/api/bank/connect', auth, async (req, res) => {
   }
 });
 
-// Pull + import new transactions from a user's linked Mono account. Shared by
-// the manual sync endpoint and the scheduled cron sync.
-async function syncMonoForUser(user) {
-  const lb = user.linkedBank || {};
-  if (!lb.accountId) return { imported: 0, total: 0, lastSynced: lb.lastSynced || null };
-  const r = await axios.get(`${MONO_BASE}/accounts/${lb.accountId}/transactions`, {
+// Pull + import new transactions from ONE linked Mono account; updates the
+// account object's lastSynced (caller persists).
+async function syncMonoAccount(user, acct) {
+  if (!acct?.accountId) return { imported: 0, total: 0 };
+  const r = await axios.get(`${MONO_BASE}/accounts/${acct.accountId}/transactions`, {
     headers: monoHeaders(), params: { paginate: false }, timeout: 30000,
   });
   const raw = r.data?.data || r.data?.transactions || [];
@@ -3089,7 +3119,7 @@ async function syncMonoForUser(user) {
     return { date, description, amount: amt, type, category: categorizeTransaction(description, type) };
   }).filter((t) => t.amount > 0 && t.date);
 
-  // Dedupe against what the user already has.
+  // Dedupe against what the user already has (incl. just-imported accounts).
   const existing = await Transaction.find({ userId: user._id }, { date: 1, amount: 1, description: 1 }).lean();
   const seen = new Set(existing.map((t) => `${new Date(t.date).toISOString().slice(0, 10)}|${Math.abs(t.amount)}|${t.description}`));
   const importBatch = new mongoose.Types.ObjectId().toString();
@@ -3100,20 +3130,29 @@ async function syncMonoForUser(user) {
       userId: user._id, date: new Date(t.date), description: t.description,
       amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
       category: t.category, type: t.type, source: 'import',
-      bank: lb.institution || 'Linked bank', importBatch, importedAt,
+      bank: acct.institution || 'Linked bank', importBatch, importedAt,
     }));
   if (docs.length) await Transaction.insertMany(docs, { ordered: false });
-  user.linkedBank.lastSynced = importedAt;
-  await user.save();
-  return { imported: docs.length, total: mapped.length, lastSynced: importedAt };
+  acct.lastSynced = importedAt;
+  return { imported: docs.length, total: mapped.length };
 }
 
-// Pull transactions from the linked account and import new ones (manual).
+// Sync every account a user has linked.
+async function syncAllMonoForUser(user) {
+  migrateLegacyBank(user);
+  const accts = userBankAccounts(user);
+  let imported = 0, total = 0;
+  for (const a of accts) { const r = await syncMonoAccount(user, a); imported += r.imported; total += r.total; }
+  await user.save();
+  return { imported, total, accounts: accts.length };
+}
+
+// Pull transactions from all linked accounts and import new ones (manual).
 app.post('/api/bank/sync', auth, async (req, res) => {
   if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });
-  if (!req.user.linkedBank?.accountId) return res.status(400).json({ message: 'No bank account linked' });
+  if (!userBankAccounts(req.user).length) return res.status(400).json({ message: 'No bank account linked' });
   try {
-    res.json(await syncMonoForUser(req.user));
+    res.json(await syncAllMonoForUser(req.user));
   } catch (err) {
     console.error('[bank/sync]', err.response?.data || err.message);
     res.status(502).json({ message: 'Could not sync transactions. Try again.' });
@@ -3128,13 +3167,16 @@ app.post('/api/cron/sync-banks', async (req, res) => {
   if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
   if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });
   try {
-    const users = await User.find({ 'linkedBank.accountId': { $nin: [null, ''] } });
+    const users = await User.find({ $or: [
+      { 'linkedBanks.0': { $exists: true } },
+      { 'linkedBank.accountId': { $nin: [null, ''] } },
+    ] });
     let imported = 0, synced = 0, failed = 0;
     for (const u of users) {
-      try { imported += (await syncMonoForUser(u)).imported; synced += 1; }
+      try { imported += (await syncAllMonoForUser(u)).imported; synced += 1; }
       catch (e) { failed += 1; console.error('[cron/sync-banks]', u._id.toString(), e.response?.data || e.message); }
     }
-    res.json({ accounts: users.length, synced, failed, imported });
+    res.json({ users: users.length, synced, failed, imported });
   } catch (e) {
     console.error('[cron/sync-banks]', e.message);
     res.status(500).json({ message: 'Sync failed' });
@@ -3142,15 +3184,22 @@ app.post('/api/cron/sync-banks', async (req, res) => {
 });
 
 // Unlink the bank account.
+// Unlink one account (?accountId=) or all of them.
 app.delete('/api/bank/unlink', auth, async (req, res) => {
   try {
-    const id = req.user.linkedBank?.accountId;
-    if (id && monoConfigured()) {
-      axios.post(`${MONO_BASE}/accounts/${id}/unlink`, {}, { headers: monoHeaders(), timeout: 15000 }).catch(() => {});
+    migrateLegacyBank(req.user);
+    const accountId = (req.query.accountId || req.body?.accountId || '').toString();
+    const toRemove = accountId
+      ? req.user.linkedBanks.filter((b) => b.accountId === accountId)
+      : [...req.user.linkedBanks];
+    if (monoConfigured()) {
+      for (const b of toRemove) {
+        axios.post(`${MONO_BASE}/accounts/${b.accountId}/unlink`, {}, { headers: monoHeaders(), timeout: 15000 }).catch(() => {});
+      }
     }
-    req.user.linkedBank = { provider: '', accountId: '', institution: '', accountName: '', lastSynced: null };
+    req.user.linkedBanks = accountId ? req.user.linkedBanks.filter((b) => b.accountId !== accountId) : [];
     await req.user.save();
-    res.json({ connected: false });
+    res.json({ connected: req.user.linkedBanks.length > 0, banks: req.user.linkedBanks.length });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 

@@ -1480,6 +1480,7 @@ app.get('/api/me', auth, async (req, res) => {
   const u = req.user;
   res.json({
     id: u._id, name: u.name, email: u.email, role: u.role,
+    plan: u.plan || 'free',
     phone: u.phone || '', monthlyIncome: u.monthlyIncome || 0,
     primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
     twoFactorEnabled: !!u.twoFactorEnabled,

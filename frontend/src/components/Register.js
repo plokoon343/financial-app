@@ -149,7 +149,7 @@ const Register = () => {
       <div className="login-card">
         <div className="login-header">
           <div className="logo">
-            <LogoFull height={40} />
+            <LogoFull height={40} variant={darkMode ? 'light' : 'dark'} />
           </div>
           <p className="login-subtitle">{otpStep ? 'Verify your email' : 'Create your account'}</p>
         </div>

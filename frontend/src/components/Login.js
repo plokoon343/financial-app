@@ -101,7 +101,10 @@ const Login = () => {
       <div className="login-card">
         <div className="login-header">
           <div className="logo">
-            <LogoFull height={40} />
+            {/* Login manages its own theme via data-theme, independent of the
+                app's .dark-theme class — so pin the logo variant to it (the
+                auto variant keys off .dark-theme and can mis-render here). */}
+            <LogoFull height={40} variant={darkMode ? 'light' : 'dark'} />
           </div>
           <p className="login-subtitle">{otpStep ? 'Enter the code we emailed you' : 'Sign in to manage your finances'}</p>
         </div>

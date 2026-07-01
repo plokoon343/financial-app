@@ -3852,6 +3852,99 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
   }
 });
 
+// --------------------------
+// Reminders — "needs your attention" items computed from the user's own data.
+// Feeds the mobile Home attention card and mirrors actionable items into the
+// notification bell (deduped per period, same idempotent pattern as budget
+// alerts). Read-only from the client's perspective; nothing here moves money.
+// --------------------------
+app.get('/api/reminders', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    const [wallet, bills, subs, lastImport, everImported] = await Promise.all([
+      getOrCreateWallet(userId),
+      RecurringBill.find({ userId, status: 'active' }).lean(),
+      Subscription.find({ userId, status: 'active' }).lean(),
+      Transaction.findOne({ userId, source: 'import' }).sort({ importedAt: -1 }).lean(),
+      Transaction.exists({ userId, source: 'import' }),
+    ]);
+
+    const reminders = [];
+
+    // 1) Overdue payments (bills + subscriptions past their due date).
+    const overdue = bills.filter((b) => b.nextDue && new Date(b.nextDue) < today).length
+      + subs.filter((s) => s.nextPayment && new Date(s.nextPayment) < today).length;
+    if (overdue > 0) {
+      reminders.push({
+        id: 'overdue', type: 'payment', severity: 'high', icon: 'alert-circle',
+        title: `${overdue} payment${overdue > 1 ? 's' : ''} overdue`,
+        message: 'Some bills or subscriptions are past their due date.',
+        action: { label: 'Review bills', route: '/bills' },
+      });
+    }
+
+    // 2) New-month statement upload — only nag users who have imported before.
+    if (everImported) {
+      const lastDate = lastImport?.importedAt ? new Date(lastImport.importedAt) : null;
+      const daysSince = lastDate ? Math.floor((today - lastDate) / 86400000) : 999;
+      if (daysSince >= 30) {
+        const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const monthName = prev.toLocaleString('en-US', { month: 'long' });
+        reminders.push({
+          id: 'statement', type: 'statement', severity: 'medium', icon: 'cloud-upload',
+          title: `Upload your ${monthName} statement`,
+          message: 'Import last month’s bank statement to keep your insights current.',
+          action: { label: 'Import statement', route: '/import-statement' },
+        });
+      }
+    }
+
+    // 3) Cash shortfall — committed outflows in the next 7 days vs wallet balance.
+    const in7 = new Date(today); in7.setDate(in7.getDate() + 7);
+    const dueSoon = [...bills, ...subs].reduce((s, x) => {
+      const d = x.nextDue || x.nextPayment;
+      const amt = x.amount ?? x.cost ?? 0;
+      return (d && new Date(d) >= today && new Date(d) <= in7) ? s + amt : s;
+    }, 0);
+    if (dueSoon > 0 && wallet.balance < dueSoon) {
+      reminders.push({
+        id: 'shortfall', type: 'cashflow', severity: 'high', icon: 'trending-down',
+        title: 'You may run short this week',
+        message: `${naira(dueSoon)} in payments are due soon but your wallet holds ${naira(wallet.balance)}.`,
+        action: { label: 'See cashflow', route: '/cashflow' },
+      });
+    }
+
+    // 4) Profile completion.
+    if (!req.user.monthlyIncome) {
+      reminders.push({
+        id: 'profile', type: 'profile', severity: 'low', icon: 'person-circle',
+        title: 'Finish setting up',
+        message: 'Add your monthly income to unlock better forecasts.',
+        action: { label: 'Update profile', route: '/settings' },
+      });
+    }
+
+    // Mirror the important ones into the notification bell, deduped per period
+    // (once a month for the statement nudge, once a day for the rest).
+    for (const r of reminders) {
+      if (r.severity === 'low') continue;
+      const period = r.id === 'statement' ? monthKey(today) : today.toISOString().slice(0, 10);
+      const link = `reminder:${r.id}:${period}`;
+      Notification.findOne({ userId, link })
+        .then((exists) => { if (!exists) createNotification(userId, { type: 'info', title: r.title, message: r.message, link }); })
+        .catch(() => {});
+    }
+
+    res.json({ reminders });
+  } catch (e) {
+    console.error('[reminders]', e.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // 404 handler
 app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));
 

@@ -45,9 +45,11 @@ const makeTransport = () => nodemailer.createTransport({
   socketTimeout: 15000,
 });
 
-// The "from" identity. Brevo requires a verified sender; we reuse EMAIL_USER (your
-// Gmail) as both the SMTP login and the Brevo sender so one address drives both.
-const senderEmail = () => (process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER || '').trim();
+// The "from" identity. Brevo requires a VERIFIED sender, so this must be an address
+// confirmed in the Brevo account (Senders) or a Brevo-authenticated domain.
+// Defaults to the Automonie work address; override with EMAIL_FROM_ADDRESS if needed.
+// (EMAIL_USER is only the SMTP login for the local/dev fallback — not the sender.)
+const senderEmail = () => (process.env.EMAIL_FROM_ADDRESS || 'superadmin@automonie.com').trim();
 const senderName = () => process.env.EMAIL_FROM_NAME || 'Automonie';
 const mailFrom = () => process.env.EMAIL_FROM || `${senderName()} <${senderEmail()}>`;
 

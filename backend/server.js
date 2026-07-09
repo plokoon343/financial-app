@@ -255,6 +255,18 @@ const userSchema = new mongoose.Schema({
       bankName:      { type: String, default: 'Titan-Paystack' },
     },
   },
+  // Reusable Paystack card authorization for one-tap wallet top-ups (quick-add).
+  // We never store card numbers — only Paystack's authorization_code (a token) and
+  // display-safe metadata. Charged server-side via /transaction/charge_authorization.
+  fundingCard: {
+    authorizationCode: { type: String, default: '' },
+    last4:             { type: String, default: '' },
+    expMonth:          { type: String, default: '' },
+    expYear:           { type: String, default: '' },
+    bank:              { type: String, default: '' },
+    cardType:          { type: String, default: '' },
+    active:            { type: Boolean, default: false },
+  },
   resetToken: String,
   resetTokenExpiry: Date,
 }, { timestamps: true });
@@ -532,6 +544,18 @@ const applySavingsRule = async (userId, transactionAmount, transactionType) => {
           }
         }
         console.log(`✅ Auto‑saved ₦${saveAmount} for user ${userId}`);
+      } else {
+        // Not enough in the wallet to move to savings — tell the user instead of
+        // failing silently. De-duped to once per day per user.
+        const day = new Date().toISOString().slice(0, 10);
+        const link = `savings_skip_${day}`;
+        if (!(await Notification.findOne({ userId, link }))) {
+          await createNotification(userId, {
+            type: 'info', title: 'Auto-save skipped',
+            message: `We couldn't move ₦${Math.round(saveAmount).toLocaleString()} to savings — your wallet balance is low. Top up to keep saving.`,
+            link,
+          });
+        }
       }
     }
   } catch (err) {
@@ -2087,30 +2111,79 @@ app.delete('/api/bills/:id', auth, async (req, res) => {
     res.json({ message: 'Bill deleted' });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
+// Advance a bill's nextDue to the next occurrence strictly after `from`. Loops so
+// several missed periods don't leave it stuck in the past (but never double-charges,
+// because a paid/skipped bill is only processed once per sweep).
+function advanceBillDue(bill, from = new Date()) {
+  let next = new Date(bill.nextDue);
+  do {
+    next = bill.frequency === 'yearly'
+      ? new Date(next.getFullYear() + 1, next.getMonth(), bill.dueDate)
+      : new Date(next.getFullYear(), next.getMonth() + 1, bill.dueDate);
+  } while (next <= from);
+  bill.nextDue = next;
+}
+
+// Process a single due bill: auto-debit the wallet (autoPay) or leave a reminder.
+// On success also records an expense Transaction so autopay shows in insights/budgets.
+async function processDueBill(bill) {
+  const userId = bill.userId;
+  if (bill.autoPay) {
+    const wallet = await getOrCreateWallet(userId);
+    if (wallet.balance >= bill.amount) {
+      wallet.balance -= bill.amount;
+      await wallet.save();
+      await new WalletTransaction({ userId, type: 'withdrawal', amount: bill.amount, description: `Auto-pay: ${bill.name}`, status: 'completed' }).save();
+      await new Transaction({ userId, date: new Date(), description: `Auto-pay: ${bill.name}`, amount: -Math.abs(bill.amount), category: bill.category || 'Bills', type: 'expense' }).save();
+      await createNotification(userId, { type: 'success', title: 'Bill paid', message: `₦${bill.amount.toLocaleString()} paid for ${bill.name}.` });
+      advanceBillDue(bill);
+      await bill.save();
+      return { bill: bill.name, status: 'paid', amount: bill.amount };
+    }
+    // Not enough funds — notify (deduped per bill per day) and retry next sweep by
+    // leaving nextDue untouched.
+    const link = `autopay_fail_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
+    if (!(await Notification.findOne({ userId, link }))) {
+      await createNotification(userId, { type: 'danger', title: 'Autopay failed', message: `Couldn't pay ${bill.name} (₦${bill.amount.toLocaleString()}) — your wallet is low. Top up to pay it.`, link });
+    }
+    return { bill: bill.name, status: 'insufficient_funds', amount: bill.amount };
+  }
+  // Reminder-only bill.
+  const link = `bill_due_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
+  if (!(await Notification.findOne({ userId, link }))) {
+    await createNotification(userId, { type: 'info', title: 'Bill due', message: `${bill.name} (₦${bill.amount.toLocaleString()}) is due.`, link });
+  }
+  advanceBillDue(bill);
+  await bill.save();
+  return { bill: bill.name, status: 'reminder', amount: bill.amount };
+}
+
+// Manual trigger for one user (called on app launch). Matches everything due or
+// overdue (nextDue <= end of today), not just bills due exactly today.
 app.post('/api/bills/process', auth, async (req, res) => {
   try {
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
-    const dueBills = await RecurringBill.find({ userId: req.user._id, status: 'active', nextDue: { $gte: startOfDay, $lte: endOfDay } });
+    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+    const dueBills = await RecurringBill.find({ userId: req.user._id, status: 'active', nextDue: { $lte: endOfDay } });
     const results = [];
-    for (const bill of dueBills) {
-      if (bill.autoPay) {
-        const wallet = await getOrCreateWallet(req.user._id);
-        if (wallet.balance >= bill.amount) {
-          wallet.balance -= bill.amount; await wallet.save();
-          const tx = new WalletTransaction({ userId: req.user._id, type: 'withdrawal', amount: bill.amount, description: `Auto-pay: ${bill.name}`, status: 'completed' });
-          await tx.save();
-          results.push({ bill: bill.name, status: 'paid', amount: bill.amount });
-        } else { results.push({ bill: bill.name, status: 'insufficient_funds', amount: bill.amount }); }
-      } else { results.push({ bill: bill.name, status: 'reminder', amount: bill.amount }); }
-      if (bill.frequency === 'monthly') bill.nextDue = new Date(bill.nextDue.getFullYear(), bill.nextDue.getMonth() + 1, bill.dueDate);
-      else bill.nextDue = new Date(bill.nextDue.getFullYear() + 1, bill.nextDue.getMonth(), bill.dueDate);
-      await bill.save();
-    }
+    for (const bill of dueBills) results.push(await processDueBill(bill));
     res.json({ processed: dueBills.length, results });
-  } catch (error) { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error('[bills/process]', error.message); res.status(500).json({ message: 'Server error' }); }
 });
+
+// Server-side daily sweep across ALL users so autopay runs even if nobody opens
+// the app. Dependency-free: interval + a short post-boot kick.
+async function sweepAllDueBills() {
+  try {
+    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+    const dueBills = await RecurringBill.find({ status: 'active', nextDue: { $lte: endOfDay } });
+    for (const bill of dueBills) {
+      try { await processDueBill(bill); } catch (e) { console.error('[autopay sweep] bill', String(bill._id), e.message); }
+    }
+    if (dueBills.length) console.log(`[autopay sweep] processed ${dueBills.length} due bill(s)`);
+  } catch (e) { console.error('[autopay sweep]', e.message); }
+}
+setInterval(sweepAllDueBills, 24 * 60 * 60 * 1000);
+setTimeout(sweepAllDueBills, 30 * 1000);
 
 // Alerts
 app.get('/api/alerts', auth, async (req, res) => {
@@ -2919,25 +2992,123 @@ app.post('/api/paystack/webhook', async (req, res) => {
     const event = req.body;
     if (event?.event === 'charge.success') {
       const d = event.data || {};
-      const reference = d.reference;
-      const amount = Math.round(d.amount || 0) / 100;
       const customerCode = d.customer?.customer_code;
-      if (reference && amount > 0 && customerCode && !(await WalletTransaction.findOne({ reference }))) {
-        const user = await User.findOne({ 'virtualAccount.customerCode': customerCode });
-        if (user) {
-          const wallet = await getOrCreateWallet(user._id);
-          wallet.balance += amount;
-          await wallet.save();
-          await new WalletTransaction({ userId: user._id, type: 'deposit', amount, description: 'Bank transfer deposit', reference, status: 'completed' }).save();
-          await createNotification(user._id, { type: 'success', title: 'Wallet funded', message: `₦${amount.toLocaleString()} received via bank transfer.` });
-        }
-      }
+      let user = customerCode ? await User.findOne({ 'virtualAccount.customerCode': customerCode }) : null;
+      if (!user && d.customer?.email) user = await User.findOne({ email: d.customer.email });
+      // Idempotent on reference; credits wallet, stores the reusable card auth, notifies.
+      if (user) await creditFromCharge(user, d);
     }
     res.sendStatus(200);
   } catch (e) {
     console.error('[paystack/webhook]', e.message);
     res.sendStatus(200);
   }
+});
+
+// --------------------------
+// Quick-add: fund the wallet with a saved Paystack card.
+// The first top-up runs a normal Paystack checkout to capture a reusable
+// authorization; later top-ups charge that authorization in one tap. We never
+// store card numbers — only Paystack's authorization_code token + safe metadata.
+// --------------------------
+const koboToNaira = (kobo) => Math.round(kobo) / 100;
+
+// Credit the wallet for a completed Paystack charge and persist a reusable card
+// authorization if present. Idempotent on reference. Shared by verify + webhook.
+async function creditFromCharge(user, data) {
+  const reference = data.reference;
+  const amount = koboToNaira(data.amount || 0);
+  if (!reference || amount <= 0) return null;
+  if (await WalletTransaction.findOne({ reference })) return null; // already processed
+  const wallet = await getOrCreateWallet(user._id);
+  wallet.balance += amount;
+  await wallet.save();
+  const viaCard = (data.channel || '') === 'card';
+  await new WalletTransaction({
+    userId: user._id, type: 'deposit', amount, reference, status: 'completed',
+    description: viaCard ? 'Wallet top-up (card)' : 'Bank transfer deposit',
+  }).save();
+  const authz = data.authorization;
+  if (authz && authz.reusable && authz.authorization_code) {
+    user.fundingCard = {
+      authorizationCode: authz.authorization_code,
+      last4: authz.last4 || '', expMonth: authz.exp_month || '', expYear: authz.exp_year || '',
+      bank: authz.bank || '', cardType: authz.card_type || '', active: true,
+    };
+    await user.save();
+  }
+  await createNotification(user._id, { type: 'success', title: 'Wallet funded', message: `₦${amount.toLocaleString()} added to your wallet.` });
+  return { balance: wallet.balance, amount };
+}
+
+// Start a checkout to add a card and fund the wallet the first time.
+app.post('/api/wallet/fund/init', auth, async (req, res) => {
+  try {
+    if (!paystackConfigured()) return res.status(503).json({ message: 'Card funding is not available yet.' });
+    const amount = Math.round(Number(req.body.amount));
+    if (!amount || amount < 100) return res.status(400).json({ message: 'Enter an amount of at least ₦100.' });
+    const r = await axios.post('https://api.paystack.co/transaction/initialize',
+      { email: req.user.email, amount: amount * 100, metadata: { userId: req.user._id.toString(), purpose: 'wallet_fund' } },
+      { headers: paystackHeaders(), timeout: 20000 });
+    const d = r.data?.data || {};
+    res.json({ authorization_url: d.authorization_url, access_code: d.access_code, reference: d.reference });
+  } catch (err) {
+    console.error('[wallet/fund/init]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not start card funding. Try again.' });
+  }
+});
+
+// Confirm a checkout by reference (belt-and-suspenders alongside the webhook).
+app.post('/api/wallet/fund/verify', auth, async (req, res) => {
+  try {
+    if (!paystackConfigured()) return res.status(503).json({ message: 'Card funding is not available yet.' });
+    const reference = (req.body.reference || '').toString();
+    if (!reference) return res.status(400).json({ message: 'reference is required' });
+    const r = await axios.get(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+      { headers: paystackHeaders(), timeout: 20000 });
+    const d = r.data?.data || {};
+    if (d.status !== 'success') return res.status(402).json({ message: 'Payment not completed.' });
+    await creditFromCharge(req.user, d);
+    const wallet = await getOrCreateWallet(req.user._id);
+    res.json({ balance: wallet.balance });
+  } catch (err) {
+    console.error('[wallet/fund/verify]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not verify the payment.' });
+  }
+});
+
+// One-tap top-up: charge the saved card authorization for a preset amount.
+app.post('/api/wallet/fund/charge', auth, async (req, res) => {
+  try {
+    if (!paystackConfigured()) return res.status(503).json({ message: 'Card funding is not available yet.' });
+    const card = req.user.fundingCard;
+    if (!card || !card.active || !card.authorizationCode) return res.status(400).json({ message: 'No saved card. Add one first.' });
+    const amount = Math.round(Number(req.body.amount));
+    if (!amount || amount < 100) return res.status(400).json({ message: 'Enter an amount of at least ₦100.' });
+    const r = await axios.post('https://api.paystack.co/transaction/charge_authorization',
+      { email: req.user.email, amount: amount * 100, authorization_code: card.authorizationCode },
+      { headers: paystackHeaders(), timeout: 20000 });
+    const d = r.data?.data || {};
+    if (d.status !== 'success') return res.status(402).json({ message: 'Card charge was declined.' });
+    await creditFromCharge(req.user, d);
+    const wallet = await getOrCreateWallet(req.user._id);
+    res.json({ balance: wallet.balance, amount });
+  } catch (err) {
+    console.error('[wallet/fund/charge]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not charge your card. Try again.' });
+  }
+});
+
+// Saved funding card summary / removal.
+app.get('/api/wallet/card', auth, (req, res) => {
+  const c = req.user.fundingCard;
+  if (!c || !c.active || !c.last4) return res.json({ card: null });
+  res.json({ card: { last4: c.last4, expMonth: c.expMonth, expYear: c.expYear, bank: c.bank, cardType: c.cardType } });
+});
+app.delete('/api/wallet/card', auth, async (req, res) => {
+  req.user.fundingCard = { authorizationCode: '', last4: '', expMonth: '', expYear: '', bank: '', cardType: '', active: false };
+  await req.user.save();
+  res.json({ message: 'Card removed' });
 });
 
 // Get user bank details

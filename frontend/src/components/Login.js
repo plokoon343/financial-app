@@ -29,6 +29,17 @@ const Login = () => {
     else document.documentElement.setAttribute('data-theme', 'light');
   }, [darkMode]);
 
+  // Make the browser Back button return from the OTP step to the login form
+  // (instead of leaving the page or staying stuck on OTP). We push a history
+  // entry when the OTP step opens and unwind it on back.
+  useEffect(() => {
+    if (!otpStep) return;
+    window.history.pushState({ otpStep: true }, '');
+    const onPop = () => { setOtpStep(false); setOtp(''); setError(''); };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [otpStep]);
+
   // Render the Google Identity Services button when a client ID is configured.
   useEffect(() => {
     if (!googleClientId || otpStep) return;
@@ -145,7 +156,7 @@ const Login = () => {
             <button type="submit" className={`login-button ${loading ? 'loading' : ''}`} disabled={loading}>
               {loading ? 'Verifying...' : 'Verify & Sign In'}
             </button>
-            <button type="button" className="demo-button" style={{ marginTop: '12px' }} onClick={() => { setOtpStep(false); setOtp(''); setError(''); }}>
+            <button type="button" className="demo-button" style={{ marginTop: '12px' }} onClick={() => window.history.back()}>
               ← Back to login
             </button>
           </form>

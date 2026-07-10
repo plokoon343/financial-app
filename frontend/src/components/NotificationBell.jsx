@@ -97,16 +97,16 @@ const NotificationBell = () => {
         .nb-badge { position: absolute; top: -4px; right: -4px; background: #e53e3e; color: #fff; font-size: 0.68rem;
           font-weight: 700; min-width: 18px; height: 18px; border-radius: 9px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
         .nb-panel { position: absolute; top: 52px; right: 0; width: 340px; max-width: calc(100vw - 2rem);
-          background: var(--card-bg); border: 1px solid var(--glass-border); border-radius: 14px;
+          background: var(--bg-elevated, #ffffff); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 14px;
           box-shadow: var(--shadow-lg); overflow: hidden; }
-        .nb-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--glass-border); color: var(--text-primary); }
+        .nb-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border-color, var(--glass-border)); color: var(--text-primary); }
         .nb-mark { background: none; border: none; color: var(--accent-primary, var(--accent-primary)); cursor: pointer; font-size: 0.8rem; font-weight: 600; }
         .nb-list { max-height: 60vh; overflow-y: auto; }
         .nb-empty { padding: 28px 14px; text-align: center; color: var(--text-secondary); font-size: 0.88rem; }
         .nb-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: none;
-          border: none; border-bottom: 1px solid var(--glass-border); padding: 12px 14px; cursor: pointer; color: var(--text-primary); }
-        .nb-item.unread { background: rgba(99,102,241,0.08); }
-        .nb-item:hover { background: var(--glass-bg); }
+          border: none; border-bottom: 1px solid var(--border-color, var(--glass-border)); padding: 12px 14px; cursor: pointer; color: var(--text-primary); }
+        .nb-item.unread { background: rgba(0,135,81,0.08); }
+        .nb-item:hover { background: var(--bg-input, var(--glass-bg)); }
         .nb-ic { color: var(--accent-primary, var(--accent-primary)); margin-top: 2px; }
         .nb-text { display: flex; flex-direction: column; gap: 2px; flex: 1; }
         .nb-title { font-weight: 600; font-size: 0.86rem; }

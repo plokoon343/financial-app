@@ -272,6 +272,20 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
+// Sign-ups are held here until the email OTP is confirmed — the real User is
+// only created on verification, so an unverified email never becomes an account.
+// The TTL index auto-purges abandoned sign-ups after 30 minutes.
+const pendingRegistrationSchema = new mongoose.Schema({
+  email:     { type: String, required: true, unique: true, lowercase: true, trim: true },
+  name:      { type: String, required: true },
+  phone:     { type: String, default: '' },
+  password:  { type: String, required: true },   // bcrypt hash
+  otpHash:   { type: String, required: true },
+  otpExpiry: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now, expires: 60 * 30 },
+});
+const PendingRegistration = mongoose.model('PendingRegistration', pendingRegistrationSchema);
+
 const transactionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   date: { type: Date, required: true },
@@ -1341,29 +1355,35 @@ app.post('/api/register', authLimiter, async (req, res) => {
     if (cleanPhone.replace(/\D/g, '').length < 7) {
       return res.status(400).json({ message: 'Enter a valid phone number' });
     }
-    let user = await User.findOne({ email });
-    if (user) return res.status(400).json({ message: 'User already exists' });
+    const cleanEmail = email.toLowerCase().trim();
+    const existing = await User.findOne({ email: cleanEmail });
+    if (existing) return res.status(400).json({ message: 'User already exists' });
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    user = new User({ name, email, password: hashedPassword, phone: cleanPhone.slice(0, 20), emailVerified: false });
 
-    // Require email verification: email a 6-digit code (reusing the loginOtp
-    // fields) and withhold the token until it's verified. If email isn't
-    // configured, fall back to issuing the token so sign-up still works.
+    // The account is created ONLY after the email code is confirmed. Until then
+    // the sign-up lives in PendingRegistration (auto-expiring); verify-login-otp
+    // promotes it to a real User. If email isn't configured, fall back to
+    // creating the account immediately so sign-up still works.
     if (emailConfigured()) {
       const otp = String(Math.floor(100000 + Math.random() * 900000));
-      user.loginOtpHash = hashToken(otp);
-      user.loginOtpExpiry = new Date(Date.now() + 15 * 60 * 1000);
-      await user.save();
+      await PendingRegistration.findOneAndUpdate(
+        { email: cleanEmail },
+        {
+          email: cleanEmail, name, phone: cleanPhone.slice(0, 20), password: hashedPassword,
+          otpHash: hashToken(otp), otpExpiry: new Date(Date.now() + 15 * 60 * 1000), createdAt: new Date(),
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
       sendEmail({
-        to: user.email,
+        to: cleanEmail,
         subject: 'Verify your Automonie email',
         text: `Welcome to Automonie! Your verification code is ${otp}. It expires in 15 minutes.`,
         html: `<p>Welcome to Automonie! Your verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 15 minutes.</p>`,
       }).catch((e) => console.error('[register-verify] email failed:', e.message));
-      return res.status(201).json({ otpRequired: true, email: user.email });
+      return res.status(201).json({ otpRequired: true, email: cleanEmail });
     }
-    user.emailVerified = true;
+    const user = new User({ name, email: cleanEmail, password: hashedPassword, phone: cleanPhone.slice(0, 20), emailVerified: true });
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
@@ -1409,42 +1429,60 @@ app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
   try {
     const { email, otp } = req.body;
     if (!email || !otp) return res.status(400).json({ message: 'Email and code are required' });
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user || !user.loginOtpHash || !user.loginOtpExpiry) {
-      return res.status(400).json({ message: 'No pending verification. Please sign in again.' });
+    const cleanEmail = email.toLowerCase().trim();
+    const code = String(otp).trim();
+
+    const user = await User.findOne({ email: cleanEmail });
+    if (user) {
+      // Existing account: 2FA login, or a legacy unverified account confirming.
+      if (!user.loginOtpHash || !user.loginOtpExpiry) return res.status(400).json({ message: 'No pending verification. Please sign in again.' });
+      if (user.loginOtpExpiry < new Date()) return res.status(400).json({ message: 'Code expired. Please sign in again.' });
+      if (user.loginOtpHash !== hashToken(code)) return res.status(400).json({ message: 'Incorrect code' });
+      user.loginOtpHash = undefined;
+      user.loginOtpExpiry = undefined;
+      user.emailVerified = true;
+      user.lastLogin = new Date();
+      await user.save();
+      const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
+      return res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
     }
-    if (user.loginOtpExpiry < new Date()) {
-      return res.status(400).json({ message: 'Code expired. Please sign in again.' });
-    }
-    if (user.loginOtpHash !== hashToken(String(otp).trim())) {
-      return res.status(400).json({ message: 'Incorrect code' });
-    }
-    user.loginOtpHash = undefined;
-    user.loginOtpExpiry = undefined;
-    user.emailVerified = true;
-    user.lastLogin = new Date();
-    await user.save();
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
+
+    // No account yet → this code confirms a sign-up. Promote the pending record
+    // into a real User now (this is where account creation actually happens).
+    const pending = await PendingRegistration.findOne({ email: cleanEmail });
+    if (!pending) return res.status(400).json({ message: 'No pending verification. Please sign in again.' });
+    if (pending.otpExpiry < new Date()) return res.status(400).json({ message: 'Code expired. Please sign up again.' });
+    if (pending.otpHash !== hashToken(code)) return res.status(400).json({ message: 'Incorrect code' });
+    const created = new User({ name: pending.name, email: pending.email, password: pending.password, phone: pending.phone, emailVerified: true, lastLogin: new Date() });
+    await created.save();
+    await PendingRegistration.deleteOne({ _id: pending._id });
+    const token = jwt.sign({ userId: created._id }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: created._id, name: created.name, email: created.email, role: created.role, onboarded: created.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // Resend the email-verification code for an unverified account.
 app.post('/api/resend-verification', authLimiter, async (req, res) => {
   try {
-    const { email } = req.body;
-    const user = await User.findOne({ email: (email || '').toLowerCase().trim() });
-    if (user && user.emailVerified === false && emailConfigured()) {
+    const cleanEmail = (req.body.email || '').toLowerCase().trim();
+    if (cleanEmail && emailConfigured()) {
       const otp = String(Math.floor(100000 + Math.random() * 900000));
-      user.loginOtpHash = hashToken(otp);
-      user.loginOtpExpiry = new Date(Date.now() + 15 * 60 * 1000);
-      await user.save();
-      sendEmail({
-        to: user.email,
-        subject: 'Verify your Automonie email',
-        text: `Your verification code is ${otp}. It expires in 15 minutes.`,
-        html: `<p>Your verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 15 minutes.</p>`,
-      }).catch(() => {});
+      const expiry = new Date(Date.now() + 15 * 60 * 1000);
+      const user = await User.findOne({ email: cleanEmail });
+      if (user && user.emailVerified === false) {
+        user.loginOtpHash = hashToken(otp);
+        user.loginOtpExpiry = expiry;
+        await user.save();
+        sendEmail({ to: cleanEmail, subject: 'Verify your Automonie email', text: `Your verification code is ${otp}. It expires in 15 minutes.`, html: `<p>Your verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 15 minutes.</p>` }).catch(() => {});
+      } else if (!user) {
+        const pending = await PendingRegistration.findOne({ email: cleanEmail });
+        if (pending) {
+          pending.otpHash = hashToken(otp);
+          pending.otpExpiry = expiry;
+          await pending.save();
+          sendEmail({ to: cleanEmail, subject: 'Verify your Automonie email', text: `Your verification code is ${otp}. It expires in 15 minutes.`, html: `<p>Your verification code is <strong style="font-size:20px">${otp}</strong>.</p><p>It expires in 15 minutes.</p>` }).catch(() => {});
+        }
+      }
     }
     res.json({ message: 'If that account needs verification, a new code has been sent.' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }

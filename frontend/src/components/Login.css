@@ -75,6 +75,8 @@
   align-items: center;
 }
 .login-brand-inner { display: flex; flex-direction: column; gap: 14px; }
+/* Force the wordmark to pure white so it's legible on the green brand panel. */
+.login-brand .am-full { filter: brightness(0) invert(1); }
 .login-brand-title { font-size: 1.85rem; font-weight: 700; line-height: 1.15; margin: 10px 0 0; color: #fff; letter-spacing: -0.02em; }
 .login-brand-sub { font-size: 0.96rem; color: rgba(234,255,245,0.92); margin: 0; line-height: 1.55; max-width: 34ch; }
 .login-brand-points { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 12px; }

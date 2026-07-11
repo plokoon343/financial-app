@@ -109,7 +109,21 @@ const Login = () => {
         <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
       </button>
 
-      <div className="login-card">
+      <div className="login-shell">
+        <aside className="login-brand">
+          <div className="login-brand-inner">
+            <LogoFull height={38} variant="light" />
+            <h2 className="login-brand-title">Your money, automated.</h2>
+            <p className="login-brand-sub">Track spending, budget, save, and pay bills — all in one place.</p>
+            <ul className="login-brand-points">
+              <li><i className="fas fa-chart-pie"></i> Smart budgets &amp; insights</li>
+              <li><i className="fas fa-piggy-bank"></i> Auto-savings &amp; goals</li>
+              <li><i className="fas fa-bolt"></i> Bills &amp; airtime in seconds</li>
+            </ul>
+          </div>
+        </aside>
+
+        <div className="login-card">
         <div className="login-header">
           <div className="logo">
             {/* Login manages its own theme via data-theme, independent of the
@@ -226,6 +240,7 @@ const Login = () => {
 
         <div className="login-footer">
           <p>By continuing, you agree to our Terms of Service and Privacy Policy</p>
+        </div>
         </div>
       </div>
     </div>

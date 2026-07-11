@@ -361,6 +361,8 @@ const savingsRuleSchema = new mongoose.Schema({
   value: { type: Number, required: true },
   active: { type: Boolean, default: true },
   targetGoalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Goal', default: null },
+  // Optionally auto-pay down a debt instead of (or as well as) saving to a goal.
+  targetDebtId: { type: mongoose.Schema.Types.ObjectId, ref: 'Debt', default: null },
   createdAt: { type: Date, default: Date.now }
 });
 const SavingsRule = mongoose.model('SavingsRule', savingsRuleSchema);
@@ -555,6 +557,14 @@ const applySavingsRule = async (userId, transactionAmount, transactionType) => {
           if (goal) {
             goal.current = Math.min(goal.current + saveAmount, goal.target);
             await goal.save();
+          }
+        }
+        // Auto-pay down a linked debt as the amount is set aside.
+        if (rule.targetDebtId) {
+          const debt = await Debt.findOne({ _id: rule.targetDebtId, userId });
+          if (debt) {
+            debt.balance = Math.max(0, debt.balance - saveAmount);
+            await debt.save();
           }
         }
         console.log(`✅ Auto‑saved ₦${saveAmount} for user ${userId}`);
@@ -1951,12 +1961,12 @@ app.get('/api/savings/rules', auth, async (req, res) => {
   res.json(rule || null);
 });
 app.post('/api/savings/rules', auth, async (req, res) => {
-  const { type, value, active, targetGoalId } = req.body;
+  const { type, value, active, targetGoalId, targetDebtId } = req.body;
   if (!type || !value) return res.status(400).json({ message: 'Type and value required' });
   if (type === 'fixed' && value <= 0) return res.status(400).json({ message: 'Amount must be greater than 0' });
   if (type === 'roundup' && value <= 0) return res.status(400).json({ message: 'Round‑up step must be >0' });
   await SavingsRule.deleteOne({ userId: req.user._id });
-  const rule = new SavingsRule({ userId: req.user._id, type, value, active: active !== false, targetGoalId: targetGoalId || null });
+  const rule = new SavingsRule({ userId: req.user._id, type, value, active: active !== false, targetGoalId: targetGoalId || null, targetDebtId: targetDebtId || null });
   await rule.save();
   res.json(rule);
 });

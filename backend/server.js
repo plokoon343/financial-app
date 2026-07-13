@@ -3273,7 +3273,7 @@ app.get('/bank/mono-connect', (req, res) => {
   // Override helmet's default CSP for this page so the Mono Connect widget
   // (external script + inline init + its iframe/network calls) can load.
   res.set('Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' https://connect.mono.co https://*.mono.co; " +
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://connect.mono.co https://*.mono.co; " +
     "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; " +
     "connect-src https:; frame-src https:;");
   res.send(`<!DOCTYPE html>
@@ -3284,27 +3284,27 @@ app.get('/bank/mono-connect', (req, res) => {
 @keyframes s{to{transform:rotate(360deg)}}a.b{display:inline-block;margin-top:16px;background:#00a862;color:#fff;text-decoration:none;padding:11px 22px;border-radius:10px;font-weight:700}</style></head>
 <body><div class="box"><div class="sp"></div><p id="msg">Opening secure bank connection…</p>
 <a class="b" id="cancel" href="${htmlEsc(redirect + sep + 'status=closed')}">Cancel</a></div>
-<script src="https://connect.mono.co/connect.js"></script>
-<script>
-  (function(){
-    var KEY=${jsStr(publicKey)};
-    var REDIRECT=${jsStr(redirect)};
-    var SEP=${jsStr(sep)};
-    function go(q){ window.location.replace(REDIRECT+SEP+q); }
-    if(!KEY){ document.getElementById('msg').textContent='Bank linking is not configured yet.'; return; }
-    var Ctor = window.Connect || window.MonoConnect || (window.mono&&window.mono.Connect);
-    if(!Ctor){ document.getElementById('msg').textContent='Could not load the bank connector. Please try again.'; return; }
+<script type="module">
+  const KEY=${jsStr(publicKey)};
+  const REDIRECT=${jsStr(redirect)};
+  const SEP=${jsStr(sep)};
+  const go=(q)=>{ window.location.replace(REDIRECT+SEP+q); };
+  const fail=(m)=>{ const el=document.getElementById('msg'); if(el) el.textContent=m; };
+  if(!KEY){ fail('Bank linking is not configured yet.'); }
+  else{
     try{
-      var connect = new Ctor({
+      // Mono Connect v2 (same SDK the web app uses) loaded from a CDN — the old
+      // connect.mono.co/connect.js now serves HTML, not JS.
+      const { default: Connect } = await import('https://cdn.jsdelivr.net/npm/@mono.co/connect.js@2.2.0/+esm');
+      const connect = new Connect({
         key: KEY, scope: 'auth',
-        onSuccess: function(res){ var code=(res&&(res.code||res.getAuthCode&&res.getAuthCode()))||''; go('code='+encodeURIComponent(code)); },
-        onClose: function(){ go('status=closed'); },
-        onLoad: function(){ try{ connect.open(); }catch(e){} }
+        onSuccess: (res)=>{ const code=(res&&(res.code||(res.getAuthCode&&res.getAuthCode())))||''; go('code='+encodeURIComponent(code)); },
+        onClose: ()=>{ go('status=closed'); },
       });
-      connect.setup && connect.setup();
-      connect.open && connect.open();
-    }catch(e){ document.getElementById('msg').textContent='Could not start the connection. Please try again.'; }
-  })();
+      connect.setup();
+      connect.open();
+    }catch(e){ fail('Could not load the bank connector. Please try again.'); }
+  }
 </script></body></html>`);
 });
 

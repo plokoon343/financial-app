@@ -3288,7 +3288,10 @@ app.get('/bank/mono-connect', (req, res) => {
   const KEY=${jsStr(publicKey)};
   const REDIRECT=${jsStr(redirect)};
   const SEP=${jsStr(sep)};
-  const go=(q)=>{ window.location.replace(REDIRECT+SEP+q); };
+  // One-shot: Mono v2 fires onClose AFTER onSuccess, so an unguarded onClose
+  // would replace the ?code= redirect with ?status=closed and lose the code.
+  let done=false;
+  const go=(q)=>{ if(done) return; done=true; window.location.replace(REDIRECT+SEP+q); };
   const fail=(m)=>{ const el=document.getElementById('msg'); if(el) el.textContent=m; };
   if(!KEY){ fail('Bank linking is not configured yet.'); }
   else{

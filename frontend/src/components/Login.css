@@ -469,3 +469,18 @@
 .login-card .form-label { color: var(--text-primary) !important; opacity: 1 !important; }
 .login-card .form-input { color: var(--input-text); background: var(--input-bg); border: 1px solid var(--input-border); }
 .login-card .form-input::placeholder { color: var(--input-placeholder); opacity: 1; }
+
+/* Legal consent line on the sign-up form */
+.legal-consent {
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--text-secondary, #6b7280);
+  text-align: center;
+  margin: 0 0 0.9rem;
+}
+.legal-consent a {
+  color: var(--accent-primary, #00a862);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.legal-consent a:hover { opacity: 0.85; }

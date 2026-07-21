@@ -271,6 +271,13 @@ const Register = () => {
             </div>
           </div>
 
+          <p className="legal-consent">
+            By creating an account you agree to our{' '}
+            <a href="https://automonie.com/terms.html" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+            {' '}and{' '}
+            <a href="https://automonie.com/privacy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+          </p>
+
           <button type="submit" className="login-button" disabled={loading}>
             {loading ? 'Creating Account...' : 'Sign Up'}
           </button>

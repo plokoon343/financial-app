@@ -221,6 +221,10 @@ const userSchema = new mongoose.Schema({
     institution: { type: String, default: '' },
     accountName: { type: String, default: '' },
     lastSynced:  { type: Date },
+    lastTxnDate:     { type: Date },                    // sync cursor: newest imported txn date
+    lastSyncAttempt: { type: Date },                    // rate-cap clock (last attempt, success or not)
+    dirty:           { type: Boolean, default: false }, // webhook flagged new data to pull
+    needsReauth:     { type: Boolean, default: false }, // user must manually re-link
   }],
   bankDetails: {
     bankName:        { type: String, default: '' },
@@ -3341,12 +3345,36 @@ app.post('/api/bank/connect', auth, async (req, res) => {
   }
 });
 
-// Pull + import new transactions from ONE linked Mono account; updates the
-// account object's lastSynced (caller persists).
+// --- Sync rate caps (control Mono cost). Mono bills per page of transactions
+// returned, and even an "empty" refresh bills. So automatic syncs run only at
+// the plan's cadence, and manual syncs have a shorter floor to stop hammering. ---
+const _DAY = 24 * 60 * 60 * 1000;
+const SYNC_AUTO_MS   = { free: 7 * _DAY,               pro: 1 * _DAY };
+const SYNC_MANUAL_MS = { free: 4 * 60 * 60 * 1000,     pro: 1 * 60 * 60 * 1000 };
+const planKey = (user) => (user?.plan === 'pro' ? 'pro' : 'free');
+function syncDue(acct, plan, manual) {
+  const interval = (manual ? SYNC_MANUAL_MS : SYNC_AUTO_MS)[plan] || SYNC_AUTO_MS.free;
+  const last = acct.lastSyncAttempt ? new Date(acct.lastSyncAttempt).getTime() : 0;
+  return Date.now() - last >= interval;
+}
+
+// Pull + import ONLY NEW transactions from one linked Mono account, using a
+// per-account cursor (lastTxnDate). We fetch from the cursor forward (with a
+// small overlap), so we never re-fetch — and never re-pay for — history we
+// already hold. First sync (no cursor) pulls full history once. Idempotent:
+// dedupe removes any repeats, so a retried/failed sync never duplicates or
+// double-charges.
 async function syncMonoAccount(user, acct) {
   if (!acct?.accountId) return { imported: 0, total: 0 };
+  acct.lastSyncAttempt = new Date();          // rate-cap clock, set before the call
+  const params = { paginate: false };
+  if (acct.lastTxnDate) {
+    const from = new Date(acct.lastTxnDate);
+    from.setDate(from.getDate() - 3);         // 3-day overlap catches late-posting entries
+    params.start = from.toISOString().slice(0, 10);
+  }
   const r = await axios.get(`${MONO_BASE}/accounts/${acct.accountId}/transactions`, {
-    headers: monoHeaders(), params: { paginate: false }, timeout: 30000,
+    headers: monoHeaders(), params, timeout: 30000,
   });
   const raw = r.data?.data || r.data?.transactions || [];
   // Map Mono txns → our model. Mono amounts are in kobo; debit=expense, credit=income.
@@ -3358,7 +3386,7 @@ async function syncMonoAccount(user, acct) {
     return { date, description, amount: amt, type, category: categorizeTransaction(description, type) };
   }).filter((t) => t.amount > 0 && t.date);
 
-  // Dedupe against what the user already has (incl. just-imported accounts).
+  // Idempotent dedupe against what the user already has.
   const existing = await Transaction.find({ userId: user._id }, { date: 1, amount: 1, description: 1 }).lean();
   const seen = new Set(existing.map((t) => `${new Date(t.date).toISOString().slice(0, 10)}|${Math.abs(t.amount)}|${t.description}`));
   const importBatch = new mongoose.Types.ObjectId().toString();
@@ -3372,18 +3400,33 @@ async function syncMonoAccount(user, acct) {
       bank: acct.institution || 'Linked bank', importBatch, importedAt,
     }));
   if (docs.length) await Transaction.insertMany(docs, { ordered: false });
+
+  // Advance the cursor to the newest transaction date we saw.
+  for (const t of mapped) {
+    if (!acct.lastTxnDate || new Date(t.date) > new Date(acct.lastTxnDate)) acct.lastTxnDate = new Date(t.date);
+  }
   acct.lastSynced = importedAt;
+  acct.dirty = false;
   return { imported: docs.length, total: mapped.length };
 }
 
-// Sync every account a user has linked.
-async function syncAllMonoForUser(user) {
+// Sync a user's linked accounts, honouring rate caps.
+//   opts.manual    – use the shorter manual floor instead of the auto cadence
+//   opts.dirtyOnly – only sync accounts a webhook flagged (webhook mode)
+//   opts.force     – ignore rate caps entirely
+async function syncAllMonoForUser(user, opts = {}) {
   migrateLegacyBank(user);
+  const plan = planKey(user);
   const accts = userBankAccounts(user);
-  let imported = 0, total = 0;
-  for (const a of accts) { const r = await syncMonoAccount(user, a); imported += r.imported; total += r.total; }
+  let imported = 0, total = 0, skipped = 0;
+  for (const a of accts) {
+    if (opts.dirtyOnly && !a.dirty) { skipped += 1; continue; }
+    if (!opts.force && !syncDue(a, plan, opts.manual)) { skipped += 1; continue; }
+    try { const r = await syncMonoAccount(user, a); imported += r.imported; total += r.total; }
+    catch (e) { console.error('[mono/sync]', a.accountId, e.response?.data || e.message); }
+  }
   await user.save();
-  return { imported, total, accounts: accts.length };
+  return { imported, total, accounts: accts.length, skipped };
 }
 
 // Pull transactions from all linked accounts and import new ones (manual).
@@ -3391,7 +3434,13 @@ app.post('/api/bank/sync', auth, async (req, res) => {
   if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });
   if (!userBankAccounts(req.user).length) return res.status(400).json({ message: 'No bank account linked' });
   try {
-    res.json(await syncAllMonoForUser(req.user));
+    const r = await syncAllMonoForUser(req.user, { manual: true });
+    const message = r.imported > 0
+      ? `Imported ${r.imported} new transaction(s).`
+      : (r.skipped > 0 && r.accounts > 0
+          ? 'You are up to date. Automatic sync keeps your transactions current; try a manual refresh again a little later.'
+          : 'No new transactions.');
+    res.json({ ...r, message });
   } catch (err) {
     console.error('[bank/sync]', err.response?.data || err.message);
     res.status(502).json({ message: 'Could not sync transactions. Try again.' });
@@ -3410,15 +3459,58 @@ app.post('/api/cron/sync-banks', async (req, res) => {
       { 'linkedBanks.0': { $exists: true } },
       { 'linkedBank.accountId': { $nin: [null, ''] } },
     ] });
+    // Webhook mode: Mono pushes updates, so only sync accounts it flagged (dirty)
+    // — no paying to poll unchanged accounts. Polling mode (no webhook secret):
+    // sync every account that's due at the plan cadence.
+    const webhookMode = !!process.env.MONO_WEBHOOK_SEC;
     let imported = 0, synced = 0, failed = 0;
     for (const u of users) {
-      try { imported += (await syncAllMonoForUser(u)).imported; synced += 1; }
+      try { imported += (await syncAllMonoForUser(u, { dirtyOnly: webhookMode })).imported; synced += 1; }
       catch (e) { failed += 1; console.error('[cron/sync-banks]', u._id.toString(), e.response?.data || e.message); }
     }
-    res.json({ users: users.length, synced, failed, imported });
+    res.json({ users: users.length, synced, failed, imported, mode: webhookMode ? 'webhook' : 'polling' });
   } catch (e) {
     console.error('[cron/sync-banks]', e.message);
     res.status(500).json({ message: 'Sync failed' });
+  }
+});
+
+// Mono webhook: Mono POSTs here when a linked account's data changes. We verify
+// the shared secret, flag the account "dirty", and sync it immediately if it's
+// due at the plan cadence; otherwise the cron picks up flagged accounts later.
+// This is what lets us stop polling (and stop paying for empty polls).
+// Enable by setting MONO_WEBHOOK_SEC to the secret configured in the Mono
+// dashboard, and pointing the dashboard webhook at /api/bank/mono-webhook.
+// NOTE: confirm Mono's exact event names + payload shape in the dashboard; the
+// matching below is deliberately liberal so it works across their variants.
+app.post('/api/bank/mono-webhook', async (req, res) => {
+  const sec = process.env.MONO_WEBHOOK_SEC;
+  if (!sec || req.get('mono-webhook-secret') !== sec) return res.status(401).json({ status: 'unauthorized' });
+  try {
+    const event = (req.body?.event || req.body?.type || '').toString();
+    const d = req.body?.data || {};
+    const accountId = (d?.account?._id || d?.account?.id || d?._id || d?.id || d?.account || '').toString();
+    if (!accountId) return res.json({ status: 'ignored' });
+
+    const user = await User.findOne({ 'linkedBanks.accountId': accountId });
+    const acct = user?.linkedBanks?.find((b) => b.accountId === accountId);
+    if (!user || !acct) return res.json({ status: 'no-account' });
+
+    if (/reauth/i.test(event)) {
+      acct.needsReauth = true;
+      await user.save();
+    } else if (/update|sync|transaction|data\.?status|connected/i.test(event)) {
+      acct.dirty = true;                                 // there is new data to pull
+      if (monoConfigured() && syncDue(acct, planKey(user), false)) {
+        try { await syncMonoAccount(user, acct); }       // pull now if due (else cron gets it)
+        catch (e) { console.error('[mono/webhook sync]', e.response?.data || e.message); }
+      }
+      await user.save();
+    }
+    return res.json({ status: 'ok' });
+  } catch (e) {
+    console.error('[mono/webhook]', e.message);
+    return res.status(200).json({ status: 'error' });   // 200 so Mono doesn't retry-storm
   }
 });
 

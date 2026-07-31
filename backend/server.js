@@ -4180,12 +4180,13 @@ app.get('/api/reminders', auth, async (req, res) => {
     const userId = req.user._id;
     const today = new Date(); today.setHours(0, 0, 0, 0);
 
-    const [wallet, bills, subs, lastImport, everImported] = await Promise.all([
+    const [wallet, bills, subs, lastImport, everImported, lastTxn] = await Promise.all([
       getOrCreateWallet(userId),
       RecurringBill.find({ userId, status: 'active' }).lean(),
       Subscription.find({ userId, status: 'active' }).lean(),
       Transaction.findOne({ userId, source: 'import' }).sort({ importedAt: -1 }).lean(),
       Transaction.exists({ userId, source: 'import' }),
+      Transaction.findOne({ userId }).sort({ createdAt: -1 }).lean(),
     ]);
 
     const reminders = [];
@@ -4214,6 +4215,22 @@ app.get('/api/reminders', auth, async (req, res) => {
           title: `Upload your ${monthName} statement`,
           message: 'Import last month’s bank statement to keep your insights current.',
           action: { label: 'Import statement', route: '/import-statement' },
+        });
+      }
+    }
+
+    // 2b) Quick-log nudge — nothing added in a while. Points at the fast SMS/email
+    // paste import (not just the monthly statement upload). Suppressed when the
+    // monthly statement nudge is already showing so we don't double-nag.
+    const hasStatementNudge = reminders.some((r) => r.id === 'statement');
+    if (!hasStatementNudge && lastTxn?.createdAt) {
+      const daysQuiet = Math.floor((today - new Date(lastTxn.createdAt)) / 86400000);
+      if (daysQuiet >= 14) {
+        reminders.push({
+          id: 'log-txns', type: 'import', severity: 'medium', icon: 'chatbox-ellipses',
+          title: 'Add your recent transactions',
+          message: 'Paste your latest bank SMS or email alerts to keep your spending up to date.',
+          action: { label: 'Import alerts', route: '/sms-import' },
         });
       }
     }
@@ -4248,7 +4265,9 @@ app.get('/api/reminders', auth, async (req, res) => {
     // (once a month for the statement nudge, once a day for the rest).
     for (const r of reminders) {
       if (r.severity === 'low') continue;
-      const period = r.id === 'statement' ? monthKey(today) : today.toISOString().slice(0, 10);
+      const period = r.id === 'statement' ? monthKey(today)
+        : r.id === 'log-txns' ? `w${Math.floor(today.getTime() / 604800000)}`
+        : today.toISOString().slice(0, 10);
       const link = `reminder:${r.id}:${period}`;
       Notification.findOne({ userId, link })
         .then((exists) => { if (!exists) createNotification(userId, { type: 'info', title: r.title, message: r.message, link }); })

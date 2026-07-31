@@ -2357,7 +2357,9 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       userId: req.user._id, date: new Date(t.date), description: t.description,
       amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
       category: t.category || 'Other', type: t.type,
-      source: 'import', bank: bankLabel, importBatch, importedAt,
+      // Prefer a per-transaction bank (an SMS scan can span several banks),
+      // falling back to the batch-level label.
+      source: 'import', bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
     }));
     const inserted = await Transaction.insertMany(docs, { ordered: false });
     // Learn description -> category from what the user chose to import (incl. any

@@ -3309,7 +3309,7 @@ app.get('/bank/mono-connect', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Connect your bank</title>
-<style>html,body{height:100%;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0b1326;color:#e3e9f2;display:grid;place-items:center;text-align:center}
+<style>html,body{height:100%;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#000000;color:#e3e9f2;display:grid;place-items:center;text-align:center}
 .box{max-width:340px;padding:24px}.sp{width:38px;height:38px;border:4px solid rgba(255,255,255,.18);border-top-color:#00a862;border-radius:50%;margin:0 auto 16px;animation:s 1s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}a.b{display:inline-block;margin-top:16px;background:#00a862;color:#fff;text-decoration:none;padding:11px 22px;border-radius:10px;font-weight:700}</style></head>
 <body><div class="box"><div class="sp"></div><p id="msg">Opening secure bank connection…</p>
@@ -3336,6 +3336,9 @@ app.get('/bank/mono-connect', (req, res) => {
       });
       connect.setup();
       connect.open();
+      // Don't leave the user staring at a spinner forever if the widget never
+      // opens (e.g. sandbox hiccup or a blocked network) — nudge them after 20s.
+      setTimeout(()=>{ if(!done) fail('This is taking longer than usual. Tap Cancel and try again.'); }, 20000);
     }catch(e){ fail('Could not load the bank connector. Please try again.'); }
   }
 </script></body></html>`);

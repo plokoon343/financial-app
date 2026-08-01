@@ -2353,7 +2353,30 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     const importBatch = new mongoose.Types.ObjectId().toString();
     const importedAt = new Date();
     const bankLabel = (bank || '').toString().trim();
-    const docs = valid.map(t => new Transaction({
+
+    // Skip re-imports: drop any row whose (day + |amount| + description) already
+    // exists as an imported transaction, and de-dupe within this batch too. This
+    // makes re-scanning the same SMS period safe.
+    const keyOf = (d, amt, desc) => `${new Date(d).toISOString().slice(0, 10)}|${Math.round(Math.abs(amt))}|${(desc || '').trim().toLowerCase()}`;
+    const times = valid.map(t => +new Date(t.date)).filter(n => !isNaN(n));
+    const seen = new Set();
+    if (times.length) {
+      const gte = new Date(Math.min(...times) - 86400000);
+      const lte = new Date(Math.max(...times) + 86400000);
+      const existing = await Transaction.find({ userId: req.user._id, source: 'import', date: { $gte: gte, $lte: lte } })
+        .select('date amount description').lean();
+      for (const e of existing) seen.add(keyOf(e.date, e.amount, e.description));
+    }
+    const fresh = [];
+    for (const t of valid) {
+      const k = keyOf(t.date, t.amount, t.description);
+      if (seen.has(k)) continue;
+      seen.add(k); fresh.push(t);
+    }
+    const skipped = valid.length - fresh.length;
+    if (fresh.length === 0) return res.json({ message: `Skipped ${skipped} duplicate(s) — nothing new to import.`, count: 0, skipped });
+
+    const docs = fresh.map(t => new Transaction({
       userId: req.user._id, date: new Date(t.date), description: t.description,
       amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
       category: t.category || 'Other', type: t.type,
@@ -2364,16 +2387,17 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     const inserted = await Transaction.insertMany(docs, { ordered: false });
     // Learn description -> category from what the user chose to import (incl. any
     // edits they made on the review screen), so future imports auto-apply them.
-    await learnCategories(req.user._id, valid);
+    await learnCategories(req.user._id, fresh);
     // Raise budget alerts for each distinct expense category+month just imported.
-    const pairs = new Set(valid
+    const pairs = new Set(fresh
       .filter(t => t.type === 'expense' && t.category)
       .map(t => `${t.category}|${new Date(t.date).toISOString().slice(0, 7)}`));
     for (const pair of pairs) {
       const [cat, m] = pair.split('|');
       checkBudgetAlert(req.user._id, cat, m);
     }
-    return res.json({ message: `Imported ${inserted.length} transaction(s) successfully.`, count: inserted.length });
+    const suffix = skipped ? ` (skipped ${skipped} duplicate${skipped > 1 ? 's' : ''}).` : ' successfully.';
+    return res.json({ message: `Imported ${inserted.length} transaction(s)${suffix}`, count: inserted.length, skipped });
   } catch (error) {
     if (error.result) return res.json({ message: `Imported ${error.result.nInserted} transaction(s).`, count: error.result.nInserted });
     console.error('Import error:', error);

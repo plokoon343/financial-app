@@ -3521,6 +3521,34 @@ app.post('/api/push/register', auth, async (req, res) => {
   } catch (e) { console.error('[push/register]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// Send an immediate test push to the caller's own devices (bypasses the daily
+// cap) so notifications can be verified on demand from Settings.
+app.post('/api/push/test', auth, async (req, res) => {
+  try {
+    const u = await User.findById(req.user._id).select('pushTokens').lean();
+    if (!u || !(u.pushTokens || []).length) {
+      return res.status(400).json({ message: 'No device registered yet. Open Automonie on your phone and allow notifications first.' });
+    }
+    const msg = (await buildInsight(req.user._id)) || { title: 'Automonie', body: 'Test push — your notifications are working! 🎉' };
+    await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'test' } });
+    res.json({ ok: true, devices: u.pushTokens.length });
+  } catch (e) { console.error('[push/test]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Send the caller a test insight push right now (bypasses the daily cap) so a
+// user can confirm notifications work end-to-end.
+app.post('/api/push/test', auth, async (req, res) => {
+  try {
+    const u = await User.findById(req.user._id).select('pushTokens').lean();
+    if (!u || !(u.pushTokens || []).length) {
+      return res.status(400).json({ message: 'No device registered yet. Open the app on your phone and allow notifications first.' });
+    }
+    const msg = (await buildInsight(req.user._id)) || { title: 'Automonie', body: 'Test push — notifications are working! 🎉' };
+    await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'test' } });
+    res.json({ ok: true, devices: u.pushTokens.length, preview: msg });
+  } catch (e) { console.error('[push/test]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Fire-and-forget send via the Expo push service (batched at 100/request).
 async function sendExpoPush(tokens, { title, body, data }) {
   const messages = (tokens || []).filter(isExpoToken)

@@ -3578,26 +3578,36 @@ async function buildInsight(userId) {
   return pool[Math.floor(Math.random() * pool.length)] || null;
 }
 
-// External scheduler hits this (once daily) to send each user one insight push.
+// Send each user at most one insight push per day.
+async function runInsightsJob() {
+  const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id pushTokens').lean();
+  const day = new Date().toISOString().slice(0, 10);
+  let sent = 0;
+  for (const u of users) {
+    const link = `insight:${day}`;
+    if (await Notification.findOne({ userId: u._id, link })) continue; // at most one per day
+    const msg = await buildInsight(u._id);
+    if (!msg) continue;
+    await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'insight' } });
+    await createNotification(u._id, { type: 'info', title: msg.title, message: msg.body, link });
+    sent += 1;
+  }
+  return { users: users.length, sent };
+}
+
+// External scheduler (cron-job.org / Render cron) — the reliable path.
 app.post('/api/cron/insights', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
-  try {
-    const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id pushTokens').lean();
-    const day = new Date().toISOString().slice(0, 10);
-    let sent = 0;
-    for (const u of users) {
-      const link = `insight:${day}`;
-      if (await Notification.findOne({ userId: u._id, link })) continue; // at most one per day
-      const msg = await buildInsight(u._id);
-      if (!msg) continue;
-      await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'insight' } });
-      await createNotification(u._id, { type: 'info', title: msg.title, message: msg.body, link });
-      sent += 1;
-    }
-    res.json({ users: users.length, sent });
-  } catch (e) { console.error('[cron/insights]', e.message); res.status(500).json({ message: 'Server error' }); }
+  try { res.json(await runInsightsJob()); }
+  catch (e) { console.error('[cron/insights]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
+
+// Stopgap in-process trigger so insights fire with zero external setup. The
+// per-user daily dedup makes repeat runs harmless; on Render's free tier this
+// only fires while the service is awake, so an external cron is still better.
+setTimeout(() => { runInsightsJob().then((r) => console.log('[insights:boot]', r)).catch((e) => console.error('[insights:boot]', e.message)); }, 60000);
+setInterval(() => { runInsightsJob().catch((e) => console.error('[insights:interval]', e.message)); }, 6 * 60 * 60 * 1000);
 
 // Mono webhook: Mono POSTs here when a linked account's data changes. We verify
 // the shared secret, flag the account "dirty", and sync it immediately if it's

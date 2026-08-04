@@ -199,6 +199,7 @@ const userSchema = new mongoose.Schema({
   emailAlerts:   { type: Boolean, default: true },
   // Expo push tokens for this user's devices (spending-insight notifications).
   pushTokens:    { type: [String], default: [] },
+  notifyInsights: { type: Boolean, default: true },   // daily witty insight pushes (mutable)
   onboarded:     { type: Boolean, default: false },
   lastLogin:     { type: Date },
   // Email-based 2-step verification (#21/#22).
@@ -435,12 +436,17 @@ const checkBudgetAlert = async (userId, category, monthStr) => {
     const link = `/budget?c=${encodeURIComponent(category)}&m=${monthStr}&t=${threshold}`;
     if (await Notification.findOne({ userId, link })) return; // already alerted
     const pctRound = Math.round(pct * 100);
-    await createNotification(userId, {
-      type: threshold === 'over' ? 'info' : 'info',
-      title: threshold === 'over' ? `Over budget: ${category}` : `Budget alert: ${category}`,
-      message: `You've used ${pctRound}% of your ${category} budget for ${monthStr}.`,
-      link,
-    });
+    const title = threshold === 'over' ? `Over budget: ${category}` : `Budget alert: ${category}`;
+    const message = `You've used ${pctRound}% of your ${category} budget for ${monthStr}.`;
+    await createNotification(userId, { type: 'info', title, message, link });
+    // Push it too (budget alerts are important — not gated by the insights mute).
+    const u = await User.findById(userId).select('pushTokens').lean();
+    if (u?.pushTokens?.length) {
+      const body = threshold === 'over'
+        ? `${category} budget don pass o — you don use ${pctRound}%. Time to slow down. 😬📉`
+        : `Heads up: ${pctRound}% of your ${category} budget gone, ${Math.max(0, 100 - pctRound)}% remain. 👀`;
+      sendExpoPush(u.pushTokens, { title, body, data: { type: 'budget', link } });
+    }
   } catch (e) { console.error('[checkBudgetAlert]', e.message); }
 };
 
@@ -2073,6 +2079,7 @@ app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
 
     const amount = goal.current;
     if (amount <= 0) return res.status(400).json({ message: 'This goal has no funds to withdraw.' });
+    const reached = goal.target > 0 && amount >= goal.target;
 
     const matured = new Date() >= new Date(goal.deadline);
     const early = goal.locked && !matured;
@@ -2092,10 +2099,15 @@ app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
     wallet.balance += net;
     await wallet.save();
 
-    goal.current = 0;
-    goal.locked = false;
-    goal.lockedAt = undefined;
-    await goal.save();
+    // A reached goal is done once withdrawn — remove it. Otherwise reset to 0.
+    if (reached) {
+      await Goal.deleteOne({ _id: goal._id });
+    } else {
+      goal.current = 0;
+      goal.locked = false;
+      goal.lockedAt = undefined;
+      await goal.save();
+    }
 
     await new WalletTransaction({
       userId: req.user._id,
@@ -2109,7 +2121,7 @@ app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
       status: 'completed',
     }).save();
 
-    res.json({ goal, withdrawn: net, fee, interest, early, newBalance: wallet.balance });
+    res.json({ goal: reached ? null : goal, deleted: reached, withdrawn: net, fee, interest, early, newBalance: wallet.balance });
   } catch (error) {
     console.error('Goal withdraw error:', error);
     res.status(500).json({ message: error.message || 'Server error' });
@@ -2467,6 +2479,26 @@ app.delete('/api/debts/:id', auth, async (req, res) => {
     await Debt.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     res.json({ message: 'Debt deleted' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Make a payment toward a debt from the wallet (reduces the balance).
+app.post('/api/debts/:id/pay', auth, async (req, res) => {
+  try {
+    const amt = Number(req.body.amount);
+    if (!amt || amt <= 0) return res.status(400).json({ message: 'Invalid amount' });
+    const debt = await Debt.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!debt) return res.status(404).json({ message: 'Debt not found' });
+    const wallet = await getOrCreateWallet(req.user._id);
+    if (wallet.balance < amt) return res.status(400).json({ message: 'Insufficient wallet balance' });
+    const pay = Math.min(amt, debt.balance);
+    wallet.balance -= pay; await wallet.save();
+    debt.balance = Math.max(0, debt.balance - pay); await debt.save();
+    await new WalletTransaction({
+      userId: req.user._id, type: 'withdrawal', amount: pay,
+      description: `Debt payment: ${debt.name}`, status: 'completed',
+    }).save();
+    res.json({ debt, paid: pay, cleared: debt.balance <= 0, newBalance: wallet.balance });
+  } catch (e) { console.error('Debt pay error:', e.message); res.status(500).json({ message: e.message || 'Server error' }); }
 });
 
 // Subscriptions (updated PUT to accept new fields)
@@ -3521,6 +3553,16 @@ app.post('/api/push/register', auth, async (req, res) => {
   } catch (e) { console.error('[push/register]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// Mute / unmute the daily spending-insight pushes.
+app.post('/api/push/settings', auth, async (req, res) => {
+  try {
+    const insights = req.body.insights;
+    if (typeof insights !== 'boolean') return res.status(400).json({ message: 'insights (boolean) required' });
+    await User.updateOne({ _id: req.user._id }, { $set: { notifyInsights: insights } });
+    res.json({ ok: true, notifyInsights: insights });
+  } catch (e) { console.error('[push/settings]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Send an immediate test push to the caller's own devices (bypasses the daily
 // cap) so notifications can be verified on demand from Settings.
 app.post('/api/push/test', auth, async (req, res) => {
@@ -3608,7 +3650,7 @@ async function buildInsight(userId) {
 
 // Send each user at most one insight push per day.
 async function runInsightsJob() {
-  const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id pushTokens').lean();
+  const users = await User.find({ 'pushTokens.0': { $exists: true }, notifyInsights: { $ne: false } }).select('_id pushTokens').lean();
   const day = new Date().toISOString().slice(0, 10);
   let sent = 0;
   for (const u of users) {

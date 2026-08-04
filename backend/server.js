@@ -197,6 +197,8 @@ const userSchema = new mongoose.Schema({
   monthlyIncome: { type: Number, default: 0 },
   primaryGoal:   { type: String, default: '' },
   emailAlerts:   { type: Boolean, default: true },
+  // Expo push tokens for this user's devices (spending-insight notifications).
+  pushTokens:    { type: [String], default: [] },
   onboarded:     { type: Boolean, default: false },
   lastLogin:     { type: Date },
   // Email-based 2-step verification (#21/#22).
@@ -3502,6 +3504,99 @@ app.post('/api/cron/sync-banks', async (req, res) => {
     console.error('[cron/sync-banks]', e.message);
     res.status(500).json({ message: 'Sync failed' });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Push notifications (Expo) — spending-insight nudges with local personality.
+// ---------------------------------------------------------------------------
+const isExpoToken = (t) => /^Expo(nent)?PushToken\[.+\]$/.test(String(t || ''));
+
+// Register a device's Expo push token.
+app.post('/api/push/register', auth, async (req, res) => {
+  try {
+    const token = (req.body.token || '').toString().trim();
+    if (!isExpoToken(token)) return res.status(400).json({ message: 'Invalid push token' });
+    await User.updateOne({ _id: req.user._id }, { $addToSet: { pushTokens: token } });
+    res.json({ ok: true });
+  } catch (e) { console.error('[push/register]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Fire-and-forget send via the Expo push service (batched at 100/request).
+async function sendExpoPush(tokens, { title, body, data }) {
+  const messages = (tokens || []).filter(isExpoToken)
+    .map((to) => ({ to, sound: 'default', title, body, data: data || {}, channelId: 'default' }));
+  for (let i = 0; i < messages.length; i += 100) {
+    try {
+      await axios.post('https://exp.host/--/api/v2/push/send', messages.slice(i, i + 100),
+        { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
+    } catch (e) { console.error('[expo-push]', e.response?.data || e.message); }
+  }
+}
+
+const capWords = (s) => (s || '').replace(/\b\w/g, (c) => c.toUpperCase());
+const naira0 = (n) => '₦' + Math.round(Math.abs(n)).toLocaleString('en-NG');
+const EVERGREEN_INSIGHTS = [
+  { title: 'Budget Reality Check', body: "You're not broke, you're just pre-paying for happiness. Let's budget for vibes too! 😎🎉" },
+  { title: 'Small Wins', body: "You didn't spend impulsively today. Go and kiss yourself. You deserve it. 💋👏" },
+  { title: 'Budget Challenge', body: "Can you go 24 hours without spending? Let's see the real MVP. 🏆💪" },
+  { title: 'Automonie', body: 'Quick money check — dey your account balance surprise you? Open Automonie and confirm. 👀💰' },
+];
+
+// Build one witty, contextual spending-insight message for a user (or null).
+async function buildInsight(userId) {
+  const now = new Date();
+  const since30 = new Date(now); since30.setDate(since30.getDate() - 30);
+  const txns = await Transaction.find({ userId, type: 'expense', date: { $gte: since30 } })
+    .select('description amount category date').lean();
+  const pool = [];
+  if (txns.length) {
+    const byDesc = {}, spendByDesc = {};
+    for (const t of txns) {
+      const d = (t.description || '').trim(); if (!d) continue;
+      const k = d.toLowerCase();
+      (byDesc[k] = byDesc[k] || { n: 0, label: d }).n += 1;
+      (spendByDesc[k] = spendByDesc[k] || { sum: 0, label: d }).sum += Math.abs(t.amount);
+    }
+    const rep = Object.values(byDesc).sort((a, b) => b.n - a.n)[0];
+    if (rep && rep.n >= 3) pool.push({ title: 'Automonie', body: `You've bought ${capWords(rep.label).slice(0, 28)} ${rep.n} times this month. Hope you budgeted for garri? 😅🍚` });
+    const big = Object.values(spendByDesc).sort((a, b) => b.sum - a.sum)[0];
+    if (big && big.sum >= 20000) pool.push({ title: 'Automonie', body: `You've spent ${naira0(big.sum)} on ${capWords(big.label).slice(0, 24)}. The money no dey run — calm down. 😅💸` });
+  }
+  try {
+    const budgets = await Budget.find({ userId, month: monthKey(now) }).lean();
+    if (budgets.length) {
+      const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const spent = {};
+      for (const t of txns) if (new Date(t.date) >= mStart) spent[t.category] = (spent[t.category] || 0) + Math.abs(t.amount);
+      const daysLeft = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate();
+      const week = Math.ceil(now.getDate() / 7);
+      const burnt = budgets.find((b) => b.amount > 0 && (spent[b.category] || 0) >= b.amount * 0.9);
+      if (burnt) pool.push({ title: 'Budget Alert', body: `${burnt.category} budget don finish for week ${week}. E remain ${daysLeft} days o. 😩📉` });
+    }
+  } catch { /* ignore */ }
+  pool.push(...EVERGREEN_INSIGHTS);
+  return pool[Math.floor(Math.random() * pool.length)] || null;
+}
+
+// External scheduler hits this (once daily) to send each user one insight push.
+app.post('/api/cron/insights', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  try {
+    const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id pushTokens').lean();
+    const day = new Date().toISOString().slice(0, 10);
+    let sent = 0;
+    for (const u of users) {
+      const link = `insight:${day}`;
+      if (await Notification.findOne({ userId: u._id, link })) continue; // at most one per day
+      const msg = await buildInsight(u._id);
+      if (!msg) continue;
+      await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'insight' } });
+      await createNotification(u._id, { type: 'info', title: msg.title, message: msg.body, link });
+      sent += 1;
+    }
+    res.json({ users: users.length, sent });
+  } catch (e) { console.error('[cron/insights]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Mono webhook: Mono POSTs here when a linked account's data changes. We verify

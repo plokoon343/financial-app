@@ -166,7 +166,8 @@ html, body {
 
 body {
   font-family: var(--font-body);
-  background: var(--primary-bg);
+  background: url("./texture.svg") repeat, var(--primary-bg);
+  background-size: 160px 160px, auto;
   color: var(--text-primary);
   line-height: 1.6;
   min-height: 100vh;

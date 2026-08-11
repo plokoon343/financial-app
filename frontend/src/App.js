@@ -21,6 +21,8 @@ import { Loader } from './components/Logo';
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Budget = lazy(() => import('./components/Budget'));
 const FinancialHealth = lazy(() => import('./components/FinancialHealth'));
+const Insights = lazy(() => import('./components/Insights'));
+const Cashflow = lazy(() => import('./components/Cashflow'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const Wallet = lazy(() => import('./components/Wallet'));
 const GoalTracker = lazy(() => import('./components/GoalTracker'));
@@ -106,6 +108,8 @@ function AppContent() {
           <Route path="assistant" element={<AiAssistant />} />
           <Route path="budget" element={<Budget budgets={budgets} setBudgets={setBudgets} transactions={transactions} />} />
           <Route path="financial-health" element={<FinancialHealth transactions={transactions} />} />
+          <Route path="insights" element={<Insights transactions={transactions} />} />
+          <Route path="cashflow" element={<Cashflow />} />
           <Route path="wallet" element={<Wallet />} />
           <Route path="goals" element={<GoalTracker goals={goals} setGoals={setGoals} />} />
           <Route path="debt" element={<DebtManager debts={debts} setDebts={setDebts} />} />

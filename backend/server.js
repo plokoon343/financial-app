@@ -2251,6 +2251,31 @@ async function sweepAllDueBills() {
 setInterval(sweepAllDueBills, 24 * 60 * 60 * 1000);
 setTimeout(sweepAllDueBills, 30 * 1000);
 
+// Reliable external trigger for the autopay sweep. Render's free tier sleeps when
+// idle, so the in-process interval above can miss days; point an external
+// scheduler (cron-job.org / Render cron) at this daily, guarded by CRON_SECRET.
+app.post('/api/cron/process-bills', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  try {
+    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+    const dueBills = await RecurringBill.find({ status: 'active', nextDue: { $lte: endOfDay } });
+    let paid = 0, insufficient = 0, reminders = 0, failed = 0;
+    for (const bill of dueBills) {
+      try {
+        const r = await processDueBill(bill);
+        if (r.status === 'paid') paid += 1;
+        else if (r.status === 'insufficient_funds') insufficient += 1;
+        else reminders += 1;
+      } catch (e) { failed += 1; console.error('[cron/process-bills] bill', String(bill._id), e.message); }
+    }
+    res.json({ due: dueBills.length, paid, insufficient, reminders, failed });
+  } catch (e) {
+    console.error('[cron/process-bills]', e.message);
+    res.status(500).json({ message: 'Sweep failed' });
+  }
+});
+
 // Alerts
 app.get('/api/alerts', auth, async (req, res) => {
   try {

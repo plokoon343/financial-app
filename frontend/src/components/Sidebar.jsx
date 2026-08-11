@@ -58,6 +58,8 @@ const Sidebar = () => {
       { path: '/', label: 'Dashboard', icon: 'dashboard' },
       { path: '/assistant', label: 'AI Assistant', icon: 'smart_toy' },
       { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
+      { path: '/insights', label: 'Insights', icon: 'pie_chart' },
+      { path: '/cashflow', label: 'Cashflow', icon: 'monitoring' },
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
       { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
       { path: '/wallet', label: 'Wallet', icon: 'wallet' },

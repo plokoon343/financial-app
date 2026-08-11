@@ -4,7 +4,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 import { LogoFull } from './Logo';
+import OtpInput from './OtpInput';
 import './Login.css'; // reuse same CSS for consistency
+
+const emailValid = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 // Theme configuration
 // const theme = {
 //   light: {
@@ -88,6 +91,8 @@ const Register = () => {
   const [otpStep, setOtpStep] = useState(false);
   const [otp, setOtp] = useState('');
   const [otpEmail, setOtpEmail] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+  const [touched, setTouched] = useState({});
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
@@ -95,9 +100,27 @@ const Register = () => {
     else document.documentElement.setAttribute('data-theme', 'light');
   }, [darkMode]);
 
+  // Resend countdown.
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     if (error) setError('');
+  };
+  const markTouched = (e) => setTouched((t) => ({ ...t, [e.target.name]: true }));
+
+  // Per-field inline validation message (only after the field is touched).
+  const fieldError = (name) => {
+    if (!touched[name]) return '';
+    const v = formData[name] || '';
+    if (name === 'email' && v && !emailValid(v)) return 'Enter a valid email address';
+    if (name === 'password' && v && v.length < 6) return 'At least 6 characters';
+    if (name === 'confirmPassword' && v && v !== formData.password) return 'Passwords don’t match';
+    return '';
   };
 
   const handleSubmit = async (e) => {
@@ -117,7 +140,7 @@ const Register = () => {
     setLoading(true);
     setError('');
     const result = await register(formData.name, formData.email, formData.password, formData.phone);
-    if (result.success && result.otpRequired) { setOtpEmail(result.email); setOtpStep(true); }
+    if (result.success && result.otpRequired) { setOtpEmail(result.email); setOtpStep(true); setCooldown(30); }
     else if (result.success) navigate('/');
     else setError(result.message);
     setLoading(false);
@@ -134,6 +157,8 @@ const Register = () => {
   };
 
   const handleResend = async () => {
+    if (cooldown > 0) return;
+    setCooldown(30); setError('');
     try { await axios.post(`${API_URL}/api/resend-verification`, { email: otpEmail }); } catch { /* ignore */ }
   };
 
@@ -163,18 +188,16 @@ const Register = () => {
         {otpStep ? (
           <form onSubmit={handleVerify} className="login-form">
             <div className="form-group">
-              <label htmlFor="otp" className="form-label">Verification code</label>
-              <input
-                id="otp" type="text" inputMode="numeric" maxLength={6} value={otp}
-                onChange={(e) => { setOtp(e.target.value); if (error) setError(''); }}
-                required placeholder="6-digit code" className="form-input" disabled={loading} autoFocus
-              />
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #94a3b8)', marginTop: '8px' }}>
-                We sent a code to {otpEmail}. It expires in 15 minutes.
+              <label className="form-label">Verification code</label>
+              <OtpInput value={otp} onChange={(v) => { setOtp(v); if (error) setError(''); }} disabled={loading} autoFocus />
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #94a3b8)', marginTop: '10px' }}>
+                We sent a code to <strong>{otpEmail}</strong>. It expires in 15 minutes.
               </p>
             </div>
-            <button type="submit" className="login-button" disabled={loading}>{loading ? 'Verifying...' : 'Verify & Continue'}</button>
-            <button type="button" className="demo-button" style={{ marginTop: '12px' }} onClick={handleResend}>Resend code</button>
+            <button type="submit" className="login-button" disabled={loading || otp.length < 6}>{loading ? 'Verifying...' : 'Verify & Continue'}</button>
+            <button type="button" className="demo-button" style={{ marginTop: '12px' }} onClick={handleResend} disabled={cooldown > 0}>
+              {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
+            </button>
           </form>
         ) : (
         <form onSubmit={handleSubmit} className="login-form">
@@ -201,11 +224,13 @@ const Register = () => {
               name="email"
               value={formData.email}
               onChange={handleChange}
+              onBlur={markTouched}
               required
               placeholder="Enter your email"
-              className="form-input"
+              className={`form-input ${fieldError('email') ? 'input-invalid' : ''}`}
               disabled={loading}
             />
+            {fieldError('email') && <p className="field-error">{fieldError('email')}</p>}
           </div>
 
           <div className="form-group">
@@ -232,9 +257,10 @@ const Register = () => {
                 name="password"
                 value={formData.password}
                 onChange={handleChange}
+                onBlur={markTouched}
                 required
                 placeholder="At least 6 characters"
-                className="form-input"
+                className={`form-input ${fieldError('password') ? 'input-invalid' : ''}`}
                 disabled={loading}
               />
               <button
@@ -245,6 +271,7 @@ const Register = () => {
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
+            {fieldError('password') && <p className="field-error">{fieldError('password')}</p>}
           </div>
 
           <div className="form-group">
@@ -256,9 +283,10 @@ const Register = () => {
                 name="confirmPassword"
                 value={formData.confirmPassword}
                 onChange={handleChange}
+                onBlur={markTouched}
                 required
                 placeholder="Confirm your password"
-                className="form-input"
+                className={`form-input ${fieldError('confirmPassword') ? 'input-invalid' : ''}`}
                 disabled={loading}
               />
               <button
@@ -269,6 +297,7 @@ const Register = () => {
                 {showConfirmPassword ? 'Hide' : 'Show'}
               </button>
             </div>
+            {fieldError('confirmPassword') && <p className="field-error">{fieldError('confirmPassword')}</p>}
           </div>
 
           <p className="legal-consent">

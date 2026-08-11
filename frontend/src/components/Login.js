@@ -2,13 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogoFull } from './Logo';
+import OtpInput from './OtpInput';
 import './Login.css';
+
+const emailValid = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
 const Login = () => {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
   // 2-step verification state
   const [otpStep, setOtpStep] = useState(false);
   const [otp, setOtp] = useState('');
@@ -149,25 +153,13 @@ const Login = () => {
         {otpStep ? (
           <form onSubmit={handleVerifyOtp} className="login-form">
             <div className="form-group">
-              <label htmlFor="otp" className="form-label">Verification code</label>
-              <input
-                id="otp"
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                value={otp}
-                onChange={(e) => { setOtp(e.target.value); if (error) setError(''); }}
-                required
-                placeholder="6-digit code"
-                className="form-input"
-                disabled={loading}
-                autoFocus
-              />
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #94a3b8)', marginTop: '8px' }}>
-                Sent to {otpEmail}. The code expires in 10 minutes.
+              <label className="form-label">Verification code</label>
+              <OtpInput value={otp} onChange={(v) => { setOtp(v); if (error) setError(''); }} disabled={loading} autoFocus />
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #94a3b8)', marginTop: '10px' }}>
+                Sent to <strong>{otpEmail}</strong>. The code expires in 10 minutes.
               </p>
             </div>
-            <button type="submit" className={`login-button ${loading ? 'loading' : ''}`} disabled={loading}>
+            <button type="submit" className={`login-button ${loading ? 'loading' : ''}`} disabled={loading || otp.length < 6}>
               {loading ? 'Verifying...' : 'Verify & Sign In'}
             </button>
             <button type="button" className="demo-button" style={{ marginTop: '12px' }} onClick={() => window.history.back()}>
@@ -184,11 +176,15 @@ const Login = () => {
               name="email"
               value={formData.email}
               onChange={handleChange}
+              onBlur={() => setEmailTouched(true)}
               required
               placeholder="Enter your email"
-              className="form-input"
+              className={`form-input ${emailTouched && formData.email && !emailValid(formData.email) ? 'input-invalid' : ''}`}
               disabled={loading}
             />
+            {emailTouched && formData.email && !emailValid(formData.email) && (
+              <p className="field-error">Enter a valid email address</p>
+            )}
           </div>
 
           <div className="form-group">

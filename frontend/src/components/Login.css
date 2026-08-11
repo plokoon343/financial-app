@@ -488,3 +488,46 @@
   text-decoration: underline;
 }
 .legal-consent a:hover { opacity: 0.85; }
+
+/* OTP entry — six auto-advancing boxes */
+.otp-boxes {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+.otp-box {
+  flex: 1 1 0;
+  min-width: 0;
+  aspect-ratio: 1 / 1;
+  max-width: 56px;
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--input-bg, var(--bg-secondary));
+  border: 2px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.otp-box:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(0, 135, 81, 0.18);
+}
+.otp-box:disabled { opacity: 0.6; }
+
+/* Inline per-field validation */
+.field-error {
+  color: var(--error-color);
+  font-size: 0.82rem;
+  margin: 6px 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.form-input.input-invalid {
+  border-color: var(--error-color);
+}
+.form-input.input-invalid:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
+}

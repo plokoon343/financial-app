@@ -3594,7 +3594,7 @@ app.post('/api/push/test', auth, async (req, res) => {
 // Fire-and-forget send via the Expo push service (batched at 100/request).
 async function sendExpoPush(tokens, { title, body, data }) {
   const messages = (tokens || []).filter(isExpoToken)
-    .map((to) => ({ to, sound: 'default', title, body, data: data || {}, channelId: 'default' }));
+    .map((to) => ({ to, sound: 'default', title, body, data: data || {}, channelId: 'alerts', priority: 'high' }));
   for (let i = 0; i < messages.length; i += 100) {
     try {
       await axios.post('https://exp.host/--/api/v2/push/send', messages.slice(i, i + 100),

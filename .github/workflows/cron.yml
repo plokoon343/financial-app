@@ -1,0 +1,48 @@
+name: Daily cron (bills + insights)
+
+# Pings the backend's cron endpoints on a schedule. Render's free tier sleeps,
+# so an in-process timer misses days — this external trigger keeps autopay and
+# the daily spending insight firing reliably.
+#
+# Setup (one-time):
+#   1. Render → backend service → Environment → add CRON_SECRET = <value>.
+#   2. GitHub → this repo → Settings → Secrets and variables → Actions →
+#      New repository secret → name CRON_SECRET, same <value>.
+# Test it now: Actions tab → this workflow → "Run workflow" (workflow_dispatch).
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 08:00 UTC (09:00 WAT) every day
+  workflow_dispatch: {}    # manual run button in the Actions tab
+
+concurrency:
+  group: daily-cron
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    env:
+      BASE: https://financial-app-w2ai.onrender.com
+      SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Guard — secret present
+        run: |
+          if [ -z "$SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: Process due bills (autopay)
+        run: |
+          curl -fsS -X POST "$BASE/api/cron/process-bills" \
+            -H "x-cron-secret: $SECRET" \
+            --max-time 150 --retry 5 --retry-delay 15 --retry-all-errors \
+            -w "\nprocess-bills → HTTP %{http_code}\n"
+
+      - name: Send daily insights
+        run: |
+          curl -fsS -X POST "$BASE/api/cron/insights" \
+            -H "x-cron-secret: $SECRET" \
+            --max-time 150 --retry 5 --retry-delay 15 --retry-all-errors \
+            -w "\ninsights → HTTP %{http_code}\n"

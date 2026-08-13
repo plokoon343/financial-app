@@ -37,6 +37,9 @@ const BillsManager = () => {
     }
   };
 
+  // Load once on mount; fetchAll closes over stable setters + per-render helpers,
+  // so it is intentionally not a dependency.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchAll(); }, []);
 
   const toggle = (key) => {

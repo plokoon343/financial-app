@@ -39,8 +39,11 @@ const Budget = () => {
     return fallback;
   };
 
+  // Load once on mount; fetchTransactions is defined below and intentionally
+  // not a dependency.
   useEffect(() => {
     fetchTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Refetch budgets whenever the viewed month changes

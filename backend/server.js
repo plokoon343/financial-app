@@ -2517,12 +2517,19 @@ app.post('/api/debts/:id/pay', auth, async (req, res) => {
     if (wallet.balance < amt) return res.status(400).json({ message: 'Insufficient wallet balance' });
     const pay = Math.min(amt, debt.balance);
     wallet.balance -= pay; await wallet.save();
-    debt.balance = Math.max(0, debt.balance - pay); await debt.save();
+    debt.balance = Math.max(0, debt.balance - pay);
     await new WalletTransaction({
       userId: req.user._id, type: 'withdrawal', amount: pay,
       description: `Debt payment: ${debt.name}`, status: 'completed',
     }).save();
-    res.json({ debt, paid: pay, cleared: debt.balance <= 0, newBalance: wallet.balance });
+    const cleared = debt.balance <= 0;
+    if (cleared) {
+      await createNotification(req.user._id, { type: 'success', title: 'Debt cleared 🎉', message: `You fully paid off ${debt.name}.` });
+      await debt.deleteOne();       // fully paid → remove it
+    } else {
+      await debt.save();
+    }
+    res.json({ debt: cleared ? null : debt, paid: pay, cleared, deleted: cleared, newBalance: wallet.balance });
   } catch (e) { console.error('Debt pay error:', e.message); res.status(500).json({ message: e.message || 'Server error' }); }
 });
 

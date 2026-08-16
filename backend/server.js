@@ -414,6 +414,24 @@ const createNotification = async (userId, { type = 'info', title, message = '', 
   catch (e) { console.error('[createNotification]', e.message); }
 };
 
+// Activity log — a durable history of milestone actions in the app (goal
+// reached, debt cleared, bill auto-paid, wallet funded…), distinct from the
+// bank/transaction ledger. Surfaced on the History screen.
+const activitySchema = new mongoose.Schema({
+  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type:    { type: String, required: true }, // 'goal_reached','goal_created','goal_withdrawn','debt_cleared','bill_paid','wallet_funded','savings_rule'
+  title:   { type: String, required: true },
+  message: { type: String, default: '' },
+  amount:  { type: Number, default: 0 },
+}, { timestamps: true });
+activitySchema.index({ userId: 1, createdAt: -1 });
+const Activity = mongoose.model('Activity', activitySchema);
+
+const logActivity = async (userId, { type, title, message = '', amount = 0 }) => {
+  try { await Activity.create({ userId, type, title, message, amount }); }
+  catch (e) { console.error('[logActivity]', e.message); }
+};
+
 // After spending changes, raise an in-app notification when a category crosses
 // 80% ("near") or 100% ("over") of its monthly budget. De-duplicated per
 // category+month+threshold (via the notification link) so it fires once, not on
@@ -567,8 +585,13 @@ const applySavingsRule = async (userId, transactionAmount, transactionType) => {
         if (rule.targetGoalId) {
           const goal = await Goal.findOne({ _id: rule.targetGoalId, userId });
           if (goal) {
+            const justReached = goal.current < goal.target && goal.current + saveAmount >= goal.target;
             goal.current = Math.min(goal.current + saveAmount, goal.target);
             await goal.save();
+            if (justReached) {
+              await createNotification(userId, { type: 'success', title: 'Goal reached 🎉', message: `${goal.name} completed via auto-savings.` });
+              await logActivity(userId, { type: 'goal_reached', title: 'Goal reached 🎉', message: `${goal.name} completed`, amount: goal.target });
+            }
           }
         }
         // Auto-pay down a linked debt as the amount is set aside.
@@ -578,6 +601,7 @@ const applySavingsRule = async (userId, transactionAmount, transactionType) => {
             debt.balance = Math.max(0, debt.balance - saveAmount);
             if (debt.balance <= 0) {
               await createNotification(userId, { type: 'success', title: 'Debt cleared 🎉', message: `You fully paid off ${debt.name}.` });
+              await logActivity(userId, { type: 'debt_cleared', title: 'Debt cleared', message: `Fully paid off ${debt.name} via auto-savings.` });
               await debt.deleteOne();     // fully paid → remove it (matches manual pay)
             } else {
               await debt.save();
@@ -1992,6 +2016,14 @@ app.delete('/api/savings/rules', auth, async (req, res) => {
   res.json({ message: 'Rule removed' });
 });
 
+// Activity / history — milestone actions in the app (distinct from transactions).
+app.get('/api/activity', auth, async (req, res) => {
+  try {
+    const items = await Activity.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(200).lean();
+    res.json(items);
+  } catch (e) { console.error('[activity]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Goals
 app.get('/api/goals', auth, async (req, res) => {
   const goals = await Goal.find({ userId: req.user._id }).sort({ deadline: 1 });
@@ -2001,6 +2033,7 @@ app.post('/api/goals', auth, async (req, res) => {
   const { name, target, current, deadline, category } = req.body;
   const goal = new Goal({ userId: req.user._id, name, target, current: current || 0, deadline, category: category || 'General' });
   await goal.save();
+  await logActivity(req.user._id, { type: 'goal_created', title: 'Goal created', message: goal.name, amount: goal.target });
   res.status(201).json(goal);
 });
 app.put('/api/goals/:id', auth, async (req, res) => {
@@ -2034,6 +2067,7 @@ app.post('/api/goals/:id/contribute', auth, async (req, res) => {
     wallet.balance -= amount;
     await wallet.save();
 
+    const justReached = goal.current + amount >= goal.target;   // pre-clamp crossing
     goal.current = Math.min(goal.current + amount, goal.target);
     await goal.save();
 
@@ -2045,6 +2079,7 @@ app.post('/api/goals/:id/contribute', auth, async (req, res) => {
       status: 'completed'
     });
     await tx.save();
+    if (justReached) await logActivity(req.user._id, { type: 'goal_reached', title: 'Goal reached 🎉', message: `${goal.name} completed`, amount: goal.target });
 
     res.json({ goal, newBalance: wallet.balance });
   } catch (error) {
@@ -2106,6 +2141,7 @@ app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
 
     // A reached goal is done once withdrawn — remove it. Otherwise reset to 0.
     if (reached) {
+      await logActivity(req.user._id, { type: 'goal_withdrawn', title: 'Goal completed & withdrawn', message: `${goal.name} — ₦${net.toLocaleString()} paid to your wallet`, amount: net });
       await Goal.deleteOne({ _id: goal._id });
     } else {
       goal.current = 0;
@@ -2223,6 +2259,7 @@ async function processDueBill(bill) {
       await new WalletTransaction({ userId, type: 'withdrawal', amount: bill.amount, description: `Auto-pay: ${bill.name}`, status: 'completed' }).save();
       await new Transaction({ userId, date: new Date(), description: `Auto-pay: ${bill.name}`, amount: -Math.abs(bill.amount), category: bill.category || 'Bills', type: 'expense' }).save();
       await createNotification(userId, { type: 'success', title: 'Bill paid', message: `₦${bill.amount.toLocaleString()} paid for ${bill.name}.` });
+      await logActivity(userId, { type: 'bill_paid', title: 'Bill auto-paid', message: bill.name, amount: bill.amount });
       return { bill: bill.name, status: 'paid', amount: bill.amount };
     }
     // Not enough funds — notify (deduped per bill per day) and retry next sweep by
@@ -2543,6 +2580,7 @@ app.post('/api/debts/:id/pay', auth, async (req, res) => {
     const cleared = debt.balance <= 0;
     if (cleared) {
       await createNotification(req.user._id, { type: 'success', title: 'Debt cleared 🎉', message: `You fully paid off ${debt.name}.` });
+      await logActivity(req.user._id, { type: 'debt_cleared', title: 'Debt cleared', message: `Fully paid off ${debt.name}.`, amount: pay });
       await debt.deleteOne();       // fully paid → remove it
     } else {
       await debt.save();
@@ -3200,6 +3238,7 @@ async function creditFromCharge(user, data) {
     await user.save();
   }
   await createNotification(user._id, { type: 'success', title: 'Wallet funded', message: `₦${amount.toLocaleString()} added to your wallet.` });
+  await logActivity(user._id, { type: 'wallet_funded', title: 'Wallet funded', message: viaCard ? 'Card top-up' : 'Bank transfer', amount });
   return { balance: wallet.balance, amount };
 }
 

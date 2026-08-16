@@ -3405,25 +3405,38 @@ app.get('/bank/mono-connect', (req, res) => {
   // One-shot: Mono v2 fires onClose AFTER onSuccess, so an unguarded onClose
   // would replace the ?code= redirect with ?status=closed and lose the code.
   let done=false;
-  const go=(q)=>{ if(done) return; done=true; window.location.replace(REDIRECT+SEP+q); };
-  const fail=(m)=>{ const el=document.getElementById('msg'); if(el) el.textContent=m; };
-  if(!KEY){ fail('Bank linking is not configured yet.'); }
+  const go=(q)=>{ if(done) return; done=true; clearTimeout(guard); window.location.replace(REDIRECT+SEP+q); };
+  const fail=(m)=>{ const el=document.getElementById('msg'); if(el) el.textContent=m; const c=document.getElementById('cancel'); if(c) c.textContent='Back to app'; };
+  // Never strand the user on this page: after 15s, bounce back to the app so it
+  // can show a real error instead of an endless spinner.
+  const guard=setTimeout(()=>{ fail('Bank connection timed out. Returning to the app…'); setTimeout(()=>go('status=timeout'),1200); }, 15000);
+
+  // Prefer the ESM build; fall back to the UMD global if jsdelivr's +esm
+  // transform doesn't yield a usable constructor.
+  async function loadConnect(){
+    try{
+      const m = await import('https://cdn.jsdelivr.net/npm/@mono.co/connect.js@2.2.0/+esm');
+      if(typeof m.default==='function') return m.default;
+      if(typeof m.Connect==='function') return m.Connect;
+    }catch(e){ /* fall through to UMD */ }
+    await new Promise((resolve,reject)=>{ const s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/@mono.co/connect.js@2.2.0/dist/index.js'; s.onload=resolve; s.onerror=reject; document.head.appendChild(s); });
+    return window.Connect || window.MonoConnect;
+  }
+
+  if(!KEY){ clearTimeout(guard); fail('Bank linking is not configured yet.'); }
   else{
     try{
-      // Mono Connect v2 (same SDK the web app uses) loaded from a CDN — the old
-      // connect.mono.co/connect.js now serves HTML, not JS.
-      const { default: Connect } = await import('https://cdn.jsdelivr.net/npm/@mono.co/connect.js@2.2.0/+esm');
+      const Connect = await loadConnect();
+      if(typeof Connect!=='function') throw new Error('connector unavailable');
       const connect = new Connect({
         key: KEY, scope: 'auth',
         onSuccess: (res)=>{ const code=(res&&(res.code||(res.getAuthCode&&res.getAuthCode())))||''; go('code='+encodeURIComponent(code)); },
         onClose: ()=>{ go('status=closed'); },
+        onLoad: ()=>{ const el=document.getElementById('msg'); if(el&&!done) el.textContent='Choose your bank…'; },
       });
       connect.setup();
       connect.open();
-      // Don't leave the user staring at a spinner forever if the widget never
-      // opens (e.g. sandbox hiccup or a blocked network) — nudge them after 20s.
-      setTimeout(()=>{ if(!done) fail('This is taking longer than usual. Tap Cancel and try again.'); }, 20000);
-    }catch(e){ fail('Could not load the bank connector. Please try again.'); }
+    }catch(e){ fail('Could not open the bank connector: '+(e&&e.message?e.message:'unknown error')); setTimeout(()=>go('status=error'),1800); }
   }
 </script></body></html>`);
 });

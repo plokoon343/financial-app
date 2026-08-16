@@ -3467,14 +3467,22 @@ app.get('/bank/mono-connect', (req, res) => {
     try{
       const Connect = await loadConnect();
       if(typeof Connect!=='function') throw new Error('connector unavailable');
+      // Open the picker only once the widget signals it's ready (onLoad). Calling
+      // open() too early (right after setup) can no-op, leaving the user stuck on
+      // "Choose your bank…" with the Mono modal never appearing.
+      let opened=false;
+      const connectRef={};
+      const openOnce=()=>{ if(opened||done) return; opened=true; try{ connectRef.c.open(); }catch(e){ fail('Could not open the bank picker: '+(e&&e.message?e.message:'error')); setTimeout(()=>go('status=error'),1500); } };
       const connect = new Connect({
         key: KEY, scope: 'auth',
         onSuccess: (res)=>{ const code=(res&&(res.code||(res.getAuthCode&&res.getAuthCode())))||''; go('code='+encodeURIComponent(code)); },
         onClose: ()=>{ go('status=closed'); },
-        onLoad: ()=>{ const el=document.getElementById('msg'); if(el&&!done) el.textContent='Choose your bank…'; },
+        onLoad: ()=>{ const el=document.getElementById('msg'); if(el&&!done) el.textContent='Choose your bank…'; openOnce(); },
       });
+      connectRef.c=connect;
       connect.setup();
-      connect.open();
+      // Fallback: if onLoad never fires, open anyway after a short wait.
+      setTimeout(openOnce, 2500);
     }catch(e){ fail('Could not open the bank connector: '+(e&&e.message?e.message:'unknown error')); setTimeout(()=>go('status=error'),1800); }
   }
 </script></body></html>`);

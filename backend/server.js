@@ -576,7 +576,12 @@ const applySavingsRule = async (userId, transactionAmount, transactionType) => {
           const debt = await Debt.findOne({ _id: rule.targetDebtId, userId });
           if (debt) {
             debt.balance = Math.max(0, debt.balance - saveAmount);
-            await debt.save();
+            if (debt.balance <= 0) {
+              await createNotification(userId, { type: 'success', title: 'Debt cleared 🎉', message: `You fully paid off ${debt.name}.` });
+              await debt.deleteOne();     // fully paid → remove it (matches manual pay)
+            } else {
+              await debt.save();
+            }
           }
         }
         console.log(`✅ Auto‑saved ₦${saveAmount} for user ${userId}`);
@@ -2180,47 +2185,60 @@ app.delete('/api/bills/:id', auth, async (req, res) => {
 // Advance a bill's nextDue to the next occurrence strictly after `from`. Loops so
 // several missed periods don't leave it stuck in the past (but never double-charges,
 // because a paid/skipped bill is only processed once per sweep).
-function advanceBillDue(bill, from = new Date()) {
+// Pure: the nextDue strictly after `from`, without mutating the bill.
+function nextDueAfter(bill, from = new Date()) {
   let next = new Date(bill.nextDue);
   do {
     next = bill.frequency === 'yearly'
       ? new Date(next.getFullYear() + 1, next.getMonth(), bill.dueDate)
       : new Date(next.getFullYear(), next.getMonth() + 1, bill.dueDate);
   } while (next <= from);
-  bill.nextDue = next;
+  return next;
+}
+function advanceBillDue(bill, from = new Date()) {
+  bill.nextDue = nextDueAfter(bill, from);
 }
 
 // Process a single due bill: auto-debit the wallet (autoPay) or leave a reminder.
 // On success also records an expense Transaction so autopay shows in insights/budgets.
 async function processDueBill(bill) {
   const userId = bill.userId;
+  const claimedNext = nextDueAfter(bill);
+  // Atomically claim this due-cycle: advance nextDue only while it still equals
+  // the value we read. Overlapping sweeps (cron + in-process interval +
+  // app-launch trigger) race here — exactly one wins; the losers get null and
+  // skip, so a bill can never be paid twice for the same cycle.
+  const claim = async () => RecurringBill.findOneAndUpdate(
+    { _id: bill._id, status: 'active', nextDue: bill.nextDue },
+    { $set: { nextDue: claimedNext } },
+  );
+
   if (bill.autoPay) {
     const wallet = await getOrCreateWallet(userId);
     if (wallet.balance >= bill.amount) {
+      if (!(await claim())) return { bill: bill.name, status: 'skipped', amount: bill.amount };
+      // We own this cycle — debit and record.
       wallet.balance -= bill.amount;
       await wallet.save();
       await new WalletTransaction({ userId, type: 'withdrawal', amount: bill.amount, description: `Auto-pay: ${bill.name}`, status: 'completed' }).save();
       await new Transaction({ userId, date: new Date(), description: `Auto-pay: ${bill.name}`, amount: -Math.abs(bill.amount), category: bill.category || 'Bills', type: 'expense' }).save();
       await createNotification(userId, { type: 'success', title: 'Bill paid', message: `₦${bill.amount.toLocaleString()} paid for ${bill.name}.` });
-      advanceBillDue(bill);
-      await bill.save();
       return { bill: bill.name, status: 'paid', amount: bill.amount };
     }
     // Not enough funds — notify (deduped per bill per day) and retry next sweep by
-    // leaving nextDue untouched.
+    // leaving nextDue untouched (no claim).
     const link = `autopay_fail_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
     if (!(await Notification.findOne({ userId, link }))) {
       await createNotification(userId, { type: 'danger', title: 'Autopay failed', message: `Couldn't pay ${bill.name} (₦${bill.amount.toLocaleString()}) — your wallet is low. Top up to pay it.`, link });
     }
     return { bill: bill.name, status: 'insufficient_funds', amount: bill.amount };
   }
-  // Reminder-only bill.
+  // Reminder-only bill: claim atomically so overlapping sweeps don't double-remind.
+  if (!(await claim())) return { bill: bill.name, status: 'skipped', amount: bill.amount };
   const link = `bill_due_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
   if (!(await Notification.findOne({ userId, link }))) {
     await createNotification(userId, { type: 'info', title: 'Bill due', message: `${bill.name} (₦${bill.amount.toLocaleString()}) is due.`, link });
   }
-  advanceBillDue(bill);
-  await bill.save();
   return { bill: bill.name, status: 'reminder', amount: bill.amount };
 }
 

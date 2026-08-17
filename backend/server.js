@@ -3434,56 +3434,63 @@ app.get('/bank/mono-connect', (req, res) => {
 <title>Connect your bank</title>
 <style>html,body{height:100%;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#000000;color:#e3e9f2;display:grid;place-items:center;text-align:center}
 .box{max-width:340px;padding:24px}.sp{width:38px;height:38px;border:4px solid rgba(255,255,255,.18);border-top-color:#00a862;border-radius:50%;margin:0 auto 16px;animation:s 1s linear infinite}
-@keyframes s{to{transform:rotate(360deg)}}a.b{display:inline-block;margin-top:16px;background:#00a862;color:#fff;text-decoration:none;padding:11px 22px;border-radius:10px;font-weight:700}</style></head>
+@keyframes s{to{transform:rotate(360deg)}}a.b{display:inline-block;margin-top:16px;background:#00a862;color:#fff;text-decoration:none;padding:11px 22px;border-radius:10px;font-weight:700}
+#dbg{margin-top:16px;font-size:11px;line-height:1.5;color:#7fe9d6;text-align:left;max-height:42vh;overflow:auto;white-space:pre-wrap;word-break:break-word;background:rgba(255,255,255,.04);border-radius:8px;padding:8px}</style></head>
 <body><div class="box"><div class="sp"></div><p id="msg">Opening secure bank connection…</p>
-<a class="b" id="cancel" href="${htmlEsc(redirect + sep + 'status=closed')}">Cancel</a></div>
+<a class="b" id="cancel" href="${htmlEsc(redirect + sep + 'status=closed')}">Back to app</a>
+<pre id="dbg"></pre></div>
 <script type="module">
   const KEY=${jsStr(publicKey)};
   const REDIRECT=${jsStr(redirect)};
   const SEP=${jsStr(sep)};
-  // One-shot: Mono v2 fires onClose AFTER onSuccess, so an unguarded onClose
-  // would replace the ?code= redirect with ?status=closed and lose the code.
-  let done=false;
+  let done=false, loaded=false;
   const go=(q)=>{ if(done) return; done=true; clearTimeout(guard); window.location.replace(REDIRECT+SEP+q); };
-  const fail=(m)=>{ const el=document.getElementById('msg'); if(el) el.textContent=m; const c=document.getElementById('cancel'); if(c) c.textContent='Back to app'; };
-  // Never strand the user on this page: after 15s, bounce back to the app so it
-  // can show a real error instead of an endless spinner.
-  const guard=setTimeout(()=>{ fail('Bank connection timed out. Returning to the app…'); setTimeout(()=>go('status=timeout'),1200); }, 15000);
+  const msgEl=document.getElementById('msg'), dbgEl=document.getElementById('dbg');
+  const log=(m)=>{ if(msgEl) msgEl.textContent=m; if(dbgEl) dbgEl.textContent += m + '\\n'; };
+  window.addEventListener('error', (e)=>log('JS ERROR: '+((e&&e.message)||e)));
+  window.addEventListener('unhandledrejection', (e)=>log('REJECT: '+((e&&e.reason&&(e.reason.message||e.reason))||'')));
+  log('key: '+(KEY ? (KEY.slice(0,8)+'… ('+KEY.length+' chars)') : 'MISSING'));
 
-  // Prefer the ESM build; fall back to the UMD global if jsdelivr's +esm
-  // transform doesn't yield a usable constructor.
+  // Bounce back only if the widget never became ready (so we don't interrupt a
+  // legitimately-open picker).
+  const guard=setTimeout(()=>{ if(!loaded && !done){ log('TIMEOUT — widget never opened. Returning…'); setTimeout(()=>go('status=timeout'),1600);} }, 25000);
+
   async function loadConnect(){
     try{
+      log('1) import ESM…');
       const m = await import('https://cdn.jsdelivr.net/npm/@mono.co/connect.js@2.2.0/+esm');
-      if(typeof m.default==='function') return m.default;
-      if(typeof m.Connect==='function') return m.Connect;
-    }catch(e){ /* fall through to UMD */ }
-    await new Promise((resolve,reject)=>{ const s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/@mono.co/connect.js@2.2.0/dist/index.js'; s.onload=resolve; s.onerror=reject; document.head.appendChild(s); });
-    return window.Connect || window.MonoConnect;
+      if(typeof m.default==='function'){ log('   ESM ok (default)'); return m.default; }
+      if(typeof m.Connect==='function'){ log('   ESM ok (Connect)'); return m.Connect; }
+      log('   ESM loaded, no constructor');
+    }catch(e){ log('   ESM failed: '+((e&&e.message)||e)); }
+    log('2) load UMD script…');
+    await new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/@mono.co/connect.js@2.2.0/dist/index.js'; s.onload=res; s.onerror=()=>rej(new Error('UMD blocked/failed')); document.head.appendChild(s); });
+    const C = window.Connect || window.MonoConnect;
+    log('   UMD '+(typeof C==='function'?'ok':'no constructor'));
+    return C;
   }
 
-  if(!KEY){ clearTimeout(guard); fail('Bank linking is not configured yet.'); }
+  if(!KEY){ clearTimeout(guard); log('NOT CONFIGURED — MONO_PUBLIC_KEY is empty on the server.'); }
   else{
-    try{
-      const Connect = await loadConnect();
-      if(typeof Connect!=='function') throw new Error('connector unavailable');
-      // Open the picker only once the widget signals it's ready (onLoad). Calling
-      // open() too early (right after setup) can no-op, leaving the user stuck on
-      // "Choose your bank…" with the Mono modal never appearing.
-      let opened=false;
-      const connectRef={};
-      const openOnce=()=>{ if(opened||done) return; opened=true; try{ connectRef.c.open(); }catch(e){ fail('Could not open the bank picker: '+(e&&e.message?e.message:'error')); setTimeout(()=>go('status=error'),1500); } };
-      const connect = new Connect({
-        key: KEY, scope: 'auth',
-        onSuccess: (res)=>{ const code=(res&&(res.code||(res.getAuthCode&&res.getAuthCode())))||''; go('code='+encodeURIComponent(code)); },
-        onClose: ()=>{ go('status=closed'); },
-        onLoad: ()=>{ const el=document.getElementById('msg'); if(el&&!done) el.textContent='Choose your bank…'; openOnce(); },
-      });
-      connectRef.c=connect;
-      connect.setup();
-      // Fallback: if onLoad never fires, open anyway after a short wait.
-      setTimeout(openOnce, 2500);
-    }catch(e){ fail('Could not open the bank connector: '+(e&&e.message?e.message:'unknown error')); setTimeout(()=>go('status=error'),1800); }
+    (async()=>{
+      try{
+        const Connect = await loadConnect();
+        if(typeof Connect!=='function') throw new Error('constructor unavailable');
+        log('3) new Connect + setup…');
+        let opened=false;
+        let connect;
+        const openOnce=(from)=>{ if(opened||done) return; opened=true; log('4) open() ['+from+']'); try{ connect.open(); }catch(e){ log('open() error: '+((e&&e.message)||e)); } };
+        connect = new Connect({
+          key: KEY, scope: 'auth',
+          onLoad: ()=>{ loaded=true; log('onLoad — widget ready'); openOnce('onLoad'); },
+          onSuccess: (res)=>{ log('onSuccess'); const code=(res&&(res.code||(res.getAuthCode&&res.getAuthCode())))||''; go('code='+encodeURIComponent(code)); },
+          onClose: ()=>{ log('onClose'); go('status=closed'); },
+          onEvent: (ev)=>{ try{ log('event: '+((ev&&(ev.type||ev.eventName))||JSON.stringify(ev))); }catch(_){ } },
+        });
+        connect.setup();
+        setTimeout(()=>openOnce('fallback-3s'), 3000);
+      }catch(e){ clearTimeout(guard); log('FATAL: '+((e&&e.message)||'unknown')); setTimeout(()=>go('status=error'),2500); }
+    })();
   }
 </script></body></html>`);
 });

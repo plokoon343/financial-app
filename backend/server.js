@@ -3413,6 +3413,15 @@ app.get('/api/bank/mono-config', auth, async (req, res) => {
 // runs here and, on success, redirects to `redirect?code=...` which the app
 // captures. The public key is injected server-side (it is a public value).
 // NOTE: confirm the connect.js CDN/global when MONO_* keys are added.
+// HTTP→deep-link bridge. Chrome Custom Tabs won't follow a JS navigation to a
+// custom scheme, but it follows an HTTP 302 to one — so the Mono page returns
+// here and we redirect to the app's deep link, closing the in-app browser.
+app.get('/bank/return', (req, res) => {
+  const to = String(req.query.to || '');
+  if (!/^(finpilot:|exp:|exps:)\/\//i.test(to)) return res.status(400).send('Invalid redirect');
+  res.redirect(302, to);
+});
+
 app.get('/bank/mono-connect', (req, res) => {
   const redirect = String(req.query.redirect || '');
   if (!redirect) return res.status(400).send('Missing redirect');
@@ -3444,7 +3453,10 @@ app.get('/bank/mono-connect', (req, res) => {
   const REDIRECT=${jsStr(redirect)};
   const SEP=${jsStr(sep)};
   let done=false, loaded=false;
-  const go=(q)=>{ if(done) return; done=true; clearTimeout(guard); window.location.replace(REDIRECT+SEP+q); };
+  // Chrome Custom Tabs ignores a JS location.replace() to a custom scheme, so we
+  // bounce through /bank/return which answers with an HTTP 302 to the deep link —
+  // Custom Tabs DOES follow those, reopening the app and closing this tab.
+  const go=(q)=>{ if(done) return; done=true; clearTimeout(guard); log('→ returning to app…'); window.location.replace('/bank/return?to='+encodeURIComponent(REDIRECT+SEP+q)); };
   const msgEl=document.getElementById('msg'), dbgEl=document.getElementById('dbg');
   const log=(m)=>{ if(msgEl) msgEl.textContent=m; if(dbgEl) dbgEl.textContent += m + '\\n'; };
   window.addEventListener('error', (e)=>log('JS ERROR: '+((e&&e.message)||e)));

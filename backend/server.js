@@ -3453,10 +3453,20 @@ app.get('/bank/mono-connect', (req, res) => {
   const REDIRECT=${jsStr(redirect)};
   const SEP=${jsStr(sep)};
   let done=false, loaded=false;
-  // Chrome Custom Tabs ignores a JS location.replace() to a custom scheme, so we
-  // bounce through /bank/return which answers with an HTTP 302 to the deep link —
-  // Custom Tabs DOES follow those, reopening the app and closing this tab.
-  const go=(q)=>{ if(done) return; done=true; clearTimeout(guard); log('→ returning to app…'); window.location.replace('/bank/return?to='+encodeURIComponent(REDIRECT+SEP+q)); };
+  // Chrome Custom Tabs blocks ALL programmatic navigation to an app deep link
+  // (JS location.replace AND a server 302 both silently no-op) — only a real
+  // user tap is honored. So every outcome resolves to a one-tap button that
+  // carries the result (the auth code, or a status) back into the app.
+  const go=(q)=>{
+    if(done) return; done=true; clearTimeout(guard);
+    const btn=document.getElementById('cancel'), sp=document.querySelector('.sp');
+    const success = q.indexOf('code=')===0 && q.length>5;
+    if(btn){ btn.setAttribute('href', REDIRECT+SEP+q); btn.textContent = success ? 'Finish — open Automonie' : 'Back to app'; }
+    if(msgEl) msgEl.textContent = success ? '✓ Bank linked! Tap Finish to continue.'
+      : (q.indexOf('status=timeout')===0 ? 'Timed out — tap to return.' : 'Tap to return to the app.');
+    if(sp) sp.style.display='none';
+    log(success ? '✓ READY — tap Finish' : 'READY — tap Back to app');
+  };
   const msgEl=document.getElementById('msg'), dbgEl=document.getElementById('dbg');
   const log=(m)=>{ if(msgEl) msgEl.textContent=m; if(dbgEl) dbgEl.textContent += m + '\\n'; };
   window.addEventListener('error', (e)=>log('JS ERROR: '+((e&&e.message)||e)));

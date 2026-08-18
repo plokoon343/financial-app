@@ -8,6 +8,7 @@ const AdminDashboard = () => {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [tickets, setTickets] = useState([]);
+  const [waitlist, setWaitlist] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -44,14 +45,16 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const [statsRes, usersRes, ticketsRes] = await Promise.all([
+      const [statsRes, usersRes, ticketsRes, waitlistRes] = await Promise.all([
         axios.get(`${API_URL}/api/admin/stats`, { headers }),
         axios.get(`${API_URL}/api/admin/users`, { headers }),
-        axios.get(`${API_URL}/api/admin/tickets`, { headers })
+        axios.get(`${API_URL}/api/admin/tickets`, { headers }),
+        axios.get(`${API_URL}/api/admin/waitlist`, { headers })
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data);
       setTickets(ticketsRes.data);
+      setWaitlist(waitlistRes.data.items || []);
     } catch (error) { showMessage('Failed to load data', 'error'); }
     finally { setLoading(false); }
   };
@@ -145,7 +148,7 @@ const AdminDashboard = () => {
         </div>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
-        {['overview', 'users', 'tickets'].map(tab => {
+        {['overview', 'users', 'tickets', 'waitlist'].map(tab => {
           const openCount = tab === 'tickets' ? tickets.filter(t => t.status === 'open').length : 0;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? 'var(--gradient-primary)' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>
@@ -191,6 +194,29 @@ const AdminDashboard = () => {
             </table>
             {filteredUsers.length === 0 && <p style={{ ...textSecondary, textAlign: 'center', padding: '1.25rem' }}>No users match &ldquo;{search}&rdquo;.</p>}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'waitlist' && (
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+            <h3 style={{ ...textPrimary, margin: 0 }}>Waitlist ({waitlist.length})</h3>
+            <button
+              onClick={() => { if (navigator.clipboard) { navigator.clipboard.writeText(waitlist.map(w => w.email).join(', ')); showMessage('All emails copied to clipboard'); } }}
+              disabled={waitlist.length === 0}
+              style={{ padding: '0.6rem 1.2rem', background: 'var(--gradient-primary)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: waitlist.length === 0 ? 'default' : 'pointer', opacity: waitlist.length === 0 ? 0.5 : 1 }}
+            >Copy all emails</button>
+          </div>
+          {waitlist.length === 0 ? (
+            <p style={textSecondary}>No signups yet.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['#', 'Email', 'Name', 'Source', 'Joined'].map(h => <th key={h} style={{ ...textSecondary, textAlign: 'left', padding: '0.75rem', fontSize: '0.85rem', fontWeight: '600', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
+                <tbody>{waitlist.map((w, i) => <tr key={w._id}><td style={{ ...textSecondary, padding: '0.75rem' }}>{i + 1}</td><td style={{ ...textPrimary, padding: '0.75rem', fontWeight: 600 }}>{w.email}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.name || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.source || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(w.createdAt).toLocaleDateString()}</td></tr>)}</tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

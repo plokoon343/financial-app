@@ -13,6 +13,7 @@ import SuperAdminRoute from './components/SuperAdminRoute';
 import NotificationBell from './components/NotificationBell';
 import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
+import InstallPrompt from './components/InstallPrompt';
 import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
 import { Loader } from './components/Logo';
@@ -84,6 +85,7 @@ function AppContent() {
   return (
     <div className={`App ${darkMode ? 'dark-theme' : ''}`}>
       <ServerWaker />
+      <InstallPrompt />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />

@@ -120,9 +120,14 @@ const allowedOrigins = [
   'http://localhost:3000',
   ...((process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)),
 ];
+// Also trust our own deploys on the big static hosts (Cloudflare Pages / Vercel
+// / Netlify) so the marketing site + waitlist keep working if we move it off
+// GitHub Pages for reliability. API auth is via Bearer tokens (not cookies), so
+// CORS is not the security boundary here.
+const trustedHostRe = /^https:\/\/([a-z0-9-]+\.)*(pages\.dev|vercel\.app|netlify\.app|onrender\.com)$/i;
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    if (!origin || allowedOrigins.includes(origin) || trustedHostRe.test(origin)) return cb(null, true);
     return cb(new Error('Not allowed by CORS'));
   },
 }));

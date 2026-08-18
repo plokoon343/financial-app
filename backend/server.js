@@ -2038,11 +2038,29 @@ app.post('/api/waitlist', authLimiter, async (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
     const name = String(req.body.name || '').trim().slice(0, 120);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Enter a valid email address.' });
-    await Waitlist.updateOne(
+    const result = await Waitlist.updateOne(
       { email },
       { $setOnInsert: { email, name, source: String(req.body.source || 'website').slice(0, 40) } },
       { upsert: true },
     );
+    // New signup only (not a duplicate) → send a friendly confirmation, fire-and-forget.
+    if (result.upsertedCount && emailConfigured()) {
+      const hi = name ? `Hi ${name.split(' ')[0]},` : 'Hi there,';
+      sendEmail({
+        to: email,
+        subject: "You're on the Automonie waitlist 🎉",
+        text: `${hi}\n\nYou're on the list! We'll email you the moment Automonie opens up and ships new features.\n\nIn the meantime you can try the app: https://automonie.com\n\n— The Automonie team`,
+        html: `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;color:#0b1326">
+          <div style="background:linear-gradient(135deg,#008751,#00a862);border-radius:16px;padding:28px;text-align:center;color:#eafff5">
+            <h1 style="margin:0 0 6px;color:#fff;font-size:22px">You're on the list! 🎉</h1>
+            <p style="margin:0;opacity:.92">${hi} thanks for joining the Automonie waitlist.</p>
+          </div>
+          <p style="font-size:15px;line-height:1.6;margin:20px 4px">We'll email you the moment we open up and ship new features. No spam — only the big updates.</p>
+          <p style="margin:20px 4px"><a href="https://automonie.com" style="background:#008751;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700;display:inline-block">Explore Automonie</a></p>
+          <p style="color:#5b6b82;font-size:12px;margin:24px 4px 0">— The Automonie team</p>
+        </div>`,
+      }).catch(() => {});
+    }
     res.json({ ok: true, message: "You're on the list! We'll email you at launch." });
   } catch (e) { console.error('[waitlist]', e.message); res.status(500).json({ message: 'Could not join the waitlist. Try again.' }); }
 });
@@ -3037,7 +3055,8 @@ app.get('/api/admin/stats', auth, superAdminAuth, async (req, res) => {
     const recentUsers = await User.find({ role: 'user' }).select('-password').sort({ createdAt: -1 }).limit(5);
     const incomeAgg = await Transaction.aggregate([{ $match: { type: 'income' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
     const expenseAgg = await Transaction.aggregate([{ $match: { type: 'expense' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
-    res.json({ totalUsers, activeUsers, inactiveUsers: totalUsers - activeUsers, totalTransactions, totalBudgets, platformIncome: incomeAgg[0]?.total || 0, platformExpenses: Math.abs(expenseAgg[0]?.total || 0), recentUsers });
+    const waitlistCount = await Waitlist.countDocuments();
+    res.json({ totalUsers, activeUsers, inactiveUsers: totalUsers - activeUsers, totalTransactions, totalBudgets, waitlistCount, platformIncome: incomeAgg[0]?.total || 0, platformExpenses: Math.abs(expenseAgg[0]?.total || 0), recentUsers });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 

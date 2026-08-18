@@ -114,6 +114,9 @@ app.use(compression());                // gzip responses
 // added via the ALLOWED_ORIGINS env var (comma-separated).
 const allowedOrigins = [
   'https://financial-app-fawn-nu.vercel.app',
+  'https://app.automonie.com',
+  'https://automonie.com',
+  'https://www.automonie.com',
   'http://localhost:3000',
   ...((process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)),
 ];
@@ -431,6 +434,14 @@ const logActivity = async (userId, { type, title, message = '', amount = 0 }) =>
   try { await Activity.create({ userId, type, title, message, amount }); }
   catch (e) { console.error('[logActivity]', e.message); }
 };
+
+// Pre-launch waitlist — captured from the marketing site. Public, no auth.
+const waitlistSchema = new mongoose.Schema({
+  email:  { type: String, required: true, unique: true, lowercase: true, trim: true },
+  name:   { type: String, default: '' },
+  source: { type: String, default: 'website' },
+}, { timestamps: true });
+const Waitlist = mongoose.model('Waitlist', waitlistSchema);
 
 // After spending changes, raise an in-app notification when a category crosses
 // 80% ("near") or 100% ("over") of its monthly budget. De-duplicated per
@@ -2014,6 +2025,30 @@ app.post('/api/savings/rules', auth, async (req, res) => {
 app.delete('/api/savings/rules', auth, async (req, res) => {
   await SavingsRule.deleteOne({ userId: req.user._id });
   res.json({ message: 'Rule removed' });
+});
+
+// Waitlist — public signup from the marketing site (rate-limited, deduped).
+app.post('/api/waitlist', authLimiter, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const name = String(req.body.name || '').trim().slice(0, 120);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Enter a valid email address.' });
+    await Waitlist.updateOne(
+      { email },
+      { $setOnInsert: { email, name, source: String(req.body.source || 'website').slice(0, 40) } },
+      { upsert: true },
+    );
+    res.json({ ok: true, message: "You're on the list! We'll email you at launch." });
+  } catch (e) { console.error('[waitlist]', e.message); res.status(500).json({ message: 'Could not join the waitlist. Try again.' }); }
+});
+app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {
+  try {
+    const [items, count] = await Promise.all([
+      Waitlist.find().sort({ createdAt: -1 }).limit(2000).lean(),
+      Waitlist.countDocuments(),
+    ]);
+    res.json({ count, items });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // Activity / history — milestone actions in the app (distinct from transactions).

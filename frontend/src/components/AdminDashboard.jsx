@@ -9,6 +9,7 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [waitlist, setWaitlist] = useState([]);
+  const [recapCfg, setRecapCfg] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -45,18 +46,29 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const [statsRes, usersRes, ticketsRes, waitlistRes] = await Promise.all([
+      const [statsRes, usersRes, ticketsRes, waitlistRes, recapRes] = await Promise.all([
         axios.get(`${API_URL}/api/admin/stats`, { headers }),
         axios.get(`${API_URL}/api/admin/users`, { headers }),
         axios.get(`${API_URL}/api/admin/tickets`, { headers }),
-        axios.get(`${API_URL}/api/admin/waitlist`, { headers })
+        axios.get(`${API_URL}/api/admin/waitlist`, { headers }),
+        axios.get(`${API_URL}/api/recaps/config`, { headers })
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data);
       setTickets(ticketsRes.data);
       setWaitlist(waitlistRes.data.items || []);
+      setRecapCfg(recapRes.data);
     } catch (error) { showMessage('Failed to load data', 'error'); }
     finally { setLoading(false); }
+  };
+
+  const setRecapRule = async (window, rule) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.patch(`${API_URL}/api/admin/recaps`, { [window]: rule }, { headers: { Authorization: `Bearer ${token}` } });
+      setRecapCfg(res.data);
+      showMessage(`${window} recaps → ${rule}`);
+    } catch { showMessage('Could not update recap release', 'error'); }
   };
 
   const showMessage = (text, type = 'success') => {
@@ -148,7 +160,7 @@ const AdminDashboard = () => {
         </div>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
-        {['overview', 'users', 'tickets', 'waitlist'].map(tab => {
+        {['overview', 'users', 'tickets', 'waitlist', 'recaps'].map(tab => {
           const openCount = tab === 'tickets' ? tickets.filter(t => t.status === 'open').length : 0;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? 'var(--gradient-primary)' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>
@@ -217,6 +229,28 @@ const AdminDashboard = () => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'recaps' && (
+        <div style={cardStyle}>
+          <h3 style={{ ...textPrimary, marginBottom: '0.5rem' }}>Recap releases</h3>
+          <p style={{ ...textSecondary, marginBottom: '1.5rem', fontSize: '0.9rem', lineHeight: 1.6 }}>
+            Control when each recap "drops" to everyone. <b>auto</b> = follows the schedule (daily & weekly always, monthly early in the month, yearly in December). <b>on</b> = force-drop now. <b>off</b> = hold.
+          </p>
+          {recapCfg ? ['day', 'week', 'month', 'year'].map(w => (
+            <div key={w} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.9rem 0', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}` }}>
+              <span style={{ ...textPrimary, fontWeight: 600, textTransform: 'capitalize' }}>{w}{w === 'year' ? ' — Wrapped' : ''}</span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {['auto', 'on', 'off'].map(r => (
+                  <button key={r} onClick={() => setRecapRule(w, r)}
+                    style={{ padding: '0.4rem 0.9rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', textTransform: 'capitalize',
+                      background: recapCfg[w] === r ? (r === 'on' ? '#38a169' : r === 'off' ? '#e53e3e' : 'var(--accent-primary)') : (darkMode ? '#2d3748' : '#edf2f7'),
+                      color: recapCfg[w] === r ? '#fff' : (darkMode ? '#cbd5e0' : '#4a5568') }}>{r}</button>
+                ))}
+              </div>
+            </div>
+          )) : <p style={textSecondary}>Loading…</p>}
         </div>
       )}
 

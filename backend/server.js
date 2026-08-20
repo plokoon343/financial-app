@@ -448,6 +448,23 @@ const waitlistSchema = new mongoose.Schema({
 }, { timestamps: true });
 const Waitlist = mongoose.model('Waitlist', waitlistSchema);
 
+// Recap release control — a single global doc. Each window is 'auto' (client's
+// schedule rule decides), 'on' (force-dropped to everyone, Spotify-style) or
+// 'off' (held). Lets an admin drop the yearly Wrapped exactly when they want.
+const recapReleaseSchema = new mongoose.Schema({
+  scope: { type: String, default: 'global', unique: true },
+  day:   { type: String, enum: ['auto', 'on', 'off'], default: 'auto' },
+  week:  { type: String, enum: ['auto', 'on', 'off'], default: 'auto' },
+  month: { type: String, enum: ['auto', 'on', 'off'], default: 'auto' },
+  year:  { type: String, enum: ['auto', 'on', 'off'], default: 'auto' },
+}, { timestamps: true });
+const RecapRelease = mongoose.model('RecapRelease', recapReleaseSchema);
+async function getRecapRelease() {
+  let r = await RecapRelease.findOne({ scope: 'global' });
+  if (!r) r = await RecapRelease.create({ scope: 'global' });
+  return r;
+}
+
 // After spending changes, raise an in-app notification when a category crosses
 // 80% ("near") or 100% ("over") of its monthly budget. De-duplicated per
 // category+month+threshold (via the notification link) so it fires once, not on
@@ -2072,6 +2089,20 @@ app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {
     ]);
     res.json({ count, items });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Recap release config — clients read this to know which recaps are "dropped".
+app.get('/api/recaps/config', auth, async (req, res) => {
+  try { const r = await getRecapRelease(); res.json({ day: r.day, week: r.week, month: r.month, year: r.year }); }
+  catch { res.json({ day: 'auto', week: 'auto', month: 'auto', year: 'auto' }); }
+});
+app.patch('/api/admin/recaps', auth, superAdminAuth, async (req, res) => {
+  try {
+    const r = await getRecapRelease();
+    for (const k of ['day', 'week', 'month', 'year']) if (['auto', 'on', 'off'].includes(req.body[k])) r[k] = req.body[k];
+    await r.save();
+    res.json({ day: r.day, week: r.week, month: r.month, year: r.year });
+  } catch (e) { console.error('[admin/recaps]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Activity / history — milestone actions in the app (distinct from transactions).

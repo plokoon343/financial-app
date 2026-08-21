@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { fmtNaira } from '../utils/format';
+import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, recordCheckin, seasonFor } from '../lib/insights';
 
 // Palette for category legend dots (categories carry no colour of their own).
 const PALETTE = ['#14b8a6', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#84cc16', '#ec4899'];
@@ -16,14 +17,7 @@ const shiftMonth = (key, delta) => {
 };
 const currentMonth = () => monthKey(new Date().toISOString());
 
-// Trim bank-statement noise into a readable merchant name.
-const prettyMerchant = (desc = '') => {
-  let s = String(desc).replace(/\b\d[\d,]{3,}\b/g, ' ').replace(/[^\w &.-]/g, ' ').replace(/\s+/g, ' ').trim();
-  const stop = /^(nip|transfer|trf|to|from|pos|web|vat|charge|payment|purchase|ref|txn)$/i;
-  const words = s.split(' ').filter((w) => w && !stop.test(w)).slice(0, 3);
-  s = words.join(' ') || (String(desc).trim().split(' ')[0] || 'Payment');
-  return s.replace(/\b\w/g, (c) => c.toUpperCase());
-};
+// prettyMerchant now comes from ../lib/insights (shared with the Voice port).
 
 function AreaChart({ values, height = 120 }) {
   const w = 640, pad = 12;
@@ -119,6 +113,23 @@ export default function Insights({ transactions = [] }) {
     return inc - exp;
   }), [months, transactions]);
 
+  // Identity engine (ported from mobile): the Voice, the Archetype, and the
+  // clarity streak. All computed on-device from the user's own transactions.
+  const voiceLines = useMemo(
+    () => buildVoiceLines(transactions, income, month, fmtNaira),
+    [transactions, income, month],
+  );
+  const archetype = useMemo(
+    () => computeArchetype(transactions, income, month),
+    [transactions, income, month],
+  );
+
+  const [voiceIdx, setVoiceIdx] = useState(0);
+  useEffect(() => { setVoiceIdx(0); }, [month]);
+
+  const [streak, setStreak] = useState(0);
+  useEffect(() => { recordCheckin(); setStreak(getStreak()); }, []);
+
   if (!transactions.length) {
     return <div className="empty-state"><h3>No insights yet</h3><p>Add or import some transactions to see where your money goes.</p></div>;
   }
@@ -141,6 +152,20 @@ export default function Insights({ transactions = [] }) {
         {monthNav}
       </div>
 
+      {/* Clarity streak + season chips */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {streak > 0 && (
+          <span style={chipStyle}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#f97316' }}>local_fire_department</span>
+            {streak}-day clarity streak
+          </span>
+        )}
+        <span style={chipStyle}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--accent-primary)' }}>calendar_month</span>
+          {seasonFor(month)}
+        </span>
+      </div>
+
       {/* Spotlight */}
       {spotlight && (
         <div style={{ background: 'color-mix(in srgb, var(--accent-primary) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent)', borderRadius: 18, padding: 18 }}>
@@ -149,6 +174,55 @@ export default function Insights({ transactions = [] }) {
             <span style={{ color: 'var(--accent-primary)', fontSize: 26, fontWeight: 900 }}>{spotlight.pct}%</span> of your income went to <span style={{ fontWeight: 900 }}>{spotlight.name}</span>
           </div>
           <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>{fmtNaira(spotlight.value)} · {spotlight.line}</div>
+        </div>
+      )}
+
+      {/* The Voice — THE AUTOMONIE READ (tap to cycle) */}
+      {voiceLines.length > 0 && (
+        <div
+          onClick={() => setVoiceIdx((i) => (i + 1) % voiceLines.length)}
+          title="Tap to cycle"
+          style={{ cursor: 'pointer', background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 16%, transparent), color-mix(in srgb, var(--accent-primary) 4%, transparent))', border: '1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent)', borderRadius: 18, padding: 18 }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ color: 'var(--accent-primary)', fontSize: 12, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase' }}>The Automonie Read</div>
+            <span style={{ ...toneChip, color: toneColor(voiceLines[voiceIdx].tone) }}>{voiceLines[voiceIdx].tone}</span>
+          </div>
+          <div style={{ color: 'var(--text-primary)', fontSize: 19, fontWeight: 650, lineHeight: 1.4, margin: '10px 0 12px' }}>
+            {voiceLines[voiceIdx].text}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 5 }}>
+              {voiceLines.map((_, i) => (
+                <span key={i} style={{ width: i === voiceIdx ? 18 : 6, height: 6, borderRadius: 3, background: i === voiceIdx ? 'var(--accent-primary)' : 'var(--text-faint)', transition: 'width .2s' }} />
+              ))}
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); shareText(`${voiceLines[voiceIdx].text}\n\n— my Automonie read`, e.currentTarget); }} style={shareBtn}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>ios_share</span> Share
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Archetype — shareable money personality (no naira shown) */}
+      {archetype && (
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 18 }}>
+          <div style={{ color: 'var(--text-faint)', fontSize: 12, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 14 }}>This month, you are…</div>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <span style={{ width: 56, height: 56, borderRadius: 16, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${archetype.archetype.color} 18%, transparent)` }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 30, color: archetype.archetype.color }}>{archetype.archetype.icon}</span>
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: 'var(--text-primary)', fontSize: 20, fontWeight: 800 }}>{archetype.archetype.name}</div>
+              <div style={{ color: archetype.archetype.color, fontSize: 13, fontWeight: 600, marginTop: 2 }}>{archetype.archetype.tagline}</div>
+            </div>
+          </div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.5, marginTop: 12 }}>{archetype.archetype.blurb}</div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <button onClick={(e) => shareText(`My Automonie money archetype this month: ${archetype.archetype.name} — ${archetype.archetype.tagline}`, e.currentTarget)} style={shareBtn}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>ios_share</span> Share
+            </button>
+          </div>
         </div>
       )}
 
@@ -211,6 +285,21 @@ export default function Insights({ transactions = [] }) {
 const dim = { color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600 };
 const big = { fontSize: 20, fontWeight: 800, marginTop: 2 };
 const btnStyle = { width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--card-bg)', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 18, lineHeight: 1 };
+const chipStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '5px 12px', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 };
+const toneChip = { fontSize: 11, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase' };
+const shareBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid var(--border-color)', borderRadius: 999, padding: '5px 12px', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 600 };
+
+const toneColor = (tone) => ({ roast: '#f97316', praise: '#10b981', nudge: '#eab308', observe: 'var(--text-secondary)' }[tone] || 'var(--text-secondary)');
+
+// Share on mobile web (native sheet) or copy to clipboard on desktop, with a
+// brief "Copied!" confirmation on the button.
+function shareText(text, btnEl) {
+  if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
+  try {
+    navigator.clipboard.writeText(text);
+    if (btnEl) { const prev = btnEl.textContent; btnEl.textContent = 'Copied!'; setTimeout(() => { btnEl.textContent = prev; }, 1500); }
+  } catch { /* ignore */ }
+}
 
 function Bar({ label, value, max, color }) {
   return (

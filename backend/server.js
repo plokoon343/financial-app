@@ -192,7 +192,10 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/financial
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+  // select:false so the hash never rides along on ordinary queries (e.g. admin
+  // listings, profile fetches). The few routes that verify a password fetch it
+  // explicitly with .select('+password').
+  password: { type: String, required: true, select: false },
   googleId: { type: String },   // set when the account is linked to Google sign-in
   role: { type: String, enum: ['user', 'superadmin'], default: 'user' },
   isActive: { type: Boolean, default: true },
@@ -1476,7 +1479,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
 app.post('/api/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select('+password');
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
@@ -1659,11 +1662,13 @@ app.post('/api/change-password', sensitiveLimiter, auth, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ message: 'Current and new password are required' });
     if (newPassword.length < 6) return res.status(400).json({ message: 'New password must be at least 6 characters' });
-    const ok = await bcrypt.compare(currentPassword, req.user.password);
+    const acct = await User.findById(req.user._id).select('+password');
+    if (!acct) return res.status(404).json({ message: 'Account not found' });
+    const ok = await bcrypt.compare(currentPassword, acct.password);
     if (!ok) return res.status(400).json({ message: 'Current password is incorrect' });
-    req.user.password = await bcrypt.hash(newPassword, await bcrypt.genSalt(10));
-    req.user.sessionsValidFrom = new Date(); // sign out other sessions on password change
-    await req.user.save();
+    acct.password = await bcrypt.hash(newPassword, await bcrypt.genSalt(10));
+    acct.sessionsValidFrom = new Date(); // sign out other sessions on password change
+    await acct.save();
     res.json({ message: 'Password changed successfully.' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -1675,7 +1680,8 @@ app.post('/api/change-email', sensitiveLimiter, auth, async (req, res) => {
     const email = (newEmail || '').toLowerCase().trim();
     if (!password || !email) return res.status(400).json({ message: 'Password and new email are required' });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ message: 'Enter a valid email address' });
-    const ok = await bcrypt.compare(password, req.user.password);
+    const acct = await User.findById(req.user._id).select('+password');
+    const ok = acct && await bcrypt.compare(password, acct.password);
     if (!ok) return res.status(400).json({ message: 'Password is incorrect' });
     const taken = await User.findOne({ email, _id: { $ne: req.user._id } });
     if (taken) return res.status(400).json({ message: 'That email is already in use' });
@@ -1721,7 +1727,8 @@ app.delete('/api/me', sensitiveLimiter, auth, async (req, res) => {
   try {
     const { password } = req.body || {};
     if (!password) return res.status(400).json({ message: 'Password is required to delete your account' });
-    const ok = await bcrypt.compare(password, req.user.password);
+    const acct = await User.findById(req.user._id).select('+password');
+    const ok = acct && await bcrypt.compare(password, acct.password);
     if (!ok) return res.status(400).json({ message: 'Password is incorrect' });
     const uid = req.user._id;
     await Promise.all([
@@ -3803,20 +3810,6 @@ app.post('/api/push/test', auth, async (req, res) => {
     const msg = (await buildInsight(req.user._id)) || { title: 'Automonie', body: 'Test push — your notifications are working! 🎉' };
     await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'test' } });
     res.json({ ok: true, devices: u.pushTokens.length });
-  } catch (e) { console.error('[push/test]', e.message); res.status(500).json({ message: 'Server error' }); }
-});
-
-// Send the caller a test insight push right now (bypasses the daily cap) so a
-// user can confirm notifications work end-to-end.
-app.post('/api/push/test', auth, async (req, res) => {
-  try {
-    const u = await User.findById(req.user._id).select('pushTokens').lean();
-    if (!u || !(u.pushTokens || []).length) {
-      return res.status(400).json({ message: 'No device registered yet. Open the app on your phone and allow notifications first.' });
-    }
-    const msg = (await buildInsight(req.user._id)) || { title: 'Automonie', body: 'Test push — notifications are working! 🎉' };
-    await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'test' } });
-    res.json({ ok: true, devices: u.pushTokens.length, preview: msg });
   } catch (e) { console.error('[push/test]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 

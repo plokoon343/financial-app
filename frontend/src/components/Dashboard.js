@@ -6,6 +6,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { fmtNaira } from '../utils/format';
+import { detectSalary, salaryPromptSeen, markSalaryPromptSeen } from '../lib/insights';
 import {
   FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
   FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
@@ -451,6 +452,7 @@ const Dashboard = () => {
   const [submitting, setSubmitting] = useState(false);
   const [formMsg,    setFormMsg]    = useState(null);
   const [hideAmounts, setHideAmounts] = useState(false);
+  const [salaryHit, setSalaryHit] = useState(null);   // salary-day prompt (ported from mobile)
   const [formData,   setFormData]   = useState({
     description: '', amount: '', type: 'expense', category: '', date: new Date().toISOString().split('T')[0],
   });
@@ -490,6 +492,16 @@ const Dashboard = () => {
     const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + Math.abs(t.amount), 0);
     setStats({ totalIncome, totalExpenses, netBalance: totalIncome - totalExpenses });
   }, [transactions]);
+
+  // Salary-day intelligence: a recent paycheck-like credit → a one-time nudge to
+  // lock some away before it goes. Dismissed once per paycheck (localStorage).
+  useEffect(() => {
+    if (!transactions.length) { setSalaryHit(null); return; }
+    const hit = detectSalary(transactions, user?.monthlyIncome);
+    setSalaryHit(hit && !salaryPromptSeen(hit.id) ? hit : null);
+  }, [transactions, user]);
+
+  const dismissSalary = () => { if (salaryHit) markSalaryPromptSeen(salaryHit.id); setSalaryHit(null); };
 
   const savingsRate = stats.totalIncome > 0 ? (stats.netBalance / stats.totalIncome) * 100 : 0;
 
@@ -604,6 +616,39 @@ const Dashboard = () => {
           </motion.button>
         </div>
       </motion.div>
+
+      {/* Salary-day prompt (ported from mobile) */}
+      <AnimatePresence>
+        {salaryHit && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+            style={{ background: 'color-mix(in srgb, var(--accent-primary) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent)', borderRadius: '16px', padding: '1.1rem 1.25rem', marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'color-mix(in srgb, var(--accent-primary) 22%, transparent)' }}>
+              <FaPiggyBank style={{ color: 'var(--accent-primary)', fontSize: 22 }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ color: darkMode ? '#f7fafc' : '#1a365d', fontWeight: 800, fontSize: '1.05rem' }}>
+                {hideAmounts ? 'Money just landed' : `${fmtNaira(salaryHit.amount)} just landed`}
+              </div>
+              <div style={{ color: darkMode ? '#cbd5e0' : '#4a5568', fontSize: '0.9rem', marginTop: 2 }}>
+                {salaryHit.lastMonthSpentPct != null
+                  ? `Last month, ${salaryHit.lastMonthSpentPct}% of your income was gone by month-end. Lock some away before it disappears.`
+                  : 'Lock some away now, before the month gets to it.'}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+              <Link to="/auto-savings" onClick={dismissSalary}
+                style={{ background: 'var(--gradient-primary)', color: 'white', textDecoration: 'none', padding: '0.6rem 1.1rem', borderRadius: '10px', fontWeight: 700, fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
+                Lock some away
+              </Link>
+              <button onClick={dismissSalary} aria-label="Dismiss"
+                style={{ background: 'transparent', border: 'none', color: darkMode ? '#cbd5e0' : '#4a5568', cursor: 'pointer', display: 'flex', padding: 6 }}>
+                <FaTimes size={18} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Modal */}
       <AnimatePresence>

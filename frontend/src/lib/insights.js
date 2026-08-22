@@ -162,11 +162,11 @@ export function buildVoiceLines(all, income, monthKey, fmt) {
     const share = pct(Math.abs(biggest.amount), totalExpense);
     if (share >= 25) add('big', `One transaction carried ${share}% of your month's spend. That one na statement.`, 'observe');
   }
-  if (savingsRate >= 20) add('save-good', `You kept ${savingsRate}% this month. Future you is standing up to clap.`, 'praise');
+  if (savingsRate >= 20) add('save-good', `You kept ${savingsRate}% this month. Future you go thank you well well.`, 'praise');
   else if (net < 0) add('overspend', `You spent pass wetin enter this month. Sapa dey plan attendance — lock something small away.`, 'nudge');
   else if (savingsRate > 0 && savingsRate < 10) add('save-low', `You saved ${savingsRate}%. Small progress still be progress — push am reach 20%.`, 'nudge');
 
-  if (noSpendDays >= 3) add('nospend', `${noSpendDays} days you spent nothing at all. Monk behaviour. Respect.`, 'praise');
+  if (noSpendDays >= 3) add('nospend', `${noSpendDays} days you spent nothing at all. Monk behaviour.`, 'praise');
 
   const [yy, mm] = monthKey.split('-').map(Number);
   const prevD = new Date(yy, mm - 2, 1);

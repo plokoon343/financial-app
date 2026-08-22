@@ -21,6 +21,7 @@ const Transactions = () => {
   const [selected, setSelected] = useState(new Set());
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [cleaning, setCleaning] = useState(false);
 
   // filters
   const [fMonth, setFMonth] = useState('all');
@@ -59,6 +60,21 @@ const Transactions = () => {
   const months = useMemo(() => [...new Set(all.map(t => monthKey(t.date)).filter(Boolean))].sort().reverse(), [all]);
   const bankOptions = useMemo(() => [...new Set(all.map(t => t.bank).filter(Boolean))].sort(), [all]);
   const catOptions = useMemo(() => [...new Set(all.map(t => t.category).filter(Boolean))].sort(), [all]);
+  const otherCount = useMemo(() => all.filter(t => !t.category || t.category === 'Other' || t.category === 'Other Income').length, [all]);
+
+  // "Clean up categories" → re-run the learned + shared-consensus categorizer over
+  // the user's 'Other' rows (free, server-side).
+  const cleanupCategories = async () => {
+    setCleaning(true);
+    try {
+      const res = await axios.post(`${API_URL}/api/transactions/recategorize`, {}, auth());
+      const n = res.data?.updated || 0;
+      if (n > 0) { await fetchAll(); flash(`Sorted ${n} transaction${n === 1 ? '' : 's'} into categories`); }
+      else flash('Nothing new to sort yet — the categories you fix teach it over time.');
+    } catch {
+      flash('Could not clean up categories.', 'error');
+    } finally { setCleaning(false); }
+  };
 
   // import batches (each upload = a deletable statement)
   const batches = useMemo(() => {
@@ -182,6 +198,19 @@ const Transactions = () => {
       </FeatureTip>
 
       {message && <div className={`tx-msg ${message.type}`}>{message.text}</div>}
+
+      {otherCount > 0 && (
+        <button onClick={cleanupCategories} disabled={cleaning}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', textAlign: 'left',
+            background: 'color-mix(in srgb, var(--accent-primary) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent)',
+            color: 'var(--accent-primary)', borderRadius: '12px', padding: '0.85rem 1rem',
+            fontWeight: 700, fontSize: '0.95rem', cursor: cleaning ? 'default' : 'pointer', margin: '0 0 1rem' }}>
+          <i className="fas fa-magic"></i>
+          <span style={{ flex: 1 }}>{cleaning ? 'Sorting your transactions…' : `${otherCount} uncategorised — clean up automatically`}</span>
+          {!cleaning && <i className="fas fa-chevron-right"></i>}
+        </button>
+      )}
 
       {/* Statements (import batches) — show the most recent few; rest in a popup */}
       {batches.length > 0 && (

@@ -477,6 +477,7 @@ const logActivity = async (userId, { type, title, message = '', amount = 0 }) =>
 const waitlistSchema = new mongoose.Schema({
   email:  { type: String, required: true, unique: true, lowercase: true, trim: true },
   name:   { type: String, default: '' },
+  phone:  { type: String, default: '' },   // WhatsApp number, for the community group
   source: { type: String, default: 'website' },
 }, { timestamps: true });
 const Waitlist = mongoose.model('Waitlist', waitlistSchema);
@@ -2151,36 +2152,47 @@ app.delete('/api/savings/rules', auth, async (req, res) => {
   res.json({ message: 'Rule removed' });
 });
 
+// Invite link to the Automonie WhatsApp community — sent to every new signup.
+const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/GwGSrl76CbaLA7xQqmmLrU?s=cl&p=a&ilr=4';
+
 // Waitlist — public signup from the marketing site (rate-limited, deduped).
 app.post('/api/waitlist', authLimiter, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     const name = String(req.body.name || '').trim().slice(0, 120);
+    // WhatsApp number — keep digits and a leading +, cap length. Optional.
+    const phone = String(req.body.phone || '').replace(/[^\d+]/g, '').slice(0, 20);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Enter a valid email address.' });
     const result = await Waitlist.updateOne(
       { email },
-      { $setOnInsert: { email, name, source: String(req.body.source || 'website').slice(0, 40) } },
+      { $setOnInsert: { email, name, phone, source: String(req.body.source || 'website').slice(0, 40) } },
       { upsert: true },
     );
+    // Backfill the WhatsApp number if they signed up before we collected it.
+    if (!result.upsertedCount && phone) await Waitlist.updateOne({ email, $or: [{ phone: '' }, { phone: { $exists: false } }] }, { $set: { phone } });
     // New signup only (not a duplicate) → send a friendly confirmation, fire-and-forget.
     if (result.upsertedCount && emailConfigured()) {
       const hi = name ? `Hi ${name.split(' ')[0]},` : 'Hi there,';
       sendEmail({
         to: email,
         subject: "You're on the Automonie waitlist 🎉",
-        text: `${hi}\n\nYou're on the list! We'll email you the moment Automonie opens up and ships new features.\n\nIn the meantime you can try the app: https://automonie.com\n\n— The Automonie team`,
+        text: `${hi}\n\nYou're on the list! We'll email you the moment Automonie opens up and ships new features.\n\nJoin our WhatsApp community for early access, updates and to shape the app: ${WHATSAPP_GROUP_URL}\n\nIn the meantime you can try the app: https://automonie.com\n\n— The Automonie team`,
         html: `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;color:#0b1326">
           <div style="background:linear-gradient(135deg,#008751,#00a862);border-radius:16px;padding:28px;text-align:center;color:#eafff5">
             <h1 style="margin:0 0 6px;color:#fff;font-size:22px">You're on the list! 🎉</h1>
             <p style="margin:0;opacity:.92">${hi} thanks for joining the Automonie waitlist.</p>
           </div>
           <p style="font-size:15px;line-height:1.6;margin:20px 4px">We'll email you the moment we open up and ship new features. No spam — only the big updates.</p>
+          <div style="background:#e7fbf0;border:1px solid #00a862;border-radius:12px;padding:16px;margin:18px 4px;text-align:center">
+            <p style="margin:0 0 10px;font-size:14px;color:#0b1326;font-weight:600">Get early access &amp; help shape Automonie — join our WhatsApp community:</p>
+            <a href="${WHATSAPP_GROUP_URL}" style="background:#25D366;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700;display:inline-block">Join the WhatsApp group</a>
+          </div>
           <p style="margin:20px 4px"><a href="https://automonie.com" style="background:#008751;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700;display:inline-block">Explore Automonie</a></p>
           <p style="color:#5b6b82;font-size:12px;margin:24px 4px 0">— The Automonie team</p>
         </div>`,
       }).catch(() => {});
     }
-    res.json({ ok: true, message: "You're on the list! We'll email you at launch." });
+    res.json({ ok: true, message: "You're on the list! We'll email you at launch.", groupUrl: WHATSAPP_GROUP_URL });
   } catch (e) { console.error('[waitlist]', e.message); res.status(500).json({ message: 'Could not join the waitlist. Try again.' }); }
 });
 app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {

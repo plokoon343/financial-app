@@ -397,6 +397,36 @@ const learnedCategorySchema = new mongoose.Schema({
 learnedCategorySchema.index({ userId: 1, key: 1 }, { unique: true });
 const LearnedCategory = mongoose.model('LearnedCategory', learnedCategorySchema);
 
+// Global consensus categorizer — a free, self-improving classifier trained on the
+// whole userbase's corrections. For each anonymised merchant `key` we tally which
+// category people assign it (no amounts, no names, no userIds). New users then get
+// accurate categories from the collective. Runs entirely on our own DB — no LLM,
+// no per-call cost.
+const globalCategorySchema = new mongoose.Schema({
+  key:      { type: String, required: true, unique: true },
+  counts:   { type: mongoose.Schema.Types.Mixed, default: {} }, // { <catSlug>: votes }
+  total:    { type: Number, default: 0 },
+  updatedAt:{ type: Date, default: Date.now },
+});
+const GlobalCategory = mongoose.model('GlobalCategory', globalCategorySchema);
+
+// Only real merchant/spend categories feed the SHARED pool. Person-to-person
+// categories (Transfer, Savings, Family & Friends), income, and the catch-alls are
+// excluded — a transfer key can be someone's name, which must never be shared. A
+// vote threshold on top of this means a one-off personal key can't reach consensus.
+const GLOBAL_ELIGIBLE_CATEGORIES = new Set([
+  'Food', 'Groceries', 'Transport', 'Fuel', 'Housing', 'Utilities', 'Airtime & Data',
+  'Shopping', 'Healthcare', 'Entertainment', 'Subscriptions', 'Education', 'Insurance',
+  'Bank Charges', 'ATM/POS',
+]);
+const globalEligible = (c) => GLOBAL_ELIGIBLE_CATEGORIES.has(c);
+// Category names hold spaces/&//, which are awkward as Mongo field keys — slug them.
+const catSlug = (c) => c.replace(/[^a-z0-9]+/gi, '_');
+const SLUG_TO_CAT = new Map([...GLOBAL_ELIGIBLE_CATEGORIES].map((c) => [catSlug(c), c]));
+// Consensus is only trusted with enough independent votes AND a clear majority.
+const GLOBAL_MIN_VOTES = 4;
+const GLOBAL_MIN_SHARE = 0.6;
+
 // Support tickets submitted from the Support/FAQ page; superadmins review them.
 const supportTicketSchema = new mongoose.Schema({
   userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -1306,7 +1336,58 @@ const applyLearnedCategories = async (userId, transactions) => {
   });
 };
 
-// Persist description -> category mappings so future imports auto-apply them.
+// Apply the SHARED consensus to rows the rules/user couldn't confidently place
+// (still 'Other'/uncategorised). Only overrides when a merchant key has enough
+// votes and a clear majority. Batch-loads to keep it one query per import.
+const applyGlobalCategories = async (transactions) => {
+  const isOther = (c) => !c || c === 'Other' || c === 'Other Income';
+  const targets = transactions.filter((t) => isOther(t.category));
+  if (!targets.length) return transactions;
+  const keyOf = new Map();
+  const keys = new Set();
+  for (const t of targets) { const k = deriveCategoryKey(t.description); if (k) { keyOf.set(t, k); keys.add(k); } }
+  if (!keys.size) return transactions;
+
+  const docs = await GlobalCategory.find({ key: { $in: [...keys] } }).lean();
+  const winner = new Map(); // key -> category
+  for (const d of docs) {
+    const counts = d.counts || {};
+    let bestSlug = null, bestN = 0, total = 0;
+    for (const [slug, n] of Object.entries(counts)) { if (n > 0) { total += n; if (n > bestN) { bestN = n; bestSlug = slug; } } }
+    if (bestSlug && bestN >= GLOBAL_MIN_VOTES && total > 0 && bestN / total >= GLOBAL_MIN_SHARE) {
+      const cat = SLUG_TO_CAT.get(bestSlug);
+      if (cat) winner.set(d.key, cat);
+    }
+  }
+  if (!winner.size) return transactions;
+  return transactions.map((t) => {
+    const k = keyOf.get(t);
+    return (k && winner.has(k) && isOther(t.category)) ? { ...t, category: winner.get(k), globalGuess: true } : t;
+  });
+};
+
+// Cast global votes as deltas keyed by "<key>\0<category>" -> ±n. Only eligible
+// (merchant) categories are shared.
+const castGlobalVotes = async (deltas) => {
+  if (!deltas || !deltas.size) return;
+  const ops = [];
+  for (const [k, d] of deltas) {
+    if (!d) continue;
+    const [key, category] = k.split('|');   // key/category can't contain '|'
+    ops.push({ updateOne: {
+      filter: { key },
+      update: { $inc: { [`counts.${catSlug(category)}`]: d, total: d }, $set: { updatedAt: new Date() } },
+      upsert: true,
+    } });
+  }
+  if (!ops.length) return;
+  try { await GlobalCategory.bulkWrite(ops, { ordered: false }); }
+  catch (e) { console.error('[castGlobalVotes]', e.message); }
+};
+
+// Persist description -> category mappings so future imports auto-apply them, and
+// contribute one NET vote per user+key to the shared consensus (so a user can't
+// stuff the global count, and changing your mind moves the vote, not adds one).
 const learnCategories = async (userId, transactions) => {
   const byKey = new Map(); // dedupe within this batch (last choice wins)
   for (const t of transactions) {
@@ -1315,15 +1396,29 @@ const learnCategories = async (userId, transactions) => {
     if (key) byKey.set(key, t.category);
   }
   if (!byKey.size) return;
-  const ops = [...byKey].map(([key, category]) => ({
-    updateOne: {
-      filter: { userId, key },
-      update: { $set: { category, updatedAt: new Date() } },
-      upsert: true,
-    },
-  }));
-  try { await LearnedCategory.bulkWrite(ops, { ordered: false }); }
-  catch (e) { console.error('[learnCategories]', e.message); }
+
+  const prev = await LearnedCategory.find({ userId, key: { $in: [...byKey.keys()] } }).lean();
+  const prevMap = new Map(prev.map((r) => [r.key, r.category]));
+
+  const ops = [];
+  const deltas = new Map();
+  const bump = (key, category, d) => {
+    if (!globalEligible(category)) return;
+    const gk = `${key}|${category}`;
+    deltas.set(gk, (deltas.get(gk) || 0) + d);
+  };
+  for (const [key, category] of byKey) {
+    const old = prevMap.get(key);
+    if (old === category) continue;            // no change → no new vote
+    ops.push({ updateOne: { filter: { userId, key }, update: { $set: { category, updatedAt: new Date() } }, upsert: true } });
+    if (old) bump(key, old, -1);               // move the vote off the old category
+    bump(key, category, +1);
+  }
+  if (ops.length) {
+    try { await LearnedCategory.bulkWrite(ops, { ordered: false }); }
+    catch (e) { console.error('[learnCategories]', e.message); }
+  }
+  await castGlobalVotes(deltas);
 };
 
 // Best-effort detection of the issuing bank from statement text. List order is the
@@ -2516,6 +2611,8 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
 
     // Apply categories the user has taught the app from previous corrections.
     transactions = await applyLearnedCategories(req.user._id, transactions);
+    // Then the shared consensus for anything the rules/user left as 'Other'.
+    transactions = await applyGlobalCategories(transactions);
 
     const existing = await Transaction.find({ userId: req.user._id }, { date: 1, amount: 1, description: 1 }).lean();
     const existingKeys = new Set(existing.map(t => `${new Date(t.date).toISOString().split('T')[0]}|${Math.abs(t.amount)}|${t.description}`));
@@ -4709,6 +4806,51 @@ app.get('/api/reminders', auth, async (req, res) => {
 
 // 404 handler
 app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));
+
+// Re-run the categorizer (your own learned rules → shared consensus) over rows
+// still sitting in 'Other', so existing transactions benefit as the shared model
+// grows. Free — no external calls.
+app.post('/api/transactions/recategorize', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const others = await Transaction.find({ userId: uid, category: { $in: ['Other', 'Other Income'] } })
+      .select('_id description category type').lean();
+    if (!others.length) return res.json({ updated: 0, remaining: 0 });
+    let mapped = await applyLearnedCategories(uid, others);
+    mapped = await applyGlobalCategories(mapped);
+    const isOther = (c) => !c || c === 'Other' || c === 'Other Income';
+    const ops = [];
+    for (const m of mapped) {
+      if (!isOther(m.category)) {
+        ops.push({ updateOne: { filter: { _id: m._id, userId: uid }, update: { $set: { category: m.category } } } });
+      }
+    }
+    if (ops.length) await Transaction.bulkWrite(ops, { ordered: false });
+    res.json({ updated: ops.length, remaining: others.length - ops.length });
+  } catch (e) { console.error('[recategorize]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// One-time (superadmin): seed the shared consensus from every existing per-user
+// correction, so the global pool starts warm instead of empty.
+app.post('/api/admin/backfill-global-categories', auth, superAdminAuth, async (req, res) => {
+  try {
+    const all = await LearnedCategory.find({}).select('key category').lean();
+    const tally = new Map(); // key -> Map(category -> votes)
+    for (const r of all) {
+      if (!globalEligible(r.category)) continue;
+      if (!tally.has(r.key)) tally.set(r.key, new Map());
+      const m = tally.get(r.key); m.set(r.category, (m.get(r.category) || 0) + 1);
+    }
+    const ops = [];
+    for (const [key, m] of tally) {
+      const counts = {}; let total = 0;
+      for (const [cat, n] of m) { counts[catSlug(cat)] = n; total += n; }
+      ops.push({ updateOne: { filter: { key }, update: { $set: { counts, total, updatedAt: new Date() } }, upsert: true } });
+    }
+    if (ops.length) await GlobalCategory.bulkWrite(ops, { ordered: false });
+    res.json({ seededKeys: ops.length, fromCorrections: all.length });
+  } catch (e) { console.error('[backfill-global]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
 
 // Error handling middleware
 app.use((error, req, res, next) => {

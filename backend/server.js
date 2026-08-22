@@ -4805,7 +4805,7 @@ app.get('/api/reminders', auth, async (req, res) => {
 });
 
 // 404 handler
-app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));
+// (404 catch-all moved below, after the categorizer routes, so it doesn't shadow them.)
 
 // Re-run the categorizer (your own learned rules → shared consensus) over rows
 // still sitting in 'Other', so existing transactions benefit as the shared model
@@ -4851,6 +4851,9 @@ app.post('/api/admin/backfill-global-categories', auth, superAdminAuth, async (r
     res.json({ seededKeys: ops.length, fromCorrections: all.length });
   } catch (e) { console.error('[backfill-global]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
+
+// Unknown routes → 404 (must stay after every real route).
+app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));
 
 // Error handling middleware
 app.use((error, req, res, next) => {

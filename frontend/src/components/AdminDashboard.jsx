@@ -213,19 +213,26 @@ const AdminDashboard = () => {
         <div style={cardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
             <h3 style={{ ...textPrimary, margin: 0 }}>Waitlist ({waitlist.length})</h3>
-            <button
-              onClick={() => { if (navigator.clipboard) { navigator.clipboard.writeText(waitlist.map(w => w.email).join(', ')); showMessage('All emails copied to clipboard'); } }}
-              disabled={waitlist.length === 0}
-              style={{ padding: '0.6rem 1.2rem', background: 'var(--gradient-primary)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: waitlist.length === 0 ? 'default' : 'pointer', opacity: waitlist.length === 0 ? 0.5 : 1 }}
-            >Copy all emails</button>
+            <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => { if (navigator.clipboard) { navigator.clipboard.writeText(waitlist.map(w => w.email).join(', ')); showMessage('All emails copied to clipboard'); } }}
+                disabled={waitlist.length === 0}
+                style={{ padding: '0.6rem 1.2rem', background: 'var(--gradient-primary)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: waitlist.length === 0 ? 'default' : 'pointer', opacity: waitlist.length === 0 ? 0.5 : 1 }}
+              >Copy all emails</button>
+              <button
+                onClick={() => { const nums = waitlist.map(w => w.phone).filter(Boolean); if (navigator.clipboard && nums.length) { navigator.clipboard.writeText(nums.join(', ')); showMessage(`${nums.length} WhatsApp number(s) copied`); } }}
+                disabled={!waitlist.some(w => w.phone)}
+                style={{ padding: '0.6rem 1.2rem', background: '#25D366', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: waitlist.some(w => w.phone) ? 'pointer' : 'default', opacity: waitlist.some(w => w.phone) ? 1 : 0.5 }}
+              >Copy WhatsApp numbers</button>
+            </div>
           </div>
           {waitlist.length === 0 ? (
             <p style={textSecondary}>No signups yet.</p>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr>{['#', 'Email', 'Name', 'Source', 'Joined'].map(h => <th key={h} style={{ ...textSecondary, textAlign: 'left', padding: '0.75rem', fontSize: '0.85rem', fontWeight: '600', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
-                <tbody>{waitlist.map((w, i) => <tr key={w._id}><td style={{ ...textSecondary, padding: '0.75rem' }}>{i + 1}</td><td style={{ ...textPrimary, padding: '0.75rem', fontWeight: 600 }}>{w.email}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.name || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.source || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(w.createdAt).toLocaleDateString()}</td></tr>)}</tbody>
+                <thead><tr>{['#', 'Email', 'Name', 'WhatsApp', 'Source', 'Joined'].map(h => <th key={h} style={{ ...textSecondary, textAlign: 'left', padding: '0.75rem', fontSize: '0.85rem', fontWeight: '600', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
+                <tbody>{waitlist.map((w, i) => <tr key={w._id}><td style={{ ...textSecondary, padding: '0.75rem' }}>{i + 1}</td><td style={{ ...textPrimary, padding: '0.75rem', fontWeight: 600 }}>{w.email}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.name || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{w.phone || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.source || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(w.createdAt).toLocaleDateString()}</td></tr>)}</tbody>
               </table>
             </div>
           )}

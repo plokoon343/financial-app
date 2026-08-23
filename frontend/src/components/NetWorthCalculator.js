@@ -24,7 +24,7 @@ const NetWorthCalculator = () => {
   const toNumber = (val) => val === '' ? 0 : parseFloat(val);
 
   const updateAsset = (key, value) => {
-    // Allow empty string, numbers, decimals – no leading zero problem
+    // Allow empty string, numbers, decimals - no leading zero problem
     setAssets({ ...assets, [key]: value === '' ? '' : value });
   };
 

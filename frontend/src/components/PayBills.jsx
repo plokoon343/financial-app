@@ -8,7 +8,7 @@ const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('
 
 const TYPE_ICON = { airtime: 'fa-mobile-screen-button', data: 'fa-wifi', tv: 'fa-tv', electricity: 'fa-bolt' };
 
-// Dedicated bill-payments page (Airtime, Data, TV, Electricity) — separate from
+// Dedicated bill-payments page (Airtime, Data, TV, Electricity) - separate from
 // the Bills & Obligations page. Hosts the PayBill panel plus recent history.
 const PayBills = () => {
   const [history, setHistory] = useState([]);
@@ -31,7 +31,7 @@ const PayBills = () => {
     <div className="paybills-page">
       <div className="section-header">
         <h2><i className="fas fa-bolt"></i> Pay Bills</h2>
-        <p>Top up airtime &amp; data, renew TV, or buy electricity — instantly from your wallet.</p>
+        <p>Top up airtime &amp; data, renew TV, or buy electricity - instantly from your wallet.</p>
       </div>
 
       <PayBill onPaid={loadHistory} />

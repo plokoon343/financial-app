@@ -40,7 +40,7 @@ export const FeatureTip = ({ tipKey, title, children }) => {
   );
 };
 
-// A small "?" icon with a hover/tap tooltip — for explaining advanced features inline.
+// A small "?" icon with a hover/tap tooltip - for explaining advanced features inline.
 export const InfoTip = ({ text }) => (
   <span className="info-tip" tabIndex={0}>
     <i className="fas fa-circle-info"></i>

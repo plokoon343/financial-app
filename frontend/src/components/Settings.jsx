@@ -111,7 +111,7 @@ const Settings = () => {
 
       // Header
       doc.setFontSize(18); doc.setTextColor('#0b1326');
-      doc.text('Automonie — Data Export', 14, y); y += 7;
+      doc.text('Automonie - Data Export', 14, y); y += 7;
       doc.setFontSize(10); doc.setTextColor('#64748b');
       doc.text(`Generated ${new Date().toLocaleString('en-NG')}`, 14, y); y += 8;
 
@@ -124,8 +124,8 @@ const Settings = () => {
           ['Name', p.name || ''],
           ['Email', p.email || ''],
           ['Phone', p.phone || ''],
-          ['Monthly income', p.monthlyIncome ? fmtNaira(p.monthlyIncome) : '—'],
-          ['Primary goal', p.primaryGoal || '—'],
+          ['Monthly income', p.monthlyIncome ? fmtNaira(p.monthlyIncome) : '-'],
+          ['Primary goal', p.primaryGoal || '-'],
         ],
         theme: 'striped', headStyles: { fillColor: [8, 135, 81] }, styles: { fontSize: 9 },
       });
@@ -262,7 +262,7 @@ const Settings = () => {
         <div className="row-between">
           <div>
             <strong>Active sessions</strong>
-            <span className="hint">Last login: {lastLogin ? new Date(lastLogin).toLocaleString() : '—'}</span>
+            <span className="hint">Last login: {lastLogin ? new Date(lastLogin).toLocaleString() : '-'}</span>
           </div>
           <button className="btn-secondary" onClick={logoutAll}>Log out all devices</button>
         </div>
@@ -286,7 +286,7 @@ const Settings = () => {
               <div className="form-group"><label>Cardholder</label>
                 <input value={card.holderName} onChange={e => setCard({ ...card, holderName: e.target.value })} placeholder="Name on card" /></div>
             </div>
-            <small className="hint"><i className="fas fa-lock"></i> Only the last 4 digits are stored — never the full number or CVV.</small>
+            <small className="hint"><i className="fas fa-lock"></i> Only the last 4 digits are stored - never the full number or CVV.</small>
           </>
         ) : (
           <>

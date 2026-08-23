@@ -6,13 +6,13 @@ const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('
 
 const FAQS = [
   { q: 'How do I import a bank statement?', a: 'Go to the Dashboard → Import Statement, upload a CSV, Excel, or PDF statement. For password-protected PDFs, enter the password when prompted. Review the transactions (you can edit categories) and confirm the bank, then Import.' },
-  { q: 'My statement is password protected — is that supported?', a: 'Yes. When you upload a protected PDF, you\'ll be asked for the password and we\'ll decrypt it to read your transactions.' },
+  { q: 'My statement is password protected - is that supported?', a: 'Yes. When you upload a protected PDF, you\'ll be asked for the password and we\'ll decrypt it to read your transactions.' },
   { q: 'How does budgeting work?', a: 'On the Budget page, pick a month and set a spending limit per category. As your transactions for that month come in (imported or added manually), each budget shows spent vs. budgeted with progress and alerts at 80% and 100%.' },
   { q: 'Can I group and delete transactions by bank?', a: 'Yes. The Transactions page tags each transaction with its bank and upload. You can filter by month/bank, edit or delete individual rows, multi-select to batch-delete, or delete a whole imported statement in one click.' },
   { q: 'How does the category learning work?', a: 'When you correct a transaction\'s category, the app remembers that merchant and applies your choice automatically on future imports.' },
   { q: 'How do auto-savings work?', a: 'On the Auto-Savings page, set a fixed amount to move to savings from each income, or a round-up rule on expenses. You can link it to a savings goal.' },
-  { q: 'Why is the app slow on the first load?', a: 'The server sleeps after inactivity on the free tier, so the first request can take up to a minute to wake it. You\'ll see a "waking up" message — it resolves automatically.' },
-  { q: 'I forgot my password — what do I do?', a: 'On the login page click "Forgot password?", enter your email, and use the reset link we send you (valid for 1 hour).' },
+  { q: 'Why is the app slow on the first load?', a: 'The server sleeps after inactivity on the free tier, so the first request can take up to a minute to wake it. You\'ll see a "waking up" message - it resolves automatically.' },
+  { q: 'I forgot my password - what do I do?', a: 'On the login page click "Forgot password?", enter your email, and use the reset link we send you (valid for 1 hour).' },
 ];
 
 const Support = () => {
@@ -62,7 +62,7 @@ const Support = () => {
           <li><i className="fas fa-envelope" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="mailto:superadmin@automonie.com">superadmin@automonie.com</a></li>
           <li><i className="fas fa-phone" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="tel:+2348000000000">+234 800 000 0000</a></li>
           <li><i className="fab fa-whatsapp" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="https://wa.me/2348000000000" target="_blank" rel="noreferrer">Chat on WhatsApp</a></li>
-          <li><i className="fas fa-clock" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Mon–Fri, 9:00am–5:00pm WAT</li>
+          <li><i className="fas fa-clock" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Mon-Fri, 9:00am-5:00pm WAT</li>
           <li><i className="fas fa-location-dot" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Lagos, Nigeria</li>
         </ul>
       </div>

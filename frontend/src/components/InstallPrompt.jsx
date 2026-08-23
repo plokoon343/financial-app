@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 // A2HS (Add to Home Screen) prompt. iOS Safari never fires an install event, so
-// PWA users there never discover they can install — this shows the manual
+// PWA users there never discover they can install - this shows the manual
 // "Share → Add to Home Screen" steps on iOS, and a one-tap Install button on
 // Android/desktop Chrome (which does fire beforeinstallprompt).
 const DISMISS_KEY = 'a2hs_dismissed_v1';

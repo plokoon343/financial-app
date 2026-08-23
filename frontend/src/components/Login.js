@@ -118,7 +118,7 @@ const Login = () => {
           <div className="login-brand-inner">
             <LogoFull height={38} variant="light" />
             <h2 className="login-brand-title">Your money, automated.</h2>
-            <p className="login-brand-sub">Track spending, budget, save, and pay bills — all in one place.</p>
+            <p className="login-brand-sub">Track spending, budget, save, and pay bills - all in one place.</p>
             <ul className="login-brand-points">
               <li><i className="fas fa-chart-pie"></i> Smart budgets &amp; insights</li>
               <li><i className="fas fa-piggy-bank"></i> Auto-savings &amp; goals</li>
@@ -131,7 +131,7 @@ const Login = () => {
         <div className="login-header">
           <div className="logo">
             {/* Login manages its own theme via data-theme, independent of the
-                app's .dark-theme class — so pin the logo variant to it (the
+                app's .dark-theme class - so pin the logo variant to it (the
                 auto variant keys off .dark-theme and can mis-render here). */}
             <LogoFull height={40} variant={darkMode ? 'light' : 'dark'} />
           </div>

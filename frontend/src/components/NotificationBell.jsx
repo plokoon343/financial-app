@@ -25,7 +25,7 @@ const NotificationBell = () => {
       const res = await axios.get(`${API_URL}/api/notifications`, auth());
       setItems(res.data.items || []);
       setUnread(res.data.unread || 0);
-    } catch { /* offline / cold start — ignore */ }
+    } catch { /* offline / cold start - ignore */ }
   }, []);
 
   useEffect(() => {

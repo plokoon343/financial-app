@@ -115,7 +115,7 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const res = await axios.get(`${API_URL}/api/admin/test-email`, { headers: { Authorization: `Bearer ${token}` } });
-      showMessage(res.data.message || 'Test email sent — check inbox & spam');
+      showMessage(res.data.message || 'Test email sent - check inbox & spam');
     } catch (error) {
       const d = error.response?.data;
       showMessage(`Email failed: ${d?.message || 'error'}${d?.code ? ' (' + d.code + ')' : ''}`, 'error');
@@ -232,7 +232,7 @@ const AdminDashboard = () => {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr>{['#', 'Email', 'Name', 'WhatsApp', 'Source', 'Joined'].map(h => <th key={h} style={{ ...textSecondary, textAlign: 'left', padding: '0.75rem', fontSize: '0.85rem', fontWeight: '600', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
-                <tbody>{waitlist.map((w, i) => <tr key={w._id}><td style={{ ...textSecondary, padding: '0.75rem' }}>{i + 1}</td><td style={{ ...textPrimary, padding: '0.75rem', fontWeight: 600 }}>{w.email}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.name || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{w.phone || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.source || '—'}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(w.createdAt).toLocaleDateString()}</td></tr>)}</tbody>
+                <tbody>{waitlist.map((w, i) => <tr key={w._id}><td style={{ ...textSecondary, padding: '0.75rem' }}>{i + 1}</td><td style={{ ...textPrimary, padding: '0.75rem', fontWeight: 600 }}>{w.email}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.name || '-'}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{w.phone || '-'}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{w.source || '-'}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(w.createdAt).toLocaleDateString()}</td></tr>)}</tbody>
               </table>
             </div>
           )}
@@ -247,7 +247,7 @@ const AdminDashboard = () => {
           </p>
           {recapCfg ? ['day', 'week', 'month', 'year'].map(w => (
             <div key={w} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.9rem 0', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}` }}>
-              <span style={{ ...textPrimary, fontWeight: 600, textTransform: 'capitalize' }}>{w}{w === 'year' ? ' — Wrapped' : ''}</span>
+              <span style={{ ...textPrimary, fontWeight: 600, textTransform: 'capitalize' }}>{w}{w === 'year' ? ' - Wrapped' : ''}</span>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {['auto', 'on', 'off'].map(r => (
                   <button key={r} onClick={() => setRecapRule(w, r)}

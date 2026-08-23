@@ -177,7 +177,7 @@ export default function Insights({ transactions = [] }) {
         </div>
       )}
 
-      {/* The Voice — THE AUTOMONIE READ (tap to cycle) */}
+      {/* The Voice - THE AUTOMONIE READ (tap to cycle) */}
       {voiceLines.length > 0 && (
         <div
           onClick={() => setVoiceIdx((i) => (i + 1) % voiceLines.length)}
@@ -197,14 +197,14 @@ export default function Insights({ transactions = [] }) {
                 <span key={i} style={{ width: i === voiceIdx ? 18 : 6, height: 6, borderRadius: 3, background: i === voiceIdx ? 'var(--accent-primary)' : 'var(--text-faint)', transition: 'width .2s' }} />
               ))}
             </div>
-            <button onClick={(e) => { e.stopPropagation(); shareText(`${voiceLines[voiceIdx].text}\n\n— my Automonie read`, e.currentTarget); }} style={shareBtn}>
+            <button onClick={(e) => { e.stopPropagation(); shareText(`${voiceLines[voiceIdx].text}\n\n- my Automonie read`, e.currentTarget); }} style={shareBtn}>
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>ios_share</span> Share
             </button>
           </div>
         </div>
       )}
 
-      {/* Archetype — shareable money personality (no naira shown) */}
+      {/* Archetype - shareable money personality (no naira shown) */}
       {archetype && (
         <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 18 }}>
           <div style={{ color: 'var(--text-faint)', fontSize: 12, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 14 }}>This month, you are…</div>
@@ -219,7 +219,7 @@ export default function Insights({ transactions = [] }) {
           </div>
           <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.5, marginTop: 12 }}>{archetype.archetype.blurb}</div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-            <button onClick={(e) => shareText(`My Automonie money archetype this month: ${archetype.archetype.name} — ${archetype.archetype.tagline}`, e.currentTarget)} style={shareBtn}>
+            <button onClick={(e) => shareText(`My Automonie money archetype this month: ${archetype.archetype.name} - ${archetype.archetype.tagline}`, e.currentTarget)} style={shareBtn}>
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>ios_share</span> Share
             </button>
           </div>

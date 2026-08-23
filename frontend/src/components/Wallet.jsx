@@ -149,7 +149,7 @@ const Wallet = () => {
             </div>
             <div className="fund-item"><span className="fund-l">Account name</span><span className="fund-v">{vAcct.accountName}</span></div>
           </div>
-          {vAcct.dummy && <p className="fund-note"><i className="fas fa-circle-info"></i> Demo account — live bank funding activates once Paystack is fully set up.</p>}
+          {vAcct.dummy && <p className="fund-note"><i className="fas fa-circle-info"></i> Demo account - live bank funding activates once Paystack is fully set up.</p>}
         </div>
       )}
 
@@ -281,7 +281,7 @@ const Wallet = () => {
         )}
       </div>
 
-      {/* STYLES – must be inside the single root element */}
+      {/* STYLES - must be inside the single root element */}
       <style jsx="true">{`
         .wallet-page {
           max-width: 1000px;

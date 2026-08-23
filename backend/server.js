@@ -21,9 +21,9 @@ require('dotenv').config();
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://financial-app-fawn-nu.vercel.app';
 
 // Email can be sent two ways:
-//   1. Brevo HTTP API (port 443) — preferred on Render, whose free/starter tiers
+//   1. Brevo HTTP API (port 443) - preferred on Render, whose free/starter tiers
 //      BLOCK outbound SMTP (you get ETIMEDOUT to smtp.gmail.com). HTTPS isn't blocked.
-//   2. SMTP via nodemailer — fallback for local dev or hosts that allow SMTP.
+//   2. SMTP via nodemailer - fallback for local dev or hosts that allow SMTP.
 // Set BREVO_API_KEY to use the API path; otherwise it falls back to EMAIL_USER/PASS.
 const brevoConfigured = () => !!process.env.BREVO_API_KEY;
 const smtpConfigured = () => !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
@@ -47,7 +47,7 @@ const makeTransport = () => nodemailer.createTransport({
 
 // The "from" identity. Brevo requires a VERIFIED sender. TEMPORARY: we send from
 // jaysonoketa@gmail.com (already verified in Brevo) until automonie.com is
-// authenticated in Brevo — then set EMAIL_FROM_ADDRESS=superadmin@automonie.com
+// authenticated in Brevo - then set EMAIL_FROM_ADDRESS=superadmin@automonie.com
 // (or change the default here). EMAIL_USER is also the SMTP login for the dev fallback.
 const senderEmail = () => (process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER || 'jaysonoketa@gmail.com').trim();
 const senderName = () => process.env.EMAIL_FROM_NAME || 'Automonie';
@@ -97,7 +97,7 @@ const sendResetEmail = async (to, link) => {
 
 const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
-// Fail fast if the JWT secret is missing — never fall back to a public default.
+// Fail fast if the JWT secret is missing - never fall back to a public default.
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
@@ -105,7 +105,7 @@ if (!JWT_SECRET) {
 }
 
 const app = express();
-app.set('trust proxy', 1);             // behind Render's proxy — needed for correct client IPs
+app.set('trust proxy', 1);             // behind Render's proxy - needed for correct client IPs
 app.use(helmet());                     // standard security headers
 app.use(compression());                // gzip responses
 
@@ -167,7 +167,7 @@ const sensitiveLimiter = rateLimit({
   message: { message: 'Too many requests. Please slow down and try again shortly.' },
 });
 
-// AI assistant calls cost money per request — keep the per-user volume sane.
+// AI assistant calls cost money per request - keep the per-user volume sane.
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 15,
@@ -274,7 +274,7 @@ const userSchema = new mongoose.Schema({
     },
   },
   // Reusable Paystack card authorization for one-tap wallet top-ups (quick-add).
-  // We never store card numbers — only Paystack's authorization_code (a token) and
+  // We never store card numbers - only Paystack's authorization_code (a token) and
   // display-safe metadata. Charged server-side via /transaction/charge_authorization.
   fundingCard: {
     authorizationCode: { type: String, default: '' },
@@ -290,7 +290,7 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
-// Sign-ups are held here until the email OTP is confirmed — the real User is
+// Sign-ups are held here until the email OTP is confirmed - the real User is
 // only created on verification, so an unverified email never becomes an account.
 // The TTL index auto-purges abandoned sign-ups after 30 minutes.
 const pendingRegistrationSchema = new mongoose.Schema({
@@ -397,10 +397,10 @@ const learnedCategorySchema = new mongoose.Schema({
 learnedCategorySchema.index({ userId: 1, key: 1 }, { unique: true });
 const LearnedCategory = mongoose.model('LearnedCategory', learnedCategorySchema);
 
-// Global consensus categorizer — a free, self-improving classifier trained on the
+// Global consensus categorizer - a free, self-improving classifier trained on the
 // whole userbase's corrections. For each anonymised merchant `key` we tally which
 // category people assign it (no amounts, no names, no userIds). New users then get
-// accurate categories from the collective. Runs entirely on our own DB — no LLM,
+// accurate categories from the collective. Runs entirely on our own DB - no LLM,
 // no per-call cost.
 const globalCategorySchema = new mongoose.Schema({
   key:      { type: String, required: true, unique: true },
@@ -412,7 +412,7 @@ const GlobalCategory = mongoose.model('GlobalCategory', globalCategorySchema);
 
 // Only real merchant/spend categories feed the SHARED pool. Person-to-person
 // categories (Transfer, Savings, Family & Friends), income, and the catch-alls are
-// excluded — a transfer key can be someone's name, which must never be shared. A
+// excluded - a transfer key can be someone's name, which must never be shared. A
 // vote threshold on top of this means a one-off personal key can't reach consensus.
 const GLOBAL_ELIGIBLE_CATEGORIES = new Set([
   'Food', 'Groceries', 'Transport', 'Fuel', 'Housing', 'Utilities', 'Airtime & Data',
@@ -420,7 +420,7 @@ const GLOBAL_ELIGIBLE_CATEGORIES = new Set([
   'Bank Charges', 'ATM/POS',
 ]);
 const globalEligible = (c) => GLOBAL_ELIGIBLE_CATEGORIES.has(c);
-// Category names hold spaces/&//, which are awkward as Mongo field keys — slug them.
+// Category names hold spaces/&//, which are awkward as Mongo field keys - slug them.
 const catSlug = (c) => c.replace(/[^a-z0-9]+/gi, '_');
 const SLUG_TO_CAT = new Map([...GLOBAL_ELIGIBLE_CATEGORIES].map((c) => [catSlug(c), c]));
 // Consensus is only trusted with enough independent votes AND a clear majority.
@@ -455,7 +455,7 @@ const createNotification = async (userId, { type = 'info', title, message = '', 
   catch (e) { console.error('[createNotification]', e.message); }
 };
 
-// Activity log — a durable history of milestone actions in the app (goal
+// Activity log - a durable history of milestone actions in the app (goal
 // reached, debt cleared, bill auto-paid, wallet funded…), distinct from the
 // bank/transaction ledger. Surfaced on the History screen.
 const activitySchema = new mongoose.Schema({
@@ -473,7 +473,7 @@ const logActivity = async (userId, { type, title, message = '', amount = 0 }) =>
   catch (e) { console.error('[logActivity]', e.message); }
 };
 
-// Pre-launch waitlist — captured from the marketing site. Public, no auth.
+// Pre-launch waitlist - captured from the marketing site. Public, no auth.
 const waitlistSchema = new mongoose.Schema({
   email:  { type: String, required: true, unique: true, lowercase: true, trim: true },
   name:   { type: String, default: '' },
@@ -482,7 +482,7 @@ const waitlistSchema = new mongoose.Schema({
 }, { timestamps: true });
 const Waitlist = mongoose.model('Waitlist', waitlistSchema);
 
-// Recap release control — a single global doc. Each window is 'auto' (client's
+// Recap release control - a single global doc. Each window is 'auto' (client's
 // schedule rule decides), 'on' (force-dropped to everyone, Spotify-style) or
 // 'off' (held). Lets an admin drop the yearly Wrapped exactly when they want.
 const recapReleaseSchema = new mongoose.Schema({
@@ -524,11 +524,11 @@ const checkBudgetAlert = async (userId, category, monthStr) => {
     const title = threshold === 'over' ? `Over budget: ${category}` : `Budget alert: ${category}`;
     const message = `You've used ${pctRound}% of your ${category} budget for ${monthStr}.`;
     await createNotification(userId, { type: 'info', title, message, link });
-    // Push it too (budget alerts are important — not gated by the insights mute).
+    // Push it too (budget alerts are important - not gated by the insights mute).
     const u = await User.findById(userId).select('pushTokens').lean();
     if (u?.pushTokens?.length) {
       const body = threshold === 'over'
-        ? `${category} budget don pass o — you don use ${pctRound}%. Time to slow down. 😬📉`
+        ? `${category} budget don pass o - you don use ${pctRound}%. Time to slow down. 😬📉`
         : `Heads up: ${pctRound}% of your ${category} budget gone, ${Math.max(0, 100 - pctRound)}% remain. 👀`;
       sendExpoPush(u.pushTokens, { title, body, data: { type: 'budget', link } });
     }
@@ -677,14 +677,14 @@ const applySavingsRule = async (userId, transactionAmount, transactionType) => {
         }
         console.log(`✅ Auto‑saved ₦${saveAmount} for user ${userId}`);
       } else {
-        // Not enough in the wallet to move to savings — tell the user instead of
+        // Not enough in the wallet to move to savings - tell the user instead of
         // failing silently. De-duped to once per day per user.
         const day = new Date().toISOString().slice(0, 10);
         const link = `savings_skip_${day}`;
         if (!(await Notification.findOne({ userId, link }))) {
           await createNotification(userId, {
             type: 'info', title: 'Auto-save skipped',
-            message: `We couldn't move ₦${Math.round(saveAmount).toLocaleString()} to savings — your wallet balance is low. Top up to keep saving.`,
+            message: `We couldn't move ₦${Math.round(saveAmount).toLocaleString()} to savings - your wallet balance is low. Top up to keep saving.`,
             link,
           });
         }
@@ -901,7 +901,7 @@ const renderPdfPage = (pageData) =>
 
 // Extract raw text from a (possibly encrypted) PDF buffer. The password is
 // forwarded to pdf.js, which decrypts the document. When the PDF is encrypted and
-// the password is missing or wrong, pdf.js rejects with a PasswordException —
+// the password is missing or wrong, pdf.js rejects with a PasswordException -
 // callers detect that via isPdfPasswordError().
 const extractPdfText = async (buffer, password = '') => {
   PDFJS_LIB.disableWorker = true;
@@ -951,7 +951,7 @@ const fixYear = (raw) => {
   return y;
 };
 
-// Reject dates that parsed to something impossible — a wrong year/month/day means
+// Reject dates that parsed to something impossible - a wrong year/month/day means
 // the row was mis-read and should be skipped rather than saved with bad data.
 const isSaneDate = (y, mo, dy) => {
   const yr = parseInt(y, 10), m = parseInt(mo, 10), d = parseInt(dy, 10);
@@ -1060,7 +1060,7 @@ const parseStatementByBalance = (rawText) => {
       amount = Math.abs(balance - prevBalance);
       type = balance >= prevBalance ? 'income' : 'expense';
     } else {
-      // No usable balance baseline — fall back to the amount column + keywords.
+      // No usable balance baseline - fall back to the amount column + keywords.
       amount = monies.length >= 2 ? monies[monies.length - 2] : monies[0];
       type = inferTransactionType(block);
     }
@@ -1104,7 +1104,7 @@ const parsePDF = async (filePath, password = '') => {
   try {
     rawText = await extractPdfText(buffer, password);
   } catch (pdfErr) {
-    // Encrypted PDF with a missing or incorrect password — re-throw so the upload
+    // Encrypted PDF with a missing or incorrect password - re-throw so the upload
     // route can prompt for a password or report that it was wrong.
     if (isPdfPasswordError(pdfErr)) {
       throw pdfErr;
@@ -1118,7 +1118,7 @@ const parsePDF = async (filePath, password = '') => {
   
   // If very little text was extracted, the PDF is likely a scanned image
   if (rawText.length < 50) {
-    console.warn('[parsePDF] Very little text extracted – PDF may be a scanned image');
+    console.warn('[parsePDF] Very little text extracted - PDF may be a scanned image');
     return [];
   }
 
@@ -1129,7 +1129,7 @@ const parsePDF = async (filePath, password = '') => {
     balanceParsed.bank = detectBank(rawText);
     return balanceParsed;
   }
-  console.log('[parsePDF] Balance-aware parser found nothing — trying generic strategies…');
+  console.log('[parsePDF] Balance-aware parser found nothing - trying generic strategies…');
 
   const transactions = [];
   
@@ -1307,7 +1307,7 @@ const categorizeTransaction = (description, typeOrAmount) => {
   return isExpense ? 'Other' : 'Other Income';
 };
 
-// Words too generic to identify a merchant — stripped when building a learning key.
+// Words too generic to identify a merchant - stripped when building a learning key.
 const CATEGORY_KEY_STOPWORDS = new Set([
   'transfer','transaction','nip','neft','trf','to','from','pos','pur','purchase','payment',
   'pay','ref','via','self','the','for','and','inward','outward','debit','credit','value',
@@ -1473,7 +1473,7 @@ const auth = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    // expired or invalid token — flag it so the client can send the user to login
+    // expired or invalid token - flag it so the client can send the user to login
     const expired = error.name === 'TokenExpiredError';
     res.status(401).json({ message: expired ? 'Session expired. Please log in again.' : 'Token invalid', authExpired: true });
   }
@@ -1864,7 +1864,7 @@ app.post('/api/forgot-password', authLimiter, async (req, res) => {
       // Fire-and-forget: never block the response on SMTP, never surface email
       // errors to the client (avoids slow requests / 500s when mail is slow).
       sendResetEmail(user.email, link).catch(e => console.error('[forgot-password] email send failed:', e.message));
-      // Never return the link in the API response — that would let anyone reset
+      // Never return the link in the API response - that would let anyone reset
       // any account. If email isn't configured, sendResetEmail logs it server-side.
     }
     return res.json(generic);
@@ -2033,7 +2033,7 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
       const a = Math.abs(parseFloat(amount));
       txn.amount = newType === 'expense' ? -a : a;
     } else if (type !== undefined) {
-      // Type flipped but amount unchanged — fix the sign.
+      // Type flipped but amount unchanged - fix the sign.
       const a = Math.abs(txn.amount);
       txn.amount = newType === 'expense' ? -a : a;
     }
@@ -2152,15 +2152,15 @@ app.delete('/api/savings/rules', auth, async (req, res) => {
   res.json({ message: 'Rule removed' });
 });
 
-// Invite link to the Automonie WhatsApp community — sent to every new signup.
+// Invite link to the Automonie WhatsApp community - sent to every new signup.
 const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/GwGSrl76CbaLA7xQqmmLrU?s=cl&p=a&ilr=4';
 
-// Waitlist — public signup from the marketing site (rate-limited, deduped).
+// Waitlist - public signup from the marketing site (rate-limited, deduped).
 app.post('/api/waitlist', authLimiter, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     const name = String(req.body.name || '').trim().slice(0, 120);
-    // WhatsApp number — keep digits and a leading +, cap length. Optional.
+    // WhatsApp number - keep digits and a leading +, cap length. Optional.
     const phone = String(req.body.phone || '').replace(/[^\d+]/g, '').slice(0, 20);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Enter a valid email address.' });
     const result = await Waitlist.updateOne(
@@ -2176,19 +2176,19 @@ app.post('/api/waitlist', authLimiter, async (req, res) => {
       sendEmail({
         to: email,
         subject: "You're on the Automonie waitlist 🎉",
-        text: `${hi}\n\nYou're on the list! We'll email you the moment Automonie opens up and ships new features.\n\nJoin our WhatsApp community for early access, updates and to shape the app: ${WHATSAPP_GROUP_URL}\n\nIn the meantime you can try the app: https://automonie.com\n\n— The Automonie team`,
+        text: `${hi}\n\nYou're on the list! We'll email you the moment Automonie opens up and ships new features.\n\nJoin our WhatsApp community for early access, updates and to shape the app: ${WHATSAPP_GROUP_URL}\n\nIn the meantime you can try the app: https://automonie.com\n\n- The Automonie team`,
         html: `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;color:#0b1326">
           <div style="background:linear-gradient(135deg,#008751,#00a862);border-radius:16px;padding:28px;text-align:center;color:#eafff5">
             <h1 style="margin:0 0 6px;color:#fff;font-size:22px">You're on the list! 🎉</h1>
             <p style="margin:0;opacity:.92">${hi} thanks for joining the Automonie waitlist.</p>
           </div>
-          <p style="font-size:15px;line-height:1.6;margin:20px 4px">We'll email you the moment we open up and ship new features. No spam — only the big updates.</p>
+          <p style="font-size:15px;line-height:1.6;margin:20px 4px">We'll email you the moment we open up and ship new features. No spam - only the big updates.</p>
           <div style="background:#e7fbf0;border:1px solid #00a862;border-radius:12px;padding:16px;margin:18px 4px;text-align:center">
-            <p style="margin:0 0 10px;font-size:14px;color:#0b1326;font-weight:600">Get early access &amp; help shape Automonie — join our WhatsApp community:</p>
+            <p style="margin:0 0 10px;font-size:14px;color:#0b1326;font-weight:600">Get early access &amp; help shape Automonie - join our WhatsApp community:</p>
             <a href="${WHATSAPP_GROUP_URL}" style="background:#25D366;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700;display:inline-block">Join the WhatsApp group</a>
           </div>
           <p style="margin:20px 4px"><a href="https://automonie.com" style="background:#008751;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700;display:inline-block">Explore Automonie</a></p>
-          <p style="color:#5b6b82;font-size:12px;margin:24px 4px 0">— The Automonie team</p>
+          <p style="color:#5b6b82;font-size:12px;margin:24px 4px 0">- The Automonie team</p>
         </div>`,
       }).catch(() => {});
     }
@@ -2205,7 +2205,7 @@ app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// Recap release config — clients read this to know which recaps are "dropped".
+// Recap release config - clients read this to know which recaps are "dropped".
 app.get('/api/recaps/config', auth, async (req, res) => {
   try { const r = await getRecapRelease(); res.json({ day: r.day, week: r.week, month: r.month, year: r.year }); }
   catch { res.json({ day: 'auto', week: 'auto', month: 'auto', year: 'auto' }); }
@@ -2219,7 +2219,7 @@ app.patch('/api/admin/recaps', auth, superAdminAuth, async (req, res) => {
   } catch (e) { console.error('[admin/recaps]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Activity / history — milestone actions in the app (distinct from transactions).
+// Activity / history - milestone actions in the app (distinct from transactions).
 app.get('/api/activity', auth, async (req, res) => {
   try {
     const items = await Activity.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(200).lean();
@@ -2342,9 +2342,9 @@ app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
     wallet.balance += net;
     await wallet.save();
 
-    // A reached goal is done once withdrawn — remove it. Otherwise reset to 0.
+    // A reached goal is done once withdrawn - remove it. Otherwise reset to 0.
     if (reached) {
-      await logActivity(req.user._id, { type: 'goal_withdrawn', title: 'Goal completed & withdrawn', message: `${goal.name} — ₦${net.toLocaleString()} paid to your wallet`, amount: net });
+      await logActivity(req.user._id, { type: 'goal_withdrawn', title: 'Goal completed & withdrawn', message: `${goal.name} - ₦${net.toLocaleString()} paid to your wallet`, amount: net });
       await Goal.deleteOne({ _id: goal._id });
     } else {
       goal.current = 0;
@@ -2445,7 +2445,7 @@ async function processDueBill(bill) {
   const claimedNext = nextDueAfter(bill);
   // Atomically claim this due-cycle: advance nextDue only while it still equals
   // the value we read. Overlapping sweeps (cron + in-process interval +
-  // app-launch trigger) race here — exactly one wins; the losers get null and
+  // app-launch trigger) race here - exactly one wins; the losers get null and
   // skip, so a bill can never be paid twice for the same cycle.
   const claim = async () => RecurringBill.findOneAndUpdate(
     { _id: bill._id, status: 'active', nextDue: bill.nextDue },
@@ -2456,7 +2456,7 @@ async function processDueBill(bill) {
     const wallet = await getOrCreateWallet(userId);
     if (wallet.balance >= bill.amount) {
       if (!(await claim())) return { bill: bill.name, status: 'skipped', amount: bill.amount };
-      // We own this cycle — debit and record.
+      // We own this cycle - debit and record.
       wallet.balance -= bill.amount;
       await wallet.save();
       await new WalletTransaction({ userId, type: 'withdrawal', amount: bill.amount, description: `Auto-pay: ${bill.name}`, status: 'completed' }).save();
@@ -2465,11 +2465,11 @@ async function processDueBill(bill) {
       await logActivity(userId, { type: 'bill_paid', title: 'Bill auto-paid', message: bill.name, amount: bill.amount });
       return { bill: bill.name, status: 'paid', amount: bill.amount };
     }
-    // Not enough funds — notify (deduped per bill per day) and retry next sweep by
+    // Not enough funds - notify (deduped per bill per day) and retry next sweep by
     // leaving nextDue untouched (no claim).
     const link = `autopay_fail_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
     if (!(await Notification.findOne({ userId, link }))) {
-      await createNotification(userId, { type: 'danger', title: 'Autopay failed', message: `Couldn't pay ${bill.name} (₦${bill.amount.toLocaleString()}) — your wallet is low. Top up to pay it.`, link });
+      await createNotification(userId, { type: 'danger', title: 'Autopay failed', message: `Couldn't pay ${bill.name} (₦${bill.amount.toLocaleString()}) - your wallet is low. Top up to pay it.`, link });
     }
     return { bill: bill.name, status: 'insufficient_funds', amount: bill.amount };
   }
@@ -2673,7 +2673,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       seen.add(k); fresh.push(t);
     }
     const skipped = valid.length - fresh.length;
-    if (fresh.length === 0) return res.json({ message: `Skipped ${skipped} duplicate(s) — nothing new to import.`, count: 0, skipped });
+    if (fresh.length === 0) return res.json({ message: `Skipped ${skipped} duplicate(s) - nothing new to import.`, count: 0, skipped });
 
     const docs = fresh.map(t => new Transaction({
       userId: req.user._id, date: new Date(t.date), description: t.description,
@@ -3009,7 +3009,7 @@ app.post('/api/process-scheduled-payments', auth, async (req, res) => {
   }
 });
 
-// NEW: Pay All Due (debts, subscriptions, bills) – the “Refresh to pay all” button
+// NEW: Pay All Due (debts, subscriptions, bills) - the “Refresh to pay all” button
 app.post('/api/payments/pay-all-due', auth, async (req, res) => {
   try {
     const userId = req.user._id;
@@ -3136,7 +3136,7 @@ app.post('/api/payments/pay-selected', auth, async (req, res) => {
 
     await wallet.save();
     res.json({
-      message: errors.length ? `Paid ${totalPaid} — some failed: ${errors.join('; ')}` : `Paid ${totalPaid} from wallet.`,
+      message: errors.length ? `Paid ${totalPaid} - some failed: ${errors.join('; ')}` : `Paid ${totalPaid} from wallet.`,
       totalPaid, errors, balance: wallet.balance,
     });
   } catch (err) {
@@ -3238,7 +3238,7 @@ app.get('/api/admin/test-email', auth, superAdminAuth, async (req, res) => {
     res.status(502).json({ ok: false, message: apiMsg || err.message, code: err.code || err.response?.status || err.responseCode || null, diag });
   }
 });
-// Idempotent: with the correct setup key, creates a superadmin — or, if the email
+// Idempotent: with the correct setup key, creates a superadmin - or, if the email
 // already exists, promotes that account and resets its password to the one given.
 app.post('/api/admin/setup', authLimiter, async (req, res) => {
   try {
@@ -3272,7 +3272,7 @@ app.post('/api/admin/setup', authLimiter, async (req, res) => {
 // --------------------------
 // Bank & Profile routes
 // --------------------------
-// Bank list is effectively static — cache it in memory for 24h to avoid hitting
+// Bank list is effectively static - cache it in memory for 24h to avoid hitting
 // Paystack on every page load.
 let banksCache = { data: null, ts: 0 };
 app.get('/api/banks', auth, async (req, res) => {
@@ -3387,7 +3387,7 @@ app.get('/api/wallet/virtual-account', auth, async (req, res) => {
   }
 });
 
-// Paystack webhook — credits the wallet when money lands in a user's DVA.
+// Paystack webhook - credits the wallet when money lands in a user's DVA.
 app.post('/api/paystack/webhook', async (req, res) => {
   try {
     const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -3415,7 +3415,7 @@ app.post('/api/paystack/webhook', async (req, res) => {
 // Quick-add: fund the wallet with a saved Paystack card.
 // The first top-up runs a normal Paystack checkout to capture a reusable
 // authorization; later top-ups charge that authorization in one tap. We never
-// store card numbers — only Paystack's authorization_code token + safe metadata.
+// store card numbers - only Paystack's authorization_code token + safe metadata.
 // --------------------------
 const koboToNaira = (kobo) => Math.round(kobo) / 100;
 
@@ -3541,7 +3541,7 @@ app.post('/api/user/bank-details', auth, async (req, res) => {
       await User.findByIdAndUpdate(req.user._id, {
         payout: {
           method: 'card',
-          // Store only the last 4 digits — never the full PAN or CVV.
+          // Store only the last 4 digits - never the full PAN or CVV.
           card: { last4: digits.slice(-4), expiry: card.expiry, holderName: card.holderName || '' },
           titan: { accountNumber: '', accountName: '', bankCode: '', bankName: 'Titan-Paystack' },
         },
@@ -3620,7 +3620,7 @@ app.get('/api/bank/mono-config', auth, async (req, res) => {
 // captures. The public key is injected server-side (it is a public value).
 // NOTE: confirm the connect.js CDN/global when MONO_* keys are added.
 // HTTP→deep-link bridge. Chrome Custom Tabs won't follow a JS navigation to a
-// custom scheme, but it follows an HTTP 302 to one — so the Mono page returns
+// custom scheme, but it follows an HTTP 302 to one - so the Mono page returns
 // here and we redirect to the app's deep link, closing the in-app browser.
 app.get('/bank/return', (req, res) => {
   const to = String(req.query.to || '');
@@ -3631,7 +3631,7 @@ app.get('/bank/return', (req, res) => {
 app.get('/bank/mono-connect', (req, res) => {
   const redirect = String(req.query.redirect || '');
   if (!redirect) return res.status(400).send('Missing redirect');
-  // Only allow the app's own deep links — blocks open-redirect / reflected XSS.
+  // Only allow the app's own deep links - blocks open-redirect / reflected XSS.
   if (!/^(finpilot:|exp:|exps:)\/\//i.test(redirect)) return res.status(400).send('Invalid redirect');
   const publicKey = process.env.MONO_PUBLIC_KEY || '';
   const sep = redirect.includes('?') ? '&' : '?';
@@ -3660,18 +3660,18 @@ app.get('/bank/mono-connect', (req, res) => {
   const SEP=${jsStr(sep)};
   let done=false, loaded=false;
   // Chrome Custom Tabs blocks ALL programmatic navigation to an app deep link
-  // (JS location.replace AND a server 302 both silently no-op) — only a real
+  // (JS location.replace AND a server 302 both silently no-op) - only a real
   // user tap is honored. So every outcome resolves to a one-tap button that
   // carries the result (the auth code, or a status) back into the app.
   const go=(q)=>{
     if(done) return; done=true; clearTimeout(guard);
     const btn=document.getElementById('cancel'), sp=document.querySelector('.sp');
     const success = q.indexOf('code=')===0 && q.length>5;
-    if(btn){ btn.setAttribute('href', REDIRECT+SEP+q); btn.textContent = success ? 'Finish — open Automonie' : 'Back to app'; }
+    if(btn){ btn.setAttribute('href', REDIRECT+SEP+q); btn.textContent = success ? 'Finish - open Automonie' : 'Back to app'; }
     if(msgEl) msgEl.textContent = success ? '✓ Bank linked! Tap Finish to continue.'
-      : (q.indexOf('status=timeout')===0 ? 'Timed out — tap to return.' : 'Tap to return to the app.');
+      : (q.indexOf('status=timeout')===0 ? 'Timed out - tap to return.' : 'Tap to return to the app.');
     if(sp) sp.style.display='none';
-    log(success ? '✓ READY — tap Finish' : 'READY — tap Back to app');
+    log(success ? '✓ READY - tap Finish' : 'READY - tap Back to app');
   };
   const msgEl=document.getElementById('msg'), dbgEl=document.getElementById('dbg');
   const log=(m)=>{ if(msgEl) msgEl.textContent=m; if(dbgEl) dbgEl.textContent += m + '\\n'; };
@@ -3681,7 +3681,7 @@ app.get('/bank/mono-connect', (req, res) => {
 
   // Bounce back only if the widget never became ready (so we don't interrupt a
   // legitimately-open picker).
-  const guard=setTimeout(()=>{ if(!loaded && !done){ log('TIMEOUT — widget never opened. Returning…'); setTimeout(()=>go('status=timeout'),1600);} }, 25000);
+  const guard=setTimeout(()=>{ if(!loaded && !done){ log('TIMEOUT - widget never opened. Returning…'); setTimeout(()=>go('status=timeout'),1600);} }, 25000);
 
   async function loadConnect(){
     try{
@@ -3698,7 +3698,7 @@ app.get('/bank/mono-connect', (req, res) => {
     return C;
   }
 
-  if(!KEY){ clearTimeout(guard); log('NOT CONFIGURED — MONO_PUBLIC_KEY is empty on the server.'); }
+  if(!KEY){ clearTimeout(guard); log('NOT CONFIGURED - MONO_PUBLIC_KEY is empty on the server.'); }
   else{
     (async()=>{
       try{
@@ -3710,7 +3710,7 @@ app.get('/bank/mono-connect', (req, res) => {
         const openOnce=(from)=>{ if(opened||done) return; opened=true; log('4) open() ['+from+']'); try{ connect.open(); }catch(e){ log('open() error: '+((e&&e.message)||e)); } };
         connect = new Connect({
           key: KEY, scope: 'auth',
-          onLoad: ()=>{ loaded=true; log('onLoad — widget ready'); openOnce('onLoad'); },
+          onLoad: ()=>{ loaded=true; log('onLoad - widget ready'); openOnce('onLoad'); },
           onSuccess: (res)=>{ log('onSuccess'); const code=(res&&(res.code||(res.getAuthCode&&res.getAuthCode())))||''; go('code='+encodeURIComponent(code)); },
           onClose: ()=>{ log('onClose'); go('status=closed'); },
           onEvent: (ev)=>{ try{ log('event: '+((ev&&(ev.type||ev.eventName))||JSON.stringify(ev))); }catch(_){ } },
@@ -3768,7 +3768,7 @@ function syncDue(acct, plan, manual) {
 
 // Pull + import ONLY NEW transactions from one linked Mono account, using a
 // per-account cursor (lastTxnDate). We fetch from the cursor forward (with a
-// small overlap), so we never re-fetch — and never re-pay for — history we
+// small overlap), so we never re-fetch - and never re-pay for - history we
 // already hold. First sync (no cursor) pulls full history once. Idempotent:
 // dedupe removes any repeats, so a retried/failed sync never duplicates or
 // double-charges.
@@ -3819,9 +3819,9 @@ async function syncMonoAccount(user, acct) {
 }
 
 // Sync a user's linked accounts, honouring rate caps.
-//   opts.manual    – use the shorter manual floor instead of the auto cadence
-//   opts.dirtyOnly – only sync accounts a webhook flagged (webhook mode)
-//   opts.force     – ignore rate caps entirely
+//   opts.manual    - use the shorter manual floor instead of the auto cadence
+//   opts.dirtyOnly - only sync accounts a webhook flagged (webhook mode)
+//   opts.force     - ignore rate caps entirely
 async function syncAllMonoForUser(user, opts = {}) {
   migrateLegacyBank(user);
   const plan = planKey(user);
@@ -3856,7 +3856,7 @@ app.post('/api/bank/sync', auth, async (req, res) => {
 });
 
 // Scheduled auto-sync for every linked account. Protected by a shared secret so
-// an external scheduler (e.g. cron-job.org / a Render cron job) can trigger it —
+// an external scheduler (e.g. cron-job.org / a Render cron job) can trigger it -
 // Render's free tier sleeps, so an in-process cron wouldn't fire reliably.
 app.post('/api/cron/sync-banks', async (req, res) => {
   const secret = process.env.CRON_SECRET;
@@ -3868,7 +3868,7 @@ app.post('/api/cron/sync-banks', async (req, res) => {
       { 'linkedBank.accountId': { $nin: [null, ''] } },
     ] });
     // Webhook mode: Mono pushes updates, so only sync accounts it flagged (dirty)
-    // — no paying to poll unchanged accounts. Polling mode (no webhook secret):
+    // - no paying to poll unchanged accounts. Polling mode (no webhook secret):
     // sync every account that's due at the plan cadence.
     const webhookMode = !!process.env.MONO_WEBHOOK_SEC;
     let imported = 0, synced = 0, failed = 0;
@@ -3884,7 +3884,7 @@ app.post('/api/cron/sync-banks', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Push notifications (Expo) — spending-insight nudges with local personality.
+// Push notifications (Expo) - spending-insight nudges with local personality.
 // ---------------------------------------------------------------------------
 const isExpoToken = (t) => /^Expo(nent)?PushToken\[.+\]$/.test(String(t || ''));
 
@@ -3916,7 +3916,7 @@ app.post('/api/push/test', auth, async (req, res) => {
     if (!u || !(u.pushTokens || []).length) {
       return res.status(400).json({ message: 'No device registered yet. Open Automonie on your phone and allow notifications first.' });
     }
-    const msg = (await buildInsight(req.user._id)) || { title: 'Automonie', body: 'Test push — your notifications are working! 🎉' };
+    const msg = (await buildInsight(req.user._id)) || { title: 'Automonie', body: 'Test push - your notifications are working! 🎉' };
     await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'test' } });
     res.json({ ok: true, devices: u.pushTokens.length });
   } catch (e) { console.error('[push/test]', e.message); res.status(500).json({ message: 'Server error' }); }
@@ -3940,7 +3940,7 @@ const EVERGREEN_INSIGHTS = [
   { title: 'Budget Reality Check', body: "You're not broke, you're just pre-paying for happiness. Let's budget for vibes too! 😎🎉" },
   { title: 'Small Wins', body: "You didn't spend impulsively today. Go and kiss yourself. You deserve it. 💋👏" },
   { title: 'Budget Challenge', body: "Can you go 24 hours without spending? Let's see the real MVP. 🏆💪" },
-  { title: 'Automonie', body: 'Quick money check — dey your account balance surprise you? Open Automonie and confirm. 👀💰' },
+  { title: 'Automonie', body: 'Quick money check - dey your account balance surprise you? Open Automonie and confirm. 👀💰' },
 ];
 
 // Build one witty, contextual spending-insight message for a user (or null).
@@ -3961,7 +3961,7 @@ async function buildInsight(userId) {
     const rep = Object.values(byDesc).sort((a, b) => b.n - a.n)[0];
     if (rep && rep.n >= 3) pool.push({ title: 'Automonie', body: `You've bought ${capWords(rep.label).slice(0, 28)} ${rep.n} times this month. Hope you budgeted for garri? 😅🍚` });
     const big = Object.values(spendByDesc).sort((a, b) => b.sum - a.sum)[0];
-    if (big && big.sum >= 20000) pool.push({ title: 'Automonie', body: `You've spent ${naira0(big.sum)} on ${capWords(big.label).slice(0, 24)}. The money no dey run — calm down. 😅💸` });
+    if (big && big.sum >= 20000) pool.push({ title: 'Automonie', body: `You've spent ${naira0(big.sum)} on ${capWords(big.label).slice(0, 24)}. The money no dey run - calm down. 😅💸` });
   }
   try {
     const budgets = await Budget.find({ userId, month: monthKey(now) }).lean();
@@ -3996,7 +3996,7 @@ async function runInsightsJob() {
   return { users: users.length, sent };
 }
 
-// External scheduler (cron-job.org / Render cron) — the reliable path.
+// External scheduler (cron-job.org / Render cron) - the reliable path.
 app.post('/api/cron/insights', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
@@ -4071,7 +4071,7 @@ app.delete('/api/bank/unlink', auth, async (req, res) => {
 
 // --------------------------
 // Bill payments via VTpass (Airtime, Data, TV, Electricity). Keys-pending:
-// inert until VTPASS_* env vars are set. Paid in-app from the user's wallet —
+// inert until VTPASS_* env vars are set. Paid in-app from the user's wallet -
 // we reserve the amount, call VTpass, and refund automatically if it declines.
 // --------------------------
 const VTPASS_BASE = () => (process.env.VTPASS_SANDBOX === 'true' || process.env.VTPASS_SANDBOX === '1')
@@ -4243,7 +4243,7 @@ app.post('/api/bills/pay', auth, async (req, res) => {
       : billType === 'data' ? `${providerName} Data`
       : billType === 'tv' ? `${providerName} subscription`
       : `${providerName} (meter ${billersCode})`;
-    const descr = `${label} — ${recipient}`;
+    const descr = `${label} - ${recipient}`;
     await new WalletTransaction({ userId: req.user._id, type: 'withdrawal', amount: amt, description: descr, reference: requestId, status: record.status === 'pending' ? 'pending' : 'completed' }).save();
     await new Transaction({ userId: req.user._id, date: new Date(), description: descr, amount: -Math.abs(amt), category: BILL_CATEGORY[billType], type: 'expense', source: 'manual' }).save();
     await createNotification(req.user._id, { type: 'success', title: 'Bill paid', message: `${descr} • ₦${amt.toLocaleString()}` });
@@ -4352,7 +4352,7 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
 });
 
 // --------------------------
-// AI Assistant (Claude) — natural-language Q&A over the user's own finances
+// AI Assistant (Claude) - natural-language Q&A over the user's own finances
 // --------------------------
 // Activated by setting ANTHROPIC_API_KEY on the host. Until then the endpoint
 // returns a friendly "coming soon" reply (same keys-pending pattern as the
@@ -4366,7 +4366,7 @@ const naira = (n) => '₦' + Math.round(Number(n) || 0).toLocaleString('en-NG');
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
 // Build a compact, structured snapshot of the user's finances for the model.
-// We summarise rather than dump every row — keeps token cost down and avoids
+// We summarise rather than dump every row - keeps token cost down and avoids
 // leaking more raw data than needed. NGN throughout.
 const buildFinancialContext = async (user) => {
   const userId = user._id;
@@ -4451,20 +4451,20 @@ const buildFinancialContext = async (user) => {
 const AI_SYSTEM_PROMPT = `You are Automonie's built-in finance assistant for a Nigerian personal-finance app. You help the user understand their money AND take actions in the app on their behalf.
 
 You can do two kinds of things:
-1. INSIGHTS & REPORTS — answer questions and produce summaries/reports from the user's financial snapshot (provided in their message). Examples: "where is my money going", "give me a spending report for this month", "am I on track with my budgets".
-2. ACTIONS — actually create things in the app using the provided tools: log a transaction, set a budget, create a savings goal, add a subscription to track, or set up a recurring bill.
+1. INSIGHTS & REPORTS - answer questions and produce summaries/reports from the user's financial snapshot (provided in their message). Examples: "where is my money going", "give me a spending report for this month", "am I on track with my budgets".
+2. ACTIONS - actually create things in the app using the provided tools: log a transaction, set a budget, create a savings goal, add a subscription to track, or set up a recurring bill.
 
 Rules:
 - All amounts are in Nigerian Naira (₦). Format money with the ₦ symbol and thousands separators.
 - For insights/reports, use ONLY the snapshot data. Never invent transactions, balances, or numbers. If the data doesn't cover the question, say so and suggest what to track.
 - For actions, use the matching tool. If a required detail is missing or ambiguous (e.g. the amount, the goal's target, or a deadline), ASK a short clarifying question instead of guessing. Never fabricate values for an action.
 - After performing an action, confirm briefly what you did (the tool result tells you if it succeeded).
-- You can only CREATE records. You cannot move money, pay bills, contribute to goals, delete, or edit existing items — if asked, explain they can do that from the relevant screen.
-- Be concise and practical — this renders in a small chat window. Lead with the answer, then one supporting detail or tip.
+- You can only CREATE records. You cannot move money, pay bills, contribute to goals, delete, or edit existing items - if asked, explain they can do that from the relevant screen.
+- Be concise and practical - this renders in a small chat window. Lead with the answer, then one supporting detail or tip.
 - Give general budgeting/savings guidance, but no regulated investment, tax, or legal advice; suggest a professional for those. Be encouraging and non-judgmental.`;
 
 // Tools the assistant can call. All are CREATE-only and scoped to the requesting
-// user — nothing here moves real money (no wallet debits, goal contributions, or
+// user - nothing here moves real money (no wallet debits, goal contributions, or
 // bill payments), so actions are low-risk and reversible from the UI.
 const AI_TOOLS = [
   {
@@ -4511,7 +4511,7 @@ const AI_TOOLS = [
   },
   {
     name: 'add_subscription',
-    description: 'Add a recurring subscription to track (e.g. Netflix, DSTV, gym). Tracking only — it does not auto-pay.',
+    description: 'Add a recurring subscription to track (e.g. Netflix, DSTV, gym). Tracking only - it does not auto-pay.',
     input_schema: {
       type: 'object',
       properties: {
@@ -4525,7 +4525,7 @@ const AI_TOOLS = [
   },
   {
     name: 'create_bill',
-    description: 'Set up a recurring bill reminder (e.g. rent, electricity) due on a day of the month. Reminder/tracking only — it does not auto-pay.',
+    description: 'Set up a recurring bill reminder (e.g. rent, electricity) due on a day of the month. Reminder/tracking only - it does not auto-pay.',
     input_schema: {
       type: 'object',
       properties: {
@@ -4560,7 +4560,7 @@ const executeAiTool = async (name, input, user) => {
       await txn.save();
       await applySavingsRule(userId, txn.amount, txn.type);
       if (type === 'expense') checkBudgetAlert(userId, txn.category, date.toISOString().slice(0, 7));
-      return { ok: true, summary: `Logged ${type} of ${naira(amount)} — ${category} (${txn.description}).`, kind: 'transaction' };
+      return { ok: true, summary: `Logged ${type} of ${naira(amount)} - ${category} (${txn.description}).`, kind: 'transaction' };
     }
 
     if (name === 'create_budget') {
@@ -4582,7 +4582,7 @@ const executeAiTool = async (name, input, user) => {
         return { ok: false, summary: 'A name, target amount, and a valid deadline date are required for a goal.' };
       }
       await new Goal({ userId, name: name2, target, current: 0, deadline: new Date(input.deadline), category: input.category || 'General' }).save();
-      return { ok: true, summary: `Created goal "${name2}" — target ${naira(target)} by ${new Date(input.deadline).toISOString().slice(0, 10)}.`, kind: 'goal' };
+      return { ok: true, summary: `Created goal "${name2}" - target ${naira(target)} by ${new Date(input.deadline).toISOString().slice(0, 10)}.`, kind: 'goal' };
     }
 
     if (name === 'add_subscription') {
@@ -4594,7 +4594,7 @@ const executeAiTool = async (name, input, user) => {
         category: input.category || 'Entertainment', status: 'active',
         nextPayment: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       }).save();
-      return { ok: true, summary: `Now tracking subscription "${name2}" — ${naira(cost)} ${input.frequency || 'monthly'}.`, kind: 'subscription' };
+      return { ok: true, summary: `Now tracking subscription "${name2}" - ${naira(cost)} ${input.frequency || 'monthly'}.`, kind: 'subscription' };
     }
 
     if (name === 'create_bill') {
@@ -4609,7 +4609,7 @@ const executeAiTool = async (name, input, user) => {
         userId, name: name2, amount, dueDate, frequency: input.frequency || 'monthly',
         category: input.category || 'Bills', autoPay: false, nextDue, status: 'active',
       }).save();
-      return { ok: true, summary: `Set up bill reminder "${name2}" — ${naira(amount)} due on day ${dueDate} each ${input.frequency === 'yearly' ? 'year' : 'month'}.`, kind: 'bill' };
+      return { ok: true, summary: `Set up bill reminder "${name2}" - ${naira(amount)} due on day ${dueDate} each ${input.frequency === 'yearly' ? 'year' : 'month'}.`, kind: 'bill' };
     }
 
     return { ok: false, summary: `Unknown action: ${name}.` };
@@ -4632,7 +4632,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     if (!aiConfigured()) {
       return res.json({
         configured: false,
-        reply: "The AI assistant isn't switched on for this account yet — it's coming soon. In the meantime you can explore your Dashboard, Financial Health, and Cashflow for insights into your spending.",
+        reply: "The AI assistant isn't switched on for this account yet - it's coming soon. In the meantime you can explore your Dashboard, Financial Health, and Cashflow for insights into your spending.",
       });
     }
 
@@ -4694,7 +4694,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       configured: true,
       reply: reply || "Sorry, I couldn't generate a response. Please try rephrasing.",
       actions,
-      // True if anything was created — the UI uses this to refresh data views.
+      // True if anything was created - the UI uses this to refresh data views.
       changed: actions.some((a) => a.ok),
     });
   } catch (e) {
@@ -4705,7 +4705,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
 });
 
 // --------------------------
-// Reminders — "needs your attention" items computed from the user's own data.
+// Reminders - "needs your attention" items computed from the user's own data.
 // Feeds the mobile Home attention card and mirrors actionable items into the
 // notification bell (deduped per period, same idempotent pattern as budget
 // alerts). Read-only from the client's perspective; nothing here moves money.
@@ -4738,7 +4738,7 @@ app.get('/api/reminders', auth, async (req, res) => {
       });
     }
 
-    // 2) New-month statement upload — only nag users who have imported before.
+    // 2) New-month statement upload - only nag users who have imported before.
     if (everImported) {
       const lastDate = lastImport?.importedAt ? new Date(lastImport.importedAt) : null;
       const daysSince = lastDate ? Math.floor((today - lastDate) / 86400000) : 999;
@@ -4754,7 +4754,7 @@ app.get('/api/reminders', auth, async (req, res) => {
       }
     }
 
-    // 2b) Quick-log nudge — nothing added in a while. Points at the fast SMS/email
+    // 2b) Quick-log nudge - nothing added in a while. Points at the fast SMS/email
     // paste import (not just the monthly statement upload). Suppressed when the
     // monthly statement nudge is already showing so we don't double-nag.
     const hasStatementNudge = reminders.some((r) => r.id === 'statement');
@@ -4770,7 +4770,7 @@ app.get('/api/reminders', auth, async (req, res) => {
       }
     }
 
-    // 3) Cash shortfall — committed outflows in the next 7 days vs wallet balance.
+    // 3) Cash shortfall - committed outflows in the next 7 days vs wallet balance.
     const in7 = new Date(today); in7.setDate(in7.getDate() + 7);
     const dueSoon = [...bills, ...subs].reduce((s, x) => {
       const d = x.nextDue || x.nextPayment;
@@ -4821,7 +4821,7 @@ app.get('/api/reminders', auth, async (req, res) => {
 
 // Re-run the categorizer (your own learned rules → shared consensus) over rows
 // still sitting in 'Other', so existing transactions benefit as the shared model
-// grows. Free — no external calls.
+// grows. Free - no external calls.
 app.post('/api/transactions/recategorize', auth, async (req, res) => {
   try {
     const uid = req.user._id;

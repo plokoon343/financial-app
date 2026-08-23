@@ -109,7 +109,7 @@ const PayBill = ({ onPaid }) => {
       if (billType === 'electricity') body.meterType = meterType;
       const r = await axios.post(`${API_URL}/api/bills/pay`, body, authHeaders());
       const pendingNote = r.data.status === 'pending' ? ' (pending confirmation)' : '';
-      flash(`${r.data.description || 'Bill paid'} — ${fmtNaira(r.data.amount)}${pendingNote}.`);
+      flash(`${r.data.description || 'Bill paid'} - ${fmtNaira(r.data.amount)}${pendingNote}.`);
       if (r.data.token) setToken(r.data.token);
       window.dispatchEvent(new CustomEvent('wallet-updated', { detail: { balance: r.data.balance } }));
       if (typeof onPaid === 'function') onPaid();
@@ -128,7 +128,7 @@ const PayBill = ({ onPaid }) => {
         <h3><i className="fas fa-bolt"></i> Pay a bill</h3>
         {sandbox && <span className="pb-tag">Test mode</span>}
       </div>
-      <p className="pb-sub">Top up airtime &amp; data, renew TV, or buy electricity — straight from your wallet.</p>
+      <p className="pb-sub">Top up airtime &amp; data, renew TV, or buy electricity - straight from your wallet.</p>
 
       {!enabled && (
         <div className="pb-notice">
@@ -162,7 +162,7 @@ const PayBill = ({ onPaid }) => {
             <label>{billType === 'tv' ? 'Bouquet' : 'Data plan'}</label>
             <select value={variationCode} onChange={(e) => pickVariation(e.target.value)} disabled={!serviceID || loadingVars}>
               <option value="">{loadingVars ? 'Loading…' : 'Select…'}</option>
-              {variations.map((v) => <option key={v.code} value={v.code}>{v.name}{v.amount ? ` — ${fmtNaira(v.amount)}` : ''}</option>)}
+              {variations.map((v) => <option key={v.code} value={v.code}>{v.name}{v.amount ? ` - ${fmtNaira(v.amount)}` : ''}</option>)}
             </select>
           </div>
         )}
@@ -198,7 +198,7 @@ const PayBill = ({ onPaid }) => {
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="08012345678" inputMode="tel" />
         </div>
 
-        {/* Amount — free for airtime & electricity, fixed for data & TV */}
+        {/* Amount - free for airtime & electricity, fixed for data & TV */}
         <div className="pb-field">
           <label>Amount {needsVariation && <span className="pb-hint">(set by plan)</span>}</label>
           <input

@@ -34,7 +34,7 @@ const Budget = () => {
   const errMessage = (error, fallback) => {
     if (error.response?.data?.message) return error.response.data.message;
     if (error.code === 'ECONNABORTED' || error.message === 'Network Error') {
-      return 'Could not reach the server. It may be waking up — wait a few seconds and try again.';
+      return 'Could not reach the server. It may be waking up - wait a few seconds and try again.';
     }
     return fallback;
   };
@@ -105,7 +105,7 @@ const Budget = () => {
     }
   };
 
-  // No PUT endpoint for budgets — "edit limit" = delete then recreate with the
+  // No PUT endpoint for budgets - "edit limit" = delete then recreate with the
   // same category/month and the new amount.
   const saveEditLimit = async () => {
     const amt = parseFloat(editAmount);
@@ -131,7 +131,7 @@ const Budget = () => {
     return isNaN(d) ? '' : d.toISOString().slice(0, 7);
   };
 
-  // Calculate budget vs actual — only counting THIS month's expenses in the category.
+  // Calculate budget vs actual - only counting THIS month's expenses in the category.
   const budgetData = budgets.map(budget => {
     const actualSpent = transactions
       .filter(t => t.type === 'expense' && t.category === budget.category && txMonth(t) === budget.month)
@@ -464,7 +464,7 @@ const Budget = () => {
                     </div>
                   </div>
                   {/* Budget over/near alerts now surface as in-app notifications (bell),
-                      generated server-side — see checkBudgetAlert in the backend. */}
+                      generated server-side - see checkBudgetAlert in the backend. */}
                 </div>
               </div>
             ))}

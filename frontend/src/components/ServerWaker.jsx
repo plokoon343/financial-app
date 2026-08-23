@@ -5,7 +5,7 @@ import { LogoMark } from './Logo';
 
 // Pings the backend health endpoint on load. If the (free-tier) server is asleep,
 // the first request is slow/failing, so we show a friendly "waking up" overlay and
-// keep retrying until it responds — instead of the app looking broken.
+// keep retrying until it responds - instead of the app looking broken.
 const ServerWaker = () => {
   const [status, setStatus] = useState('checking'); // 'checking' | 'waking' | 'ready'
 
@@ -51,7 +51,7 @@ const ServerWaker = () => {
         </div>
         <h3 style={{ margin: '0 0 8px', fontSize: '1.1rem' }}>Waking up the server…</h3>
         <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.8, lineHeight: 1.5 }}>
-          The free server sleeps after inactivity. The first load can take up to a minute — hang tight, this happens automatically.
+          The free server sleeps after inactivity. The first load can take up to a minute - hang tight, this happens automatically.
         </p>
       </div>
       <style>{`@keyframes sw-spin { to { transform: rotate(360deg); } }`}</style>

@@ -31,7 +31,7 @@ const BillsManager = () => {
       setGoals(goalsRes.data || []);
     } catch (err) {
       console.error('Failed to fetch data:', err);
-      flash('Could not load your obligations. The server may be waking up — try again.', 'error');
+      flash('Could not load your obligations. The server may be waking up - try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -158,7 +158,7 @@ const BillsManager = () => {
         })}
       </section>
 
-      {/* Goals — tracked only (contribute from the Goals page) */}
+      {/* Goals - tracked only (contribute from the Goals page) */}
       <section className="bills-section">
         <h3><i className="fas fa-flag-checkered"></i> Goals <span className="track-tag">tracked</span></h3>
         {goals.length === 0 ? (

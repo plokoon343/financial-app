@@ -204,10 +204,10 @@ const AutoSavings = () => {
               <div className="input-with-icon">
                 <i className="fas fa-flag-checkered input-icon"></i>
                 <select value={selectedGoalId} onChange={(e) => setSelectedGoalId(e.target.value)}>
-                  <option value="">None – save to general savings wallet</option>
+                  <option value="">None - save to general savings wallet</option>
                   {goals.map(goal => (
                     <option key={goal._id} value={goal._id}>
-                      {goal.name} – {fmtNaira(goal.current)} / {fmtNaira(goal.target)}
+                      {goal.name} - {fmtNaira(goal.current)} / {fmtNaira(goal.target)}
                     </option>
                   ))}
                 </select>
@@ -261,7 +261,7 @@ const AutoSavings = () => {
             <div className="how-step-icon"><i className="fas fa-bolt"></i></div>
             <div className="how-step-text">
               <h4>2. We do it automatically</h4>
-              <p>Every matching transaction triggers the rule — no manual transfers needed.</p>
+              <p>Every matching transaction triggers the rule - no manual transfers needed.</p>
             </div>
           </div>
           <div className="how-step">
@@ -272,7 +272,7 @@ const AutoSavings = () => {
             </div>
           </div>
         </div>
-        <p className="how-note"><i className="fas fa-info-circle"></i> One active rule at a time — fixed amount <em>or</em> round‑up.</p>
+        <p className="how-note"><i className="fas fa-info-circle"></i> One active rule at a time - fixed amount <em>or</em> round‑up.</p>
       </div>
 
       <style jsx="true">{`

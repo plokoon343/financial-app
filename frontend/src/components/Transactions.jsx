@@ -50,7 +50,7 @@ const Transactions = () => {
       const res = await axios.get(`${API_URL}/api/transactions`, auth());
       setAll(res.data || []);
     } catch (e) {
-      flash('Could not load transactions. The server may be waking up — try again.', 'error');
+      flash('Could not load transactions. The server may be waking up - try again.', 'error');
     } finally { setLoading(false); }
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,7 +70,7 @@ const Transactions = () => {
       const res = await axios.post(`${API_URL}/api/transactions/recategorize`, {}, auth());
       const n = res.data?.updated || 0;
       if (n > 0) { await fetchAll(); flash(`Sorted ${n} transaction${n === 1 ? '' : 's'} into categories`); }
-      else flash('Nothing new to sort yet — the categories you fix teach it over time.');
+      else flash('Nothing new to sort yet - the categories you fix teach it over time.');
     } catch {
       flash('Could not clean up categories.', 'error');
     } finally { setCleaning(false); }
@@ -122,7 +122,7 @@ const Transactions = () => {
     return { income, expense };
   }, [filtered]);
 
-  // Pagination — reset to page 1 whenever the result set changes.
+  // Pagination - reset to page 1 whenever the result set changes.
   useEffect(() => { setPage(1); }, [fMonth, fBank, fCategory, fType, search, sortBy, sortDir, pageSize]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageStart = (page - 1) * pageSize;
@@ -153,7 +153,7 @@ const Transactions = () => {
     catch { flash('Batch delete failed', 'error'); }
   };
   const deleteBatch = async (b) => {
-    if (!window.confirm(`Delete the entire "${b.bank}" statement (${b.count} transactions)?\n\nThis permanently removes these transactions everywhere — including your Financial Health and reports. This cannot be undone.`)) return;
+    if (!window.confirm(`Delete the entire "${b.bank}" statement (${b.count} transactions)?\n\nThis permanently removes these transactions everywhere - including your Financial Health and reports. This cannot be undone.`)) return;
     try {
       await axios.delete(`${API_URL}/api/transactions/batch/${b.id}`, auth());
       setAll(prev => prev.filter(t => t.importBatch !== b.id));
@@ -207,16 +207,16 @@ const Transactions = () => {
             color: 'var(--accent-primary)', borderRadius: '12px', padding: '0.85rem 1rem',
             fontWeight: 700, fontSize: '0.95rem', cursor: cleaning ? 'default' : 'pointer', margin: '0 0 1rem' }}>
           <i className="fas fa-magic"></i>
-          <span style={{ flex: 1 }}>{cleaning ? 'Sorting your transactions…' : `${otherCount} uncategorised — clean up automatically`}</span>
+          <span style={{ flex: 1 }}>{cleaning ? 'Sorting your transactions…' : `${otherCount} uncategorised - clean up automatically`}</span>
           {!cleaning && <i className="fas fa-chevron-right"></i>}
         </button>
       )}
 
-      {/* Statements (import batches) — show the most recent few; rest in a popup */}
+      {/* Statements (import batches) - show the most recent few; rest in a popup */}
       {batches.length > 0 && (
         <div className="tx-card">
           <div className="statements-head">
-            <h3>Imported statements<InfoTip text="Each bank statement you upload becomes one group. Deleting a statement removes only its transactions — the rest of the month stays." /></h3>
+            <h3>Imported statements<InfoTip text="Each bank statement you upload becomes one group. Deleting a statement removes only its transactions - the rest of the month stays." /></h3>
             {batches.length > RECENT_STATEMENTS && (
               <button className="view-all-btn" onClick={() => setShowAllStatements(true)}>
                 View all ({batches.length})
@@ -331,7 +331,7 @@ const Transactions = () => {
                     <option value={ADD_NEW}>➕ Add new…</option>
                   </select>
                 </td>
-                <td>{t.bank || '—'}</td>
+                <td>{t.bank || '-'}</td>
                 <td className="row-actions">
                   <button className="icon-btn save" onClick={() => saveEdit(t._id)}><i className="fas fa-check"></i></button>
                   <button className="icon-btn" onClick={() => setEditingId(null)}><i className="fas fa-times"></i></button>
@@ -351,7 +351,7 @@ const Transactions = () => {
                     <option value={ADD_NEW}>➕ Add new…</option>
                   </select>
                 </td>
-                <td className="nowrap">{t.bank || '—'}</td>
+                <td className="nowrap">{t.bank || '-'}</td>
                 <td className="row-actions">
                   <button className="icon-btn" onClick={() => startEdit(t)} title="Edit"><i className="fas fa-pen"></i></button>
                   <button className="icon-btn del" onClick={() => deleteOne(t._id)} title="Delete"><i className="fas fa-trash"></i></button>
@@ -375,7 +375,7 @@ const Transactions = () => {
             </select>
           </div>
           <div className="page-range">
-            {pageStart + 1}–{Math.min(pageStart + pageSize, filtered.length)} of {filtered.length}
+            {pageStart + 1}-{Math.min(pageStart + pageSize, filtered.length)} of {filtered.length}
           </div>
           <div className="page-nav">
             <button disabled={page === 1} onClick={() => setPage(1)} title="First">«</button>

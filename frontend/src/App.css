@@ -27,7 +27,7 @@
   --font-body: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-accent: 'Poppins', 'Segoe UI', sans-serif;
   
-  /* Smaller base radii – mobile friendly */
+  /* Smaller base radii - mobile friendly */
   --radius-sm: 8px;
   --radius-md: 16px;
   --radius-lg: 24px;
@@ -92,7 +92,7 @@
   --shadow-glow: 0 0 40px rgba(102, 126, 234, 0.2);
 }
 
-/* ===== Automonie "cockpit" theme — overrides the tokens above ===== */
+/* ===== Automonie "cockpit" theme - overrides the tokens above ===== */
 :root {
   --accent-primary: #008751;
   --gradient-primary: linear-gradient(135deg, #008751 0%, #00a862 100%);
@@ -102,7 +102,7 @@
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
-  /* Semantic surface tokens (light) — keep these in sync with .dark-theme below
+  /* Semantic surface tokens (light) - keep these in sync with .dark-theme below
      so every component reads a defined, readable value in both themes. */
   --text-primary: #1a2540;
   --text-secondary: #51607a;
@@ -124,7 +124,7 @@
   --text-faint: #6d8a83;
   --accent-primary: #34d399;        /* teal-green accent for icons/active/links */
   --gradient-primary: linear-gradient(135deg, #0a7a4f 0%, #14b8a6 100%);
-  /* Solid surface tokens (dark) — teal-tinted, paired with the light set above. */
+  /* Solid surface tokens (dark) - teal-tinted, paired with the light set above. */
   --bg-card: #0e211f;
   --bg-elevated: #153029;
   --bg-input: #14302a;
@@ -209,7 +209,7 @@ body {
   .container { max-width: 1280px; padding: 8px 24px; }
 }
 
-/* ===== SIDEBAR (DRAWER – HIDDEN BY DEFAULT) ===== */
+/* ===== SIDEBAR (DRAWER - HIDDEN BY DEFAULT) ===== */
 .sidebar-hamburger {
   position: fixed;
   top: 1rem;
@@ -564,7 +564,7 @@ body {
   }
 }
 
-/* Financial summary, savings rate, trends, insights – keep as is (too long, but unchanged) */
+/* Financial summary, savings rate, trends, insights - keep as is (too long, but unchanged) */
 /* (all existing styles for financial summary, savings-rate, trend-bars, insights remain) */
 
 /* Animations */

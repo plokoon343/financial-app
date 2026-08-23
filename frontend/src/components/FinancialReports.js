@@ -76,7 +76,7 @@ const FinancialReports = ({ transactions = [] }) => {
   const headline = {
     incexp: { label: 'Net across period', value: fmtNaira(totals.net), color: totals.net >= 0 ? INCOME : EXPENSE },
     savings: { label: 'Avg. monthly savings', value: fmtNaira(avgSavings), color: avgSavings >= 0 ? INCOME : EXPENSE },
-    expense: { label: 'Top category', value: topCat ? `${topCat.name} · ${fmtNaira(topCat.value)}` : '—', color: EXPENSE },
+    expense: { label: 'Top category', value: topCat ? `${topCat.name} · ${fmtNaira(topCat.value)}` : '-', color: EXPENSE },
     cashflow: { label: 'Ending balance (period)', value: fmtNaira(months.length ? months[months.length - 1].cumulative : 0), color: ACCENT },
   }[report];
 

@@ -49,9 +49,9 @@ const FinancialHealth = ({ transactions = [] }) => {
   // A single concise status derived from the numbers (replaces prose advice).
   const getHealthStatus = (data) => {
     if (data.netIncome < 0) return { color: '#ef4444', label: 'Spending exceeds income' };
-    if (data.savingsRate >= 20) return { color: '#22c55e', label: 'Healthy — strong savings rate' };
-    if (data.savingsRate >= 10) return { color: '#f59e0b', label: 'Stable — room to save more' };
-    return { color: '#f97316', label: 'Tight — savings rate is low' };
+    if (data.savingsRate >= 20) return { color: '#22c55e', label: 'Healthy - strong savings rate' };
+    if (data.savingsRate >= 10) return { color: '#f59e0b', label: 'Stable - room to save more' };
+    return { color: '#f97316', label: 'Tight - savings rate is low' };
   };
 
   if (loading && transactions.length === 0) {

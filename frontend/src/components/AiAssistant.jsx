@@ -52,7 +52,7 @@ const AiAssistant = () => {
         ...m,
         { role: 'assistant', content: res.data.reply, actions: res.data.actions || [] },
       ]);
-      // The assistant created something — let other screens know to refresh.
+      // The assistant created something - let other screens know to refresh.
       if (res.data.changed) window.dispatchEvent(new Event('automonie:data-changed'));
     } catch (err) {
       const msg =
@@ -97,7 +97,7 @@ const AiAssistant = () => {
             <div className="ai-empty-icon">
               <span className="material-symbols-outlined">forum</span>
             </div>
-            <p>Your data stays private — I only see your own accounts.</p>
+            <p>Your data stays private - I only see your own accounts.</p>
             <div className="ai-suggestions">
               {SUGGESTIONS.map((s) => (
                 <button key={s} className="ai-chip" onClick={() => send(s)} disabled={loading}>
@@ -162,7 +162,7 @@ const AiAssistant = () => {
         </button>
       </div>
       <p className="ai-disclaimer">
-        General guidance only — not regulated investment, tax, or legal advice.
+        General guidance only - not regulated investment, tax, or legal advice.
       </p>
     </div>
   );

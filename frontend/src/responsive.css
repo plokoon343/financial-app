@@ -61,7 +61,7 @@
     font-size: 0.9rem !important;
   }
 
-  /* Overview grids – single column */
+  /* Overview grids - single column */
   .overview-grid,
   .debt-overview,
   .trend-overview {
@@ -168,7 +168,7 @@
     width: 100% !important;
   }
 
-  /* Financial Health tabs – icons only */
+  /* Financial Health tabs - icons only */
   .tab-navigation {
     gap: 6px;
     padding: 8px;

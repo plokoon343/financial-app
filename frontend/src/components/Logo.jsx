@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import './Logo.css';
 import markPng from '../assets/logo-mark.png';
-import fullDark from '../assets/logo-full-dark.png';   // black wordmark — for light backgrounds
-import fullLight from '../assets/logo-full-light.png';  // white wordmark — for dark backgrounds
+import fullDark from '../assets/logo-full-dark.png';   // black wordmark - for light backgrounds
+import fullLight from '../assets/logo-full-light.png';  // white wordmark - for dark backgrounds
 
 // The mark on its own (the gradient "A → o"). `animate='pulse'` gives the
 // branded loading animation used in place of the classic spinner.
@@ -19,9 +19,9 @@ export const LogoMark = ({ size = 40, animate, className = '', style }) => (
 const isLight = (c) => typeof c === 'string' && ['#fff', '#ffffff', 'white'].includes(c.toLowerCase());
 
 // Mark + "automonie" wordmark. `variant`:
-//   'auto'  (default) — black wordmark, switches to white under .dark-theme
-//   'light' — always white wordmark (for dark surfaces like the sidebar)
-//   'dark'  — always black wordmark
+//   'auto'  (default) - black wordmark, switches to white under .dark-theme
+//   'light' - always white wordmark (for dark surfaces like the sidebar)
+//   'dark'  - always black wordmark
 // `color` is kept for backwards-compat: color="#fff" maps to variant="light".
 export const LogoFull = ({ height = 34, variant = 'auto', color, className = '' }) => {
   const v = variant !== 'auto' ? variant : (color ? (isLight(color) ? 'light' : 'dark') : 'auto');
@@ -36,7 +36,7 @@ export const LogoFull = ({ height = 34, variant = 'auto', color, className = '' 
   );
 };
 
-// Branded loading indicator — the pulsing logo icon, in place of the spinner.
+// Branded loading indicator - the pulsing logo icon, in place of the spinner.
 export const Loader = ({ size = 56, label }) => (
   <div className="am-loader" role="status" aria-label={label || 'Loading'}>
     <LogoMark size={size} animate="pulse" />

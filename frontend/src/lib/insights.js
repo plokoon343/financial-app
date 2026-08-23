@@ -1,11 +1,11 @@
 // Web port of the mobile "identity engine" (finpilot-mobile/src/lib/*): the
 // Voice, spending Archetypes, the clarity streak + season, and salary-day
-// detection. All pure and on-device — computed from the user's own transactions,
+// detection. All pure and on-device - computed from the user's own transactions,
 // nothing leaves the browser, no AI cost. Icons are material-symbols names (the
 // web app's icon font); no emoji. Keep this in sync with the mobile libs.
 
 // ---------------------------------------------------------------------------
-// prettyMerchant — turn a raw (often bank-imported) description into a friendly
+// prettyMerchant - turn a raw (often bank-imported) description into a friendly
 // name. Ported from finpilot-mobile/src/lib/txnDisplay.ts.
 // ---------------------------------------------------------------------------
 const NOISE = /^(NIP|NXG|NEFT|RTGS|TRF|TRANSFER|TRANSFERTO|TRFTO|TO|FRM|FROM|REF|USSD|POS|WEB|MOB|MOBILE|VISA|MC|MASTERCARD|VERVE|ATM|CASH|WD|GTB|GTBANK|KUDA|UBA|ACCESS|ZENITH|FIRSTBANK|FBN|OPAY|PALMPAY|MONIEPOINT|WEMA|FIDELITY|STANBIC|UNION|POLARIS|FCMB|STERLING|ECOBANK|JAIZ|KEYSTONE|PROVIDUS|BANK|PLC|MFB|LTD|LIMITED|NG|NGN|VAT|CHARGE|CHARGES|FEE|FEES|COMM|LEVY|SESSION|SESSIONID|RRN|APPROVED|SUCCESSFUL|PAYMENT|PMT|DR|CR)$/i;
@@ -30,7 +30,7 @@ export function prettyMerchant(raw) {
 }
 
 // ---------------------------------------------------------------------------
-// Archetypes — a month's pattern as a shareable money personality. Never shows a
+// Archetypes - a month's pattern as a shareable money personality. Never shows a
 // naira figure, so it's safe to screenshot. Ported from archetype.ts (Ionicons
 // glyphs swapped for material-symbols names).
 // ---------------------------------------------------------------------------
@@ -83,25 +83,25 @@ export function computeArchetype(all, income, monthKey) {
   } else if (lifestyleShare >= 0.4 && savingsRate > 0) {
     a = { key: 'softlife', name: 'The Soft-Life Economist', icon: 'diamond', color: '#f59e0b',
       tagline: 'Soft life, but the maths still maths. Enjoyment with sense.',
-      blurb: 'You enjoy the finer things — and still finished the month in the green.' };
+      blurb: 'You enjoy the finer things - and still finished the month in the green.' };
   } else if (expenseToIncome > 1) {
     a = { key: 'sapa', name: 'The Sapa Survivor', icon: 'fitness_center', color: '#f97316',
       tagline: 'You stretched the last change into a full week. Legend.',
-      blurb: 'You spent more than came in — but you’re surviving on strategy.' };
+      blurb: 'You spent more than came in - but you’re surviving on strategy.' };
   } else if (expenseToIncome >= 0.9 && lifestyleShare >= 0.25) {
     a = { key: 'detty', name: 'The Detty Prophet', icon: 'auto_awesome', color: '#ec4899',
       tagline: 'You planned to save. You spent. No regrets, prophet.',
-      blurb: 'Nearly everything that came in went back out — and you enjoyed it.' };
+      blurb: 'Nearly everything that came in went back out - and you enjoyed it.' };
   } else {
     a = { key: 'steady', name: 'The Steady Hand', icon: 'workspace_premium', color: '#14b8a6',
-      tagline: 'No drama, no chaos — just a balanced month.',
+      tagline: 'No drama, no chaos - just a balanced month.',
       blurb: 'Your spending was spread out and under control. Quietly winning.' };
   }
   return { archetype: a, signals };
 }
 
 // ---------------------------------------------------------------------------
-// The Voice — witty, Naija-flavoured reactions to the month. Ported from voice.ts.
+// The Voice - witty, Naija-flavoured reactions to the month. Ported from voice.ts.
 // `fmt` is the caller's money formatter (respects hide-balance).
 // ---------------------------------------------------------------------------
 const pct = (part, whole) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
@@ -153,7 +153,7 @@ export function buildVoiceLines(all, income, monthKey, fmt) {
     if (topC[0] === 'Food') add('cat-food', `${share}% of your money went to chop. The streets dey chop your salary well well.`, 'roast');
     else if (topC[0] === 'Transport') add('cat-trans', `Transport swallowed ${share}% this month. The road no be your padi.`, 'observe');
     else if (topC[0] === 'Airtime & Data') add('cat-data', `You fed the network ${fmt(topC[1])} in airtime & data. MTN sends its regards.`, 'roast');
-    else add('cat-top', `${topC[0]} took the biggest bite — ${share}% of everything you spent.`, 'observe');
+    else add('cat-top', `${topC[0]} took the biggest bite - ${share}% of everything you spent.`, 'observe');
   }
   const subs = catAmt('Subscriptions');
   if (subs > 0) add('subs', `Subscriptions quietly removed ${fmt(subs)}. Check the ones wey you don forget.`, 'nudge');
@@ -163,8 +163,8 @@ export function buildVoiceLines(all, income, monthKey, fmt) {
     if (share >= 25) add('big', `One transaction carried ${share}% of your month's spend. That one na statement.`, 'observe');
   }
   if (savingsRate >= 20) add('save-good', `You kept ${savingsRate}% this month. Future you go thank you well well.`, 'praise');
-  else if (net < 0) add('overspend', `You spent pass wetin enter this month. Sapa dey plan attendance — lock something small away.`, 'nudge');
-  else if (savingsRate > 0 && savingsRate < 10) add('save-low', `You saved ${savingsRate}%. Small progress still be progress — push am reach 20%.`, 'nudge');
+  else if (net < 0) add('overspend', `You spent pass wetin enter this month. Sapa dey plan attendance - lock something small away.`, 'nudge');
+  else if (savingsRate > 0 && savingsRate < 10) add('save-low', `You saved ${savingsRate}%. Small progress still be progress - push am reach 20%.`, 'nudge');
 
   if (noSpendDays >= 3) add('nospend', `${noSpendDays} days you spent nothing at all. Monk behaviour.`, 'praise');
 
@@ -177,7 +177,7 @@ export function buildVoiceLines(all, income, monthKey, fmt) {
     const daysPrev = new Date(prevD.getFullYear(), prevD.getMonth() + 1, 0).getDate();
     const thisPace = totalExpense / daysThis;
     const prevPace = prevExp / daysPrev;
-    if (thisPace < prevPace * 0.9) add('better', `You're spending ${Math.round((1 - thisPace / prevPace) * 100)}% less per day than last month. This na growth — keep going.`, 'praise');
+    if (thisPace < prevPace * 0.9) add('better', `You're spending ${Math.round((1 - thisPace / prevPace) * 100)}% less per day than last month. This na growth - keep going.`, 'praise');
     let bestCut = { cat: '', drop: 0 };
     byC.forEach((amt, c) => {
       const prevCat = all.filter((t) => t.type === 'expense' && (t.category || 'Other') === c && (t.date || '').slice(0, 7) === prevKey).reduce((s, t) => s + Math.abs(t.amount), 0);
@@ -190,7 +190,7 @@ export function buildVoiceLines(all, income, monthKey, fmt) {
 }
 
 // ---------------------------------------------------------------------------
-// Clarity streak (consecutive days the user opened Insights) — localStorage, the
+// Clarity streak (consecutive days the user opened Insights) - localStorage, the
 // browser equivalent of the mobile AsyncStorage version. Plus the playful season.
 // ---------------------------------------------------------------------------
 const STREAK_KEY = 'clarity_checkins';
@@ -231,7 +231,7 @@ export function seasonFor(monthKey) {
 }
 
 // ---------------------------------------------------------------------------
-// Salary-day detection — a large recent income that looks like a paycheck.
+// Salary-day detection - a large recent income that looks like a paycheck.
 // Ported from salaryDay.ts (seen-state via localStorage). For a future Home
 // prompt on the web.
 // ---------------------------------------------------------------------------

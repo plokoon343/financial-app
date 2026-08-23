@@ -391,7 +391,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                       <select
                         value={tx.category || 'Other'}
                         onChange={(e) => { const v = resolveCategoryChoice(tx.type, e.target.value); if (v) updateTxCategory(idx, v); }}
-                        title={tx.learned ? 'Category you taught the app' : 'Auto-categorized — change to teach the app'}
+                        title={tx.learned ? 'Category you taught the app' : 'Auto-categorized - change to teach the app'}
                         style={{
                           background: tx.learned ? (darkMode ? '#2c5282' : '#ebf8ff') : (darkMode ? '#4a5568' : '#edf2f7'),
                           color: darkMode ? '#e2e8f0' : '#4a5568',
@@ -1051,7 +1051,7 @@ const Dashboard = () => {
           }
         }
 
-        /* Quick Stats – reduce gap on small screens */
+        /* Quick Stats - reduce gap on small screens */
         .quick-stats {
           gap: 1rem;
         }
@@ -1073,7 +1073,7 @@ const Dashboard = () => {
           }
         }
 
-        /* Cards – shared */
+        /* Cards - shared */
         .card {
           padding: 1.5rem;
         }
@@ -1097,7 +1097,7 @@ const Dashboard = () => {
           }
         }
 
-        /* Modal – fullscreen on small phones */
+        /* Modal - fullscreen on small phones */
         @media (max-width: 480px) {
           .modal-content {
             width: 100% !important;

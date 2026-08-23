@@ -79,7 +79,7 @@
   align-items: center;
 }
 .login-brand-inner { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
-/* Keep the logo at its natural aspect ratio — flex-start + width:auto stop the
+/* Keep the logo at its natural aspect ratio - flex-start + width:auto stop the
    column from stretching the image (which was distorting it). */
 .login-brand .am-full { width: auto; height: 38px; align-self: flex-start; flex: 0 0 auto; }
 .login-brand-title { font-size: 1.85rem; font-weight: 700; line-height: 1.15; margin: 10px 0 0; color: #fff; letter-spacing: -0.02em; }
@@ -489,7 +489,7 @@
 }
 .legal-consent a:hover { opacity: 0.85; }
 
-/* OTP entry — six auto-advancing boxes */
+/* OTP entry - six auto-advancing boxes */
 .otp-boxes {
   display: flex;
   gap: 10px;

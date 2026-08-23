@@ -1,6 +1,6 @@
 // Emergency password recovery / user lookup tool.
 //
-// Lists users, or resets one user's password directly in the database — useful
+// Lists users, or resets one user's password directly in the database - useful
 // when you're locked out and email isn't set up yet.
 //
 // Usage (run from the backend folder):
@@ -55,7 +55,7 @@ const User = mongoose.model('User', userSchema);
     process.exit(1);
   }
   const hashed = await bcrypt.hash(password, await bcrypt.genSalt(10));
-  // Direct update (reliable regardless of schema) — also clears any reset token.
+  // Direct update (reliable regardless of schema) - also clears any reset token.
   await User.updateOne(
     { _id: user._id },
     { $set: { password: hashed }, $unset: { resetToken: 1, resetTokenExpiry: 1 } }

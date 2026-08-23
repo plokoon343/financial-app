@@ -54,7 +54,7 @@ const ConnectBank = () => {
     setBusy(true);
     try {
       const res = await axios.post(`${API_URL}/api/bank/sync`, {}, authHeader());
-      flash(res.data.imported > 0 ? `Imported ${res.data.imported} new transaction(s).` : 'You’re up to date — no new transactions.');
+      flash(res.data.imported > 0 ? `Imported ${res.data.imported} new transaction(s).` : 'You’re up to date - no new transactions.');
       loadConfig();
     } catch (err) {
       flash(err.response?.data?.message || 'Could not sync.', 'error');
@@ -84,7 +84,7 @@ const ConnectBank = () => {
       <div className="cb-head">
         <span className="cb-eyebrow">Key feature</span>
         <h2><i className="fas fa-building-columns"></i> Connect your bank</h2>
-        <p>Link your bank account once and Automonie keeps your transactions up to date automatically — no more manual statement uploads.</p>
+        <p>Link your bank account once and Automonie keeps your transactions up to date automatically - no more manual statement uploads.</p>
       </div>
 
       {message && <div className={`cb-msg ${message.type}`}>{message.text}</div>}
@@ -121,7 +121,7 @@ const ConnectBank = () => {
           <div className="cb-card cb-connect">
             <div className="cb-bank-ic big"><i className="fas fa-link"></i></div>
             <h3>{cfg.banks?.length ? 'Add another bank' : 'No bank connected yet'}</h3>
-            <p>Securely connect through Mono. We never see your bank login — only your transactions, to keep your books current.</p>
+            <p>Securely connect through Mono. We never see your bank login - only your transactions, to keep your books current.</p>
             <button className="cb-btn primary lg" onClick={openConnect} disabled={busy}>
               <i className="fas fa-building-columns"></i> {cfg.banks?.length ? 'Connect another bank' : 'Connect bank account'}
             </button>

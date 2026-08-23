@@ -32,7 +32,7 @@ const SubscriptionManager = () => {
       setSaved(savedRes.data || []);
       setDetected(detectRes.data || []);
     } catch (err) {
-      setError('Could not load your subscriptions. The server may be waking up — try again.');
+      setError('Could not load your subscriptions. The server may be waking up - try again.');
     } finally {
       setLoading(false);
     }

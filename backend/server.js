@@ -16,6 +16,7 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const Anthropic = require('@anthropic-ai/sdk');
 const { fingerprint, matchScore, MERGE } = require('./lib/dedupe');
+const { detectTransfers, routeKey } = require('./lib/internalTransfers');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -314,13 +315,26 @@ const transactionSchema = new mongoose.Schema({
   description: { type: String, required: true },
   amount: { type: Number, required: true },
   category: { type: String, required: true },
-  type: { type: String, enum: ['income', 'expense'], required: true },
+  // 'internal_transfer' = the user moving money between their own banks; excluded
+  // from all spending/income math (Spec 3). Its fee, if any, is booked separately
+  // as an ordinary expense in the 'Bank Charges' category.
+  type: { type: String, enum: ['income', 'expense', 'internal_transfer'], required: true },
   // Origin tracking so transactions can be grouped/deleted by bank statement.
   source: { type: String, enum: ['manual', 'import'], default: 'manual' },
   bank: { type: String, default: '' },           // e.g. 'GTBank', 'Union', 'Kuda'
   importBatch: { type: String, default: '' },     // one id per uploaded statement
   importedAt: { type: Date },
+  transferPairId: { type: String, default: '' },  // links the two sides of an internal transfer
 }, { timestamps: true });
+
+// Confirmed self-transfer routes (a pair of the user's own banks). Once a user
+// confirms "GTB -> Access is me moving my own money", future matches auto-classify.
+const transferRouteSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  routeKey: { type: String, required: true },     // direction-agnostic 'access|gtb'
+}, { timestamps: true });
+transferRouteSchema.index({ userId: 1, routeKey: 1 }, { unique: true });
+const TransferRoute = mongoose.model('TransferRoute', transferRouteSchema);
 // Indexes for the common per-user queries (date listing & statement grouping).
 transactionSchema.index({ userId: 1, date: -1 });
 transactionSchema.index({ userId: 1, importBatch: 1 });
@@ -1511,6 +1525,48 @@ const logParseCorrections = async (user, rows) => {
     }
     if (docs.length) await ParseCorrection.insertMany(docs, { ordered: false });
   } catch (e) { console.error('[parse-corrections]', e.message); }
+};
+
+// Internal-transfer reconciliation (Spec 3). Loads the user's transactions (a
+// recent window after an import, or all history for the manual backfill), finds
+// self-transfer pairs, and for each high-confidence pair marks BOTH sides
+// 'internal_transfer' (excluded from spending/income) with a shared transferPairId.
+// When the debited amount exceeds the credited amount, the difference is booked as
+// a real 'Bank Charges' expense so the money still reconciles.
+const reconcileTransfers = async (userId, { allHistory = false } = {}) => {
+  const query = { userId, type: { $in: ['income', 'expense'] } };
+  if (!allHistory) {
+    const since = new Date(Date.now() - 120 * 86400000); // last ~120 days after an import
+    query.date = { $gte: since };
+  }
+  const [txns, user, routes] = await Promise.all([
+    Transaction.find(query).select('type amount date bank description').lean(),
+    User.findById(userId).select('name').lean(),
+    TransferRoute.find({ userId }).select('routeKey').lean(),
+  ]);
+  if (txns.length < 2) return { classified: 0, charges: 0, ask: 0 };
+
+  const routeKeys = new Set(routes.map((r) => r.routeKey));
+  const { auto, ask } = detectTransfers(txns, { userName: user?.name || '', routeKeys });
+  if (!auto.length) return { classified: 0, charges: 0, ask: ask.length };
+
+  const ops = [];
+  let charges = 0;
+  for (const pair of auto) {
+    const pairId = new mongoose.Types.ObjectId().toString();
+    ops.push({ updateOne: { filter: { _id: pair.debit._id, userId }, update: { $set: { type: 'internal_transfer', transferPairId: pairId } } } });
+    ops.push({ updateOne: { filter: { _id: pair.credit._id, userId }, update: { $set: { type: 'internal_transfer', transferPairId: pairId } } } });
+    if (pair.fee > 0) {
+      ops.push({ insertOne: { document: {
+        userId, date: new Date(pair.debit.date), amount: -Math.abs(pair.fee),
+        description: 'Transfer fee', category: 'Bank Charges', type: 'expense',
+        source: 'import', bank: pair.debit.bank || '', transferPairId: pairId,
+      } } });
+      charges++;
+    }
+  }
+  if (ops.length) { try { await Transaction.bulkWrite(ops, { ordered: false }); } catch (e) { console.error('[reconcileTransfers]', e.message); } }
+  return { classified: auto.length, charges, ask: ask.length };
 };
 
 // Best-effort detection of the issuing bank from statement text. List order is the
@@ -2825,6 +2881,10 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     // Learn description -> category from what the user chose to import (incl. any
     // edits they made on the review screen), so future imports auto-apply them.
     await learnCategories(req.user._id, fresh);
+    // Detect internal transfers created/exposed by this import (both sides may now
+    // be present). Never let a reconcile error fail the import.
+    let transfersFound = 0;
+    try { transfersFound = (await reconcileTransfers(req.user._id)).classified; } catch (e) { console.error('[import/reconcile]', e.message); }
     // Capture training data from this review (accepted + edited rows that carry
     // `_parse` metadata). Fire-and-forget: never blocks or fails the import.
     logParseCorrections(req.user, valid);
@@ -2837,7 +2897,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       checkBudgetAlert(req.user._id, cat, m);
     }
     const suffix = skipped ? ` (skipped ${skipped} duplicate${skipped > 1 ? 's' : ''}).` : ' successfully.';
-    return res.json({ message: `Imported ${inserted.length} transaction(s)${suffix}`, count: inserted.length, skipped });
+    return res.json({ message: `Imported ${inserted.length} transaction(s)${suffix}`, count: inserted.length, skipped, transfersFound });
   } catch (error) {
     if (error.result) return res.json({ message: `Imported ${error.result.nInserted} transaction(s).`, count: error.result.nInserted });
     console.error('Import error:', error);
@@ -4981,6 +5041,60 @@ app.post('/api/transactions/recategorize', auth, async (req, res) => {
     if (ops.length) await Transaction.bulkWrite(ops, { ordered: false });
     res.json({ updated: ops.length, remaining: others.length - ops.length });
   } catch (e) { console.error('[recategorize]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Clean up past internal transfers across ALL history (Spec 3 backfill). Safe to
+// run repeatedly; only re-classifies pairs it is confident about.
+app.post('/api/transactions/detect-transfers', auth, async (req, res) => {
+  try {
+    const result = await reconcileTransfers(req.user._id, { allHistory: true });
+    res.json(result); // { classified, charges, ask }
+  } catch (e) { console.error('[detect-transfers]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Confirm a self-transfer route ("Yes, that was my own account") + optionally
+// reclassify a specific pending pair. Remembers the route so future matches on the
+// same two banks auto-classify.
+app.post('/api/transactions/confirm-transfer', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const { debitId, creditId } = req.body || {};
+    if (!debitId || !creditId) return res.status(400).json({ message: 'debitId and creditId are required' });
+    const [d, c] = await Promise.all([
+      Transaction.findOne({ _id: debitId, userId: uid }),
+      Transaction.findOne({ _id: creditId, userId: uid }),
+    ]);
+    if (!d || !c) return res.status(404).json({ message: 'Transaction not found' });
+    const pairId = new mongoose.Types.ObjectId().toString();
+    d.type = 'internal_transfer'; d.transferPairId = pairId;
+    c.type = 'internal_transfer'; c.transferPairId = pairId;
+    await Promise.all([d.save(), c.save()]);
+    const fee = Math.max(0, Math.abs(d.amount) - Math.abs(c.amount));
+    if (fee > 0) {
+      await new Transaction({ userId: uid, date: d.date, amount: -Math.abs(fee), description: 'Transfer fee', category: 'Bank Charges', type: 'expense', source: 'import', bank: d.bank || '', transferPairId: pairId }).save();
+    }
+    // Remember this route so future matches on these two banks auto-classify.
+    try { await TransferRoute.updateOne({ userId: uid, routeKey: routeKey(d.bank, c.bank) }, { $setOnInsert: { userId: uid, routeKey: routeKey(d.bank, c.bank) } }, { upsert: true }); } catch { /* dup ok */ }
+    res.json({ ok: true, transferPairId: pairId, fee });
+  } catch (e) { console.error('[confirm-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Undo an internal-transfer classification ("this wasn't a transfer") - split the
+// pair back to income/expense and drop any generated fee row.
+app.post('/api/transactions/split-transfer', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const { transferPairId } = req.body || {};
+    if (!transferPairId) return res.status(400).json({ message: 'transferPairId is required' });
+    const rows = await Transaction.find({ userId: uid, transferPairId });
+    for (const r of rows) {
+      if (r.description === 'Transfer fee' && r.category === 'Bank Charges') { await r.deleteOne(); continue; }
+      r.type = r.amount >= 0 ? 'income' : 'expense';
+      r.transferPairId = '';
+      await r.save();
+    }
+    res.json({ ok: true, restored: rows.length });
+  } catch (e) { console.error('[split-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // One-time (superadmin): seed the shared consensus from every existing per-user

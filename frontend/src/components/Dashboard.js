@@ -632,14 +632,14 @@ const Dashboard = () => {
               </div>
               <div style={{ color: darkMode ? '#cbd5e0' : '#4a5568', fontSize: '0.9rem', marginTop: 2 }}>
                 {salaryHit.lastMonthSpentPct != null
-                  ? `Last month, ${salaryHit.lastMonthSpentPct}% of your income was gone by month-end. Lock some away before it disappears.`
-                  : 'Lock some away now, before the month gets to it.'}
+                  ? `Last month, ${salaryHit.lastMonthSpentPct}% of your income was gone by month-end. Set a goal and put something aside first.`
+                  : 'Set a goal and put something aside before the month gets to it.'}
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-              <Link to="/auto-savings" onClick={dismissSalary}
+              <Link to="/goals" onClick={dismissSalary}
                 style={{ background: 'var(--gradient-primary)', color: 'white', textDecoration: 'none', padding: '0.6rem 1.1rem', borderRadius: '10px', fontWeight: 700, fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
-                Lock some away
+                Set a goal
               </Link>
               <button onClick={dismissSalary} aria-label="Dismiss"
                 style={{ background: 'transparent', border: 'none', color: darkMode ? '#cbd5e0' : '#4a5568', cursor: 'pointer', display: 'flex', padding: 6 }}>

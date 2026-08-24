@@ -5,6 +5,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import { LogoFull } from './Logo';
+import { HIDDEN_PATHS } from '../config/features';
 const Sidebar = () => {
   const { user, logout, darkMode, toggleDarkMode } = useAuth();
   const location = useLocation();
@@ -78,7 +79,10 @@ const Sidebar = () => {
       { path: '/settings', label: 'Settings', icon: 'settings' },
       ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'shield' }] : []),
     ]},
-  ];
+  ]
+    // Drop nav entries for features hidden in V1 (still routable, just not shown).
+    .map((g) => ({ ...g, items: g.items.filter((it) => !HIDDEN_PATHS.has(it.path)) }))
+    .filter((g) => g.items.length > 0);
 
   const toggleSidebar = () => setIsOpen(!isOpen);
 

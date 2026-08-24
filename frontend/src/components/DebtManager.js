@@ -187,7 +187,7 @@ const DebtManager = () => {
           <div className="debt-table-wrap">
             <table className="debt-table">
               <thead>
-                <tr><th>Debt</th><th className="num">Balance</th><th>Interest</th><th className="num">Min / mo</th><th>Priority</th><th>Auto-pay</th></tr>
+                <tr><th>Debt</th><th className="num">Balance</th><th>Interest</th><th className="num">Min / mo</th><th>Priority</th><th>Reminder</th></tr>
               </thead>
               <tbody>
                 {debts.sort((a, b) => b.interest - a.interest).map((debt) => (

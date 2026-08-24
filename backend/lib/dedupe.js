@@ -88,9 +88,13 @@ function fingerprint(t) {
 function matchScore(a, b) {
   if (a.amount !== b.amount) return 0;
   if (a.direction !== b.direction) return 0;
+  // Date is near-mandatory: copies of the same transaction land on the same day or
+  // within a day or two (posting vs value date). Beyond a few days it's a distinct
+  // transaction that merely shares an amount — never merge those.
+  const dd = (a.date && b.date) ? dayDiff(a.date, b.date) : 99;
+  if (dd > 3) return 0;
   let score = 60; // 50 amount + 10 direction
   if (a.account && b.account && a.account === b.account) score += 15;
-  const dd = (a.date && b.date) ? dayDiff(a.date, b.date) : 99;
   if (dd === 0) score += 15;
   else if (dd <= 1) score += 8;
   if (a.cp && b.cp) {

@@ -18,7 +18,7 @@ const GOALS = [
 const SLIDES = [
   { icon: 'fa-chart-line', title: 'Your Dashboard', body: 'See your balances, recent activity and insights at a glance. Add transactions manually, or import a bank statement (CSV, Excel, or PDF - even password-protected).' },
   { icon: 'fa-receipt', title: 'Transactions & Budgets', body: 'Every transaction is grouped by bank and month. Set monthly budgets per category and watch your spending stay on track with alerts.' },
-  { icon: 'fa-robot', title: 'Automate your savings', body: 'Set a fixed amount or round-up rule to save automatically, link it to a goal, and let Automonie do the work. You can replay this tour anytime from the sidebar.' },
+  { icon: 'fa-bullseye', title: 'Track your goals', body: 'Set a target, then log what you set aside as you go and watch your progress. You can replay this tour anytime from the sidebar.' },
 ];
 
 const Onboarding = () => {

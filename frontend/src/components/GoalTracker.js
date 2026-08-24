@@ -215,7 +215,7 @@ const GoalTracker = () => {
             <table className="goals-table">
               <thead>
                 <tr>
-                  <th>Goal</th><th>Category</th><th>Progress</th><th className="num">Target</th><th>Deadline</th><th>Auto-pay</th>
+                  <th>Goal</th><th>Category</th><th>Progress</th><th className="num">Target</th><th>Deadline</th><th>Reminder</th>
                 </tr>
               </thead>
               <tbody>
@@ -319,7 +319,7 @@ const GoalTracker = () => {
                       <input type="number" min="1" max="31" value={sp.dayOfMonth || 1}
                         onChange={(e) => updateScheduledPayment(activeGoal._id, { enabled: true, amount: sp.amount || 0, dayOfMonth: parseInt(e.target.value, 10) })} />
                     </div>
-                    <small>Automatically added to this goal on the chosen day</small>
+                    <small>Reminds you to set money aside for this goal on the chosen day</small>
                   </div>
                 )}
               </div>
@@ -487,7 +487,7 @@ const GoalTracker = () => {
           <div className="tip-item"><div className="tip-icon"><i className="fas fa-bullseye"></i></div><div className="tip-content"><h4>Be Specific</h4><p>Clearly define what you want to achieve with specific amounts and deadlines.</p></div></div>
           <div className="tip-item"><div className="tip-icon"><i className="fas fa-calendar-check"></i></div><div className="tip-content"><h4>Set Realistic Deadlines</h4><p>Break large goals into smaller milestones with achievable timeframes.</p></div></div>
           <div className="tip-item"><div className="tip-icon"><i className="fas fa-chart-line"></i></div><div className="tip-content"><h4>Track Progress</h4><p>Regularly update your progress to stay motivated and make adjustments.</p></div></div>
-          <div className="tip-item"><div className="tip-icon"><i className="fas fa-piggy-bank"></i></div><div className="tip-content"><h4>Automate Savings</h4><p>Use auto‑savings rules to consistently add money to your goals.</p></div></div>
+          <div className="tip-item"><div className="tip-icon"><i className="fas fa-piggy-bank"></i></div><div className="tip-content"><h4>Log as you go</h4><p>Set money aside yourself, then log each contribution to keep your progress accurate.</p></div></div>
         </div>
       </div>
   

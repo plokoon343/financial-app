@@ -117,12 +117,12 @@ const Login = () => {
         <aside className="login-brand">
           <div className="login-brand-inner">
             <LogoFull height={38} variant="light" />
-            <h2 className="login-brand-title">Your money, automated.</h2>
-            <p className="login-brand-sub">Track spending, budget, save, and pay bills - all in one place.</p>
+            <h2 className="login-brand-title">Make money make sense.</h2>
+            <p className="login-brand-sub">See where your money actually went - then budget, track goals and pay bills in one place.</p>
             <ul className="login-brand-points">
-              <li><i className="fas fa-chart-pie"></i> Smart budgets &amp; insights</li>
-              <li><i className="fas fa-piggy-bank"></i> Auto-savings &amp; goals</li>
-              <li><i className="fas fa-bolt"></i> Bills &amp; airtime in seconds</li>
+              <li><i className="fas fa-chart-pie"></i> Budgets, goals &amp; insights</li>
+              <li><i className="fas fa-file-import"></i> Import in seconds, 15+ banks</li>
+              <li><i className="fas fa-bolt"></i> Airtime, data, TV &amp; electricity</li>
             </ul>
           </div>
         </aside>

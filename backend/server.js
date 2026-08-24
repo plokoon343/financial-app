@@ -202,6 +202,9 @@ const userSchema = new mongoose.Schema({
   // Subscription tier. 'pro' unlocks the AI assistant + advanced features (Paystack
   // billing wires `plan`/`planExpiry` later; for now the AI assistant is open to all).
   plan:       { type: String, enum: ['free', 'pro'], default: 'free' },
+  // When true, this user's parse corrections are NOT logged for training. Off by
+  // default; user can opt out in settings. See ParseCorrection.
+  trainingOptOut: { type: Boolean, default: false },
   planExpiry: { type: Date },
   // Profile / onboarding
   phone:         { type: String, default: '' },
@@ -409,6 +412,42 @@ const globalCategorySchema = new mongoose.Schema({
   updatedAt:{ type: Date, default: Date.now },
 });
 const GlobalCategory = mongoose.model('GlobalCategory', globalCategorySchema);
+
+// Parse-correction log — every review through the import gate (accepted OR edited)
+// is a labelled training example: the raw source text, what we parsed, and what
+// the user finalised it to. This is the proprietary dataset that later trains a
+// real categoriser. Written fire-and-forget; never blocks a save. Deleted with the
+// user's account; skipped entirely for users who set trainingOptOut.
+const parseCorrectionSchema = new mongoose.Schema({
+  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  createdAt:{ type: Date, default: Date.now },
+  // input
+  rawText:  { type: String, default: '' },   // exact source string, unmodified
+  source:   { type: String, enum: ['sms', 'email', 'statement_pdf', 'statement_csv', 'mono', 'voice', 'manual'], default: 'sms' },
+  bankCode: { type: String, default: '' },
+  fileFormatHint: { type: String, default: '' },
+  // what we parsed
+  parsedAmount:       { type: Number, default: null },
+  parsedDirection:    { type: String, enum: ['debit', 'credit', null], default: null },
+  parsedDate:         { type: Date, default: null },
+  parsedCounterparty: { type: String, default: null },
+  parsedCategory:     { type: String, default: null },
+  parserVersion:      { type: String, default: '' },
+  parserPath:         { type: String, enum: ['deterministic', 'llm_fallback', 'none'], default: 'none' },
+  confidenceScore:    { type: Number, default: null },
+  // what the user finalised it to
+  finalAmount:        { type: Number },
+  finalDirection:     { type: String, enum: ['debit', 'credit'] },
+  finalDate:          { type: Date },
+  finalCounterparty:  { type: String, default: '' },
+  finalCategory:      { type: String, default: '' },
+  wasCorrected:       { type: Boolean, default: false },
+  correctedFields:    { type: [String], default: [] },
+  userAction:         { type: String, enum: ['accepted', 'edited', 'rejected'], default: 'accepted' },
+  // context
+  timeToReviewMs:     { type: Number, default: null },
+});
+const ParseCorrection = mongoose.model('ParseCorrection', parseCorrectionSchema);
 
 // Only real merchant/spend categories feed the SHARED pool. Person-to-person
 // categories (Transfer, Savings, Family & Friends), income, and the catch-alls are
@@ -1422,6 +1461,57 @@ const learnCategories = async (userId, transactions) => {
   await castGlobalVotes(deltas);
 };
 
+// Log parse corrections from an import review. `rows` are the user-finalised
+// transactions; each MAY carry a `_parse` object with the original parsed values
+// + raw source text + parser metadata. Fire-and-forget (call without awaiting) so
+// it never adds latency or blocks a save.
+const dayKey = (d) => { try { return new Date(d).toISOString().slice(0, 10); } catch { return ''; } };
+const normCp = (s) => (s || '').toString().toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+const cleanDir = (v) => (v === 'debit' || v === 'credit' ? v : null);
+const logParseCorrections = async (user, rows) => {
+  try {
+    if (!user || user.trainingOptOut) return;
+    const uid = user._id;
+    const docs = [];
+    for (const t of rows || []) {
+      const p = t && t._parse;
+      if (!p) continue;                       // only log rows the client instrumented
+      const finalDirection = t.type === 'income' ? 'credit' : 'debit';
+      const finalAmount = Math.abs(Number(t.amount)) || 0;
+      const finalCategory = t.category || 'Other';
+      const finalCounterparty = t.description || '';
+      const fields = [];
+      if (p.amount != null && Math.abs(Number(p.amount)) !== finalAmount) fields.push('amount');
+      if (cleanDir(p.direction) && cleanDir(p.direction) !== finalDirection) fields.push('direction');
+      if (p.date && dayKey(p.date) !== dayKey(t.date)) fields.push('date');
+      if (p.counterparty != null && normCp(p.counterparty) !== normCp(finalCounterparty)) fields.push('counterparty');
+      if (p.category != null && p.category !== finalCategory) fields.push('category');
+      const wasCorrected = fields.length > 0;
+      docs.push({
+        userId: uid,
+        rawText: (p.rawText || '').toString(),
+        source: p.source || 'sms',
+        bankCode: (p.bank || p.bankCode || '').toString().toLowerCase().slice(0, 24),
+        fileFormatHint: (p.fileFormatHint || '').toString().slice(0, 60),
+        parsedAmount: p.amount != null ? Math.abs(Number(p.amount)) : null,
+        parsedDirection: cleanDir(p.direction),
+        parsedDate: p.date ? new Date(p.date) : null,
+        parsedCounterparty: p.counterparty != null ? String(p.counterparty) : null,
+        parsedCategory: p.category != null ? String(p.category) : null,
+        parserVersion: (p.parserVersion || '').toString().slice(0, 40),
+        parserPath: ['deterministic', 'llm_fallback', 'none'].includes(p.parserPath) ? p.parserPath : 'none',
+        confidenceScore: p.confidence != null ? Number(p.confidence) : (p.confidenceScore != null ? Number(p.confidenceScore) : null),
+        finalAmount, finalDirection, finalDate: new Date(t.date),
+        finalCounterparty, finalCategory,
+        wasCorrected, correctedFields: fields,
+        userAction: p.action === 'rejected' ? 'rejected' : (wasCorrected ? 'edited' : 'accepted'),
+        timeToReviewMs: p.timeToReviewMs != null ? Number(p.timeToReviewMs) : null,
+      });
+    }
+    if (docs.length) await ParseCorrection.insertMany(docs, { ordered: false });
+  } catch (e) { console.error('[parse-corrections]', e.message); }
+};
+
 // Best-effort detection of the issuing bank from statement text. List order is the
 // priority (so a statement that merely *mentions* another bank in a narration still
 // resolves to its real issuer). Keywords are specific phrases to avoid false hits
@@ -1838,6 +1928,7 @@ app.delete('/api/me', sensitiveLimiter, auth, async (req, res) => {
       WalletTransaction.deleteMany({ userId: uid }),
       SavingsRule.deleteMany({ userId: uid }),
       LearnedCategory.deleteMany({ userId: uid }),
+      ParseCorrection.deleteMany({ userId: uid }),
       SupportTicket.deleteMany({ userId: uid }),
       Notification.deleteMany({ userId: uid }),
     ]);
@@ -2202,6 +2293,43 @@ app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {
       Waitlist.countDocuments(),
     ]);
     res.json({ count, items });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Correction rate by bank, source and parser version. Tells us which parsers are
+// weakest, useful from day one (before any ML exists).
+app.get('/api/admin/parse-corrections/stats', auth, superAdminAuth, async (req, res) => {
+  try {
+    const groupBy = (field) => ParseCorrection.aggregate([
+      { $group: { _id: `$${field}`, total: { $sum: 1 }, corrected: { $sum: { $cond: ['$wasCorrected', 1, 0] } } } },
+      { $project: { _id: 0, key: '$_id', total: 1, corrected: 1,
+        correctionRate: { $round: [{ $multiply: [{ $cond: [{ $gt: ['$total', 0] }, { $divide: ['$corrected', '$total'] }, 0] }, 100] }, 1] } } },
+      { $sort: { total: -1 } },
+    ]);
+    const [byBank, bySource, byParser, byField, totals] = await Promise.all([
+      groupBy('bankCode'), groupBy('source'), groupBy('parserVersion'),
+      ParseCorrection.aggregate([
+        { $unwind: '$correctedFields' },
+        { $group: { _id: '$correctedFields', count: { $sum: 1 } } },
+        { $project: { _id: 0, field: '$_id', count: 1 } }, { $sort: { count: -1 } },
+      ]),
+      ParseCorrection.aggregate([{ $group: { _id: null, total: { $sum: 1 }, corrected: { $sum: { $cond: ['$wasCorrected', 1, 0] } } } }]),
+    ]);
+    const t = totals[0] || { total: 0, corrected: 0 };
+    res.json({
+      total: t.total, corrected: t.corrected,
+      overallCorrectionRate: t.total ? Math.round((t.corrected / t.total) * 1000) / 10 : 0,
+      byBank, bySource, byParser, mostCorrectedFields: byField,
+    });
+  } catch (e) { console.error('[pc-stats]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Let a user opt out of contributing anonymised parse corrections to training.
+app.post('/api/me/training-optout', auth, async (req, res) => {
+  try {
+    req.user.trainingOptOut = !!req.body.optOut;
+    await req.user.save();
+    res.json({ trainingOptOut: req.user.trainingOptOut });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -2687,6 +2815,9 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     // Learn description -> category from what the user chose to import (incl. any
     // edits they made on the review screen), so future imports auto-apply them.
     await learnCategories(req.user._id, fresh);
+    // Capture training data from this review (accepted + edited rows that carry
+    // `_parse` metadata). Fire-and-forget: never blocks or fails the import.
+    logParseCorrections(req.user, valid);
     // Raise budget alerts for each distinct expense category+month just imported.
     const pairs = new Set(fresh
       .filter(t => t.type === 'expense' && t.category)

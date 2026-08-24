@@ -15,6 +15,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const Anthropic = require('@anthropic-ai/sdk');
+const { fingerprint, matchScore, MERGE } = require('./lib/dedupe');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -2781,23 +2782,32 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     const importedAt = new Date();
     const bankLabel = (bank || '').toString().trim();
 
-    // Skip re-imports: drop any row whose (day + |amount| + description) already
-    // exists as an imported transaction, and de-dupe within this batch too. This
-    // makes re-scanning the same SMS period safe.
+    // De-duplicate in two layers:
+    //  1) intra-batch exact (day + |amount| + description) — repeated rows in a
+    //     single scan collapse, as before.
+    //  2) cross-source fuzzy vs everything already saved in the ±1 day window (ANY
+    //     source, so a manual entry or a prior statement/SMS import is caught) —
+    //     drop only near-certain duplicates (matchScore >= 85, amount exact +
+    //     direction mandatory). Ambiguous rows are kept, so a real transaction is
+    //     never deleted. This is what makes SMS + statement + Mono not triple-count.
     const keyOf = (d, amt, desc) => `${new Date(d).toISOString().slice(0, 10)}|${Math.round(Math.abs(amt))}|${(desc || '').trim().toLowerCase()}`;
+    const isoDay = (d) => new Date(d).toISOString().slice(0, 10);
     const times = valid.map(t => +new Date(t.date)).filter(n => !isNaN(n));
-    const seen = new Set();
+    let existingFps = [];
     if (times.length) {
       const gte = new Date(Math.min(...times) - 86400000);
       const lte = new Date(Math.max(...times) + 86400000);
-      const existing = await Transaction.find({ userId: req.user._id, source: 'import', date: { $gte: gte, $lte: lte } })
-        .select('date amount description').lean();
-      for (const e of existing) seen.add(keyOf(e.date, e.amount, e.description));
+      const existing = await Transaction.find({ userId: req.user._id, date: { $gte: gte, $lte: lte } })
+        .select('date amount description type bank').lean();
+      existingFps = existing.map(e => fingerprint({ amount: e.amount, type: e.type, date: isoDay(e.date), bank: e.bank, description: e.description }));
     }
+    const seen = new Set();
     const fresh = [];
     for (const t of valid) {
       const k = keyOf(t.date, t.amount, t.description);
-      if (seen.has(k)) continue;
+      if (seen.has(k)) continue;                                            // intra-batch exact repeat
+      const fp = fingerprint({ amount: t.amount, type: t.type, date: isoDay(t.date), bank: t.bank || bankLabel, description: t.description });
+      if (existingFps.some(efp => matchScore(fp, efp) >= MERGE)) continue;  // cross-source duplicate already on file
       seen.add(k); fresh.push(t);
     }
     const skipped = valid.length - fresh.length;

@@ -17,6 +17,7 @@ const nodemailer = require('nodemailer');
 const Anthropic = require('@anthropic-ai/sdk');
 const { fingerprint, matchScore, MERGE } = require('./lib/dedupe');
 const { detectTransfers, routeKey } = require('./lib/internalTransfers');
+const { classifyKind } = require('./lib/txnKinds');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -315,10 +316,11 @@ const transactionSchema = new mongoose.Schema({
   description: { type: String, required: true },
   amount: { type: Number, required: true },
   category: { type: String, required: true },
-  // 'internal_transfer' = the user moving money between their own banks; excluded
-  // from all spending/income math (Spec 3). Its fee, if any, is booked separately
-  // as an ordinary expense in the 'Bank Charges' category.
-  type: { type: String, enum: ['income', 'expense', 'internal_transfer'], required: true },
+  // 'internal_transfer' = moving money between own banks (Spec 3). The other
+  // non-discretionary kinds (cash_withdrawal / loan_in / debt_repayment / reversal
+  // / failed) come from lib/txnKinds — all excluded from spending/income math the
+  // same way (they are neither 'income' nor 'expense', so aggregations skip them).
+  type: { type: String, enum: ['income', 'expense', 'internal_transfer', 'cash_withdrawal', 'loan_in', 'debt_repayment', 'reversal', 'failed'], required: true },
   // Origin tracking so transactions can be grouped/deleted by bank statement.
   source: { type: String, enum: ['manual', 'import'], default: 'manual' },
   bank: { type: String, default: '' },           // e.g. 'GTBank', 'Union', 'Kuda'
@@ -2869,14 +2871,20 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     const skipped = valid.length - fresh.length;
     if (fresh.length === 0) return res.json({ message: `Skipped ${skipped} duplicate(s) - nothing new to import.`, count: 0, skipped });
 
-    const docs = fresh.map(t => new Transaction({
-      userId: req.user._id, date: new Date(t.date), description: t.description,
-      amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
-      category: t.category || 'Other', type: t.type,
-      // Prefer a per-transaction bank (an SMS scan can span several banks),
-      // falling back to the batch-level label.
-      source: 'import', bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
-    }));
+    const docs = fresh.map(t => {
+      // Sign stays tied to the real direction (income +, expense −); the KIND
+      // (cash-out / loan / repayment / reversal / failed) only overrides the type,
+      // so it's excluded from spend/income math while keeping its true amount.
+      const amount = t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount);
+      const kind = classifyKind({ type: t.type, description: t.description, category: t.category });
+      return new Transaction({
+        userId: req.user._id, date: new Date(t.date), description: t.description,
+        amount, category: t.category || 'Other', type: kind || t.type,
+        // Prefer a per-transaction bank (an SMS scan can span several banks),
+        // falling back to the batch-level label.
+        source: 'import', bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
+      });
+    });
     const inserted = await Transaction.insertMany(docs, { ordered: false });
     // Learn description -> category from what the user chose to import (incl. any
     // edits they made on the review screen), so future imports auto-apply them.
@@ -2890,7 +2898,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     logParseCorrections(req.user, valid);
     // Raise budget alerts for each distinct expense category+month just imported.
     const pairs = new Set(fresh
-      .filter(t => t.type === 'expense' && t.category)
+      .filter(t => t.type === 'expense' && t.category && !classifyKind({ type: t.type, description: t.description, category: t.category }))
       .map(t => `${t.category}|${new Date(t.date).toISOString().slice(0, 7)}`));
     for (const pair of pairs) {
       const [cat, m] = pair.split('|');
@@ -5122,6 +5130,25 @@ app.post('/api/transactions/split-transfer', auth, async (req, res) => {
     }
     res.json({ ok: true, restored: rows.length });
   } catch (e) { console.error('[split-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Reclassify existing income/expense rows into their non-discretionary KIND
+// (cash-out / loan / repayment / reversal / failed) so historical numbers get the
+// same exclusions new imports do. Safe to re-run; only moves rows OUT of the
+// income/expense buckets, never back in.
+app.post('/api/transactions/reclassify-kinds', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const txns = await Transaction.find({ userId: uid, type: { $in: ['income', 'expense'] } })
+      .select('type description category').lean();
+    const ops = [];
+    for (const t of txns) {
+      const kind = classifyKind({ type: t.type, description: t.description, category: t.category });
+      if (kind) ops.push({ updateOne: { filter: { _id: t._id, userId: uid }, update: { $set: { type: kind } } } });
+    }
+    if (ops.length) { try { await Transaction.bulkWrite(ops, { ordered: false }); } catch (e) { console.error('[reclassify-kinds]', e.message); } }
+    res.json({ reclassified: ops.length });
+  } catch (e) { console.error('[reclassify-kinds]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // One-time (superadmin): seed the shared consensus from every existing per-user

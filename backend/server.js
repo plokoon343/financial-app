@@ -18,6 +18,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { fingerprint, matchScore, MERGE } = require('./lib/dedupe');
 const { detectTransfers, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
+const { pairReversals } = require('./lib/reversals');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -327,6 +328,7 @@ const transactionSchema = new mongoose.Schema({
   importBatch: { type: String, default: '' },     // one id per uploaded statement
   importedAt: { type: Date },
   transferPairId: { type: String, default: '' },  // links the two sides of an internal transfer
+  reversalPairId: { type: String, default: '' },  // links a reversal credit to the debit it cancels
 }, { timestamps: true });
 
 // Confirmed self-transfer routes (a pair of the user's own banks). Once a user
@@ -5147,7 +5149,21 @@ app.post('/api/transactions/reclassify-kinds', auth, async (req, res) => {
       if (kind) ops.push({ updateOne: { filter: { _id: t._id, userId: uid }, update: { $set: { type: kind } } } });
     }
     if (ops.length) { try { await Transaction.bulkWrite(ops, { ordered: false }); } catch (e) { console.error('[reclassify-kinds]', e.message); } }
-    res.json({ reclassified: ops.length });
+
+    // Pair each reversal with the original debit it cancels, so both net to zero.
+    const [reversals, debits] = await Promise.all([
+      Transaction.find({ userId: uid, type: 'reversal' }).select('amount date bank').lean(),
+      Transaction.find({ userId: uid, type: 'expense' }).select('amount date bank').lean(),
+    ]);
+    const pairs = pairReversals(reversals, debits);
+    if (pairs.length) {
+      const revOps = pairs.map((p) => ({ updateOne: {
+        filter: { _id: p.debitId, userId: uid },
+        update: { $set: { type: 'reversal', reversalPairId: p.reversalId } },
+      } }));
+      try { await Transaction.bulkWrite(revOps, { ordered: false }); } catch (e) { console.error('[reclassify-reversals]', e.message); }
+    }
+    res.json({ reclassified: ops.length, reversalsPaired: pairs.length });
   } catch (e) { console.error('[reclassify-kinds]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 

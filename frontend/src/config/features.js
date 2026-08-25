@@ -7,7 +7,7 @@ export const FEATURES = {
   autoSavings: false,   // auto-save execution, round-ups, locked savings
   autopay: false,       // bill/debt payment execution
   debt: false,          // debt manager (payment execution)
-  netWorth: false,
+  netWorth: true,       // net worth — kept as a launch feature (user request)
   ajo: false,           // rotating savings / circles
   marketplace: false,
 };

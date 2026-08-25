@@ -5052,6 +5052,33 @@ app.post('/api/transactions/detect-transfers', auth, async (req, res) => {
   } catch (e) { console.error('[detect-transfers]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// List the medium-confidence (55-79) transfer pairs that need the user to confirm
+// ("Was this a transfer to your own account?"). Same detection as reconcileTransfers
+// but returns the `ask` pairs shaped for the confirm card instead of just a count.
+app.get('/api/transactions/pending-transfers', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const [txns, user, routes] = await Promise.all([
+      Transaction.find({ userId: uid, type: { $in: ['income', 'expense'] } })
+        .select('type amount date bank description').lean(),
+      User.findById(uid).select('name').lean(),
+      TransferRoute.find({ userId: uid }).select('routeKey').lean(),
+    ]);
+    if (txns.length < 2) return res.json({ pairs: [] });
+    const routeKeys = new Set(routes.map((r) => r.routeKey));
+    const { ask } = detectTransfers(txns, { userName: user?.name || '', routeKeys });
+    const side = (t) => ({
+      id: String(t._id), amount: Math.abs(t.amount), date: t.date,
+      bank: t.bank || '', description: t.description || '',
+    });
+    const pairs = ask.map((p) => ({
+      debit: side(p.debit), credit: side(p.credit),
+      score: p.score, fee: p.fee || 0,
+    }));
+    res.json({ pairs });
+  } catch (e) { console.error('[pending-transfers]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Confirm a self-transfer route ("Yes, that was my own account") + optionally
 // reclassify a specific pending pair. Remembers the route so future matches on the
 // same two banks auto-classify.

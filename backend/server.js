@@ -218,6 +218,9 @@ const userSchema = new mongoose.Schema({
   // Expo push tokens for this user's devices (spending-insight notifications).
   pushTokens:    { type: [String], default: [] },
   notifyInsights: { type: Boolean, default: true },   // daily witty insight pushes (mutable)
+  // Days (YYYY-MM-DD) the user checked in — powers the "clarity streak". Stored
+  // server-side so the streak survives a reinstall / new device.
+  checkinDays:   { type: [String], default: [] },
   onboarded:     { type: Boolean, default: false },
   lastLogin:     { type: Date },
   // Email-based 2-step verification (#21/#22).
@@ -5165,6 +5168,28 @@ app.post('/api/transactions/reclassify-kinds', auth, async (req, res) => {
     }
     res.json({ reclassified: ops.length, reversalsPaired: pairs.length });
   } catch (e) { console.error('[reclassify-kinds]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Record a daily check-in and return the current streak. Server-side so the
+// streak survives a reinstall / new device. Accepts optional `days` (local
+// history) to merge — so a first sync after reinstall restores the run.
+app.post('/api/checkin', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('checkinDays');
+    if (!user) return res.status(404).json({ message: 'Not found' });
+    const set = new Set(user.checkinDays || []);
+    set.add(new Date().toISOString().slice(0, 10));
+    if (Array.isArray(req.body?.days)) {
+      for (const d of req.body.days) if (/^\d{4}-\d{2}-\d{2}$/.test(d)) set.add(d);
+    }
+    user.checkinDays = [...set].sort().slice(-400);
+    await user.save();
+    const has = new Set(user.checkinDays);
+    let streak = 0;
+    const d = new Date();
+    while (has.has(d.toISOString().slice(0, 10))) { streak += 1; d.setDate(d.getDate() - 1); }
+    res.json({ streak, days: user.checkinDays });
+  } catch (e) { console.error('[checkin]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // One-time (superadmin): seed the shared consensus from every existing per-user

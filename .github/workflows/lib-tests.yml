@@ -29,3 +29,4 @@ jobs:
       - run: node lib/amount.test.js
       - run: node lib/inboundEmail.test.js
       - run: node lib/incomeReport.test.js
+      - run: node lib/cancelGuides.test.js

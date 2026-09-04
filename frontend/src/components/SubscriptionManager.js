@@ -18,6 +18,8 @@ const SubscriptionManager = () => {
   const [showForm, setShowForm] = useState(false);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', cost: '', frequency: 'monthly', category: 'Entertainment' });
+  const [cancelSub, setCancelSub] = useState(null); // subscription whose cancel guide is open
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
   const flash = (text, type = 'success') => { setMessage({ text, type }); setTimeout(() => setMessage(null), 3500); };
@@ -69,6 +71,27 @@ const SubscriptionManager = () => {
       flash('Could not delete.', 'error');
     }
   };
+
+  // C1 — assisted cancellation. Start records the baseline we verify against; the
+  // guide modal shows the exact steps; then we watch the ledger to confirm it stopped.
+  const startCancel = async (s) => {
+    setCancelBusy(true);
+    try {
+      await axios.post(`${API_URL}/api/subscriptions/${s._id}/start-cancel`, {}, authHeaders());
+      flash("Tracking it — we'll confirm the charge stops.");
+      setCancelSub(null); load();
+    } catch { flash('Could not start.', 'error'); }
+    finally { setCancelBusy(false); }
+  };
+  const markCancelled = async (s) => {
+    try { await axios.post(`${API_URL}/api/subscriptions/${s._id}/mark-cancelled`, {}, authHeaders()); flash('Marked as cancelled.'); load(); }
+    catch { flash('Could not update.', 'error'); }
+  };
+  const keepSub = async (s) => {
+    try { await axios.post(`${API_URL}/api/subscriptions/${s._id}/keep`, {}, authHeaders()); flash('Kept.'); load(); }
+    catch { flash('Could not update.', 'error'); }
+  };
+  const methodLabel = (m) => ({ online: 'Cancel on their website', in_app: 'Cancel in the App Store / Play Store', phone: 'Call to cancel', ussd: 'Cancel via USSD', bank: 'Stop the card charge' }[m] || 'Cancel');
 
   const monthlyOf = (s) => (s.frequency === 'yearly' ? s.cost / 12 : s.cost);
   const combined = [...saved, ...detected];
@@ -160,18 +183,44 @@ const SubscriptionManager = () => {
         ) : (
           <div className="subscriptions-list">
             {saved.map((s) => (
-              <div key={s._id} className="subscription-item">
+              <div key={s._id} className="subscription-item" style={{ flexWrap: 'wrap' }}>
                 <div className="sub-name">
                   <i className="fas fa-receipt"></i>
-                  <span>{s.name}</span>
+                  <span>{s.name}{s.status === 'cancelled' ? ' · cancelled' : s.status === 'cancelling' ? ' · cancelling' : ''}</span>
                 </div>
                 <div className="sub-details">
                   <span className="sub-cost"><i className="fas fa-money-bill"></i>{fmtNaira(s.cost)}/{s.frequency === 'monthly' ? 'mo' : 'yr'}</span>
                   <span className="sub-category" style={{ backgroundColor: `${getCategoryColor(s.category)}20`, color: getCategoryColor(s.category), border: `1px solid ${getCategoryColor(s.category)}` }}>
                     <i className="fas fa-tag"></i>{s.category}
                   </span>
+                  {s.status === 'active' && (
+                    <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => setCancelSub(s)}>
+                      <i className="fas fa-ban"></i> Help me cancel
+                    </button>
+                  )}
+                  {s.status === 'cancelled' && (
+                    <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => keepSub(s)}>Reactivate</button>
+                  )}
                   <button className="sub-del" onClick={() => deleteSub(s._id)} title="Delete"><i className="fas fa-trash"></i></button>
                 </div>
+                {s.status === 'cancelling' && (
+                  <div style={{ flexBasis: '100%', marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {s.cancelCheck && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', padding: '8px 10px', borderRadius: 8,
+                        background: s.cancelCheck.state === 'still_charging' ? 'rgba(245,158,11,0.12)' : s.cancelCheck.state === 'confirmed' ? 'rgba(16,185,129,0.1)' : 'var(--card-bg, #f8fafc)',
+                        border: `1px solid ${s.cancelCheck.state === 'still_charging' ? '#f59e0b' : s.cancelCheck.state === 'confirmed' ? '#10b981' : 'var(--border-color, #e2e8f0)'}` }}>
+                        <i className={`fas ${s.cancelCheck.state === 'still_charging' ? 'fa-triangle-exclamation' : s.cancelCheck.state === 'confirmed' ? 'fa-circle-check' : 'fa-clock'}`}
+                          style={{ color: s.cancelCheck.state === 'still_charging' ? '#f59e0b' : s.cancelCheck.state === 'confirmed' ? '#10b981' : 'var(--text-secondary)' }}></i>
+                        <span>{s.cancelCheck.message}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => setCancelSub(s)}>Show steps</button>
+                      <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => markCancelled(s)}>It's cancelled</button>
+                      <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => keepSub(s)}>Keep it</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -211,8 +260,48 @@ const SubscriptionManager = () => {
         )}
       </div>
 
+      {/* C1 — cancellation guide modal */}
+      {cancelSub && cancelSub.guide && (
+        <div className="cancel-overlay" onClick={() => setCancelSub(null)}>
+          <div className="cancel-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="cancel-head">
+              <h3>Cancel {cancelSub.guide.name || cancelSub.name}</h3>
+              <button className="cancel-x" onClick={() => setCancelSub(null)}><i className="fas fa-times"></i></button>
+            </div>
+            <span className="cancel-method">{methodLabel(cancelSub.guide.method)}</span>
+            {!cancelSub.guide.matched && (
+              <p className="cancel-note">We don't have exact steps for this one, so here's the reliable general way — the last step stops it even if the provider makes cancelling hard.</p>
+            )}
+            <ol className="cancel-steps">
+              {cancelSub.guide.steps.map((step, i) => <li key={i}>{step}</li>)}
+            </ol>
+            {cancelSub.guide.url && (
+              <a className="cancel-link" href={cancelSub.guide.url} target="_blank" rel="noreferrer">
+                <i className="fas fa-external-link-alt"></i> Open cancellation page
+              </a>
+            )}
+            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 14 }}
+              disabled={cancelBusy}
+              onClick={() => (cancelSub.status === 'cancelling' ? setCancelSub(null) : startCancel(cancelSub))}>
+              {cancelBusy ? 'Starting…' : cancelSub.status === 'cancelling' ? 'Done — close' : "I've done these — track it"}
+            </button>
+            <p className="cancel-foot">After you cancel, we'll watch your transactions and tell you if it charges again — so you know it actually stopped.</p>
+          </div>
+        </div>
+      )}
+
       <style jsx="true">{`
         .subscriptions-page { padding: 20px; max-width: 1100px; margin: 0 auto; }
+        .cancel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .cancel-modal { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 22px; max-width: 460px; width: 100%; max-height: 85vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+        .cancel-head { display: flex; justify-content: space-between; align-items: center; }
+        .cancel-head h3 { margin: 0; color: var(--text-primary); }
+        .cancel-x { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1.1rem; }
+        .cancel-method { display: inline-block; margin-top: 8px; background: rgba(20,184,166,0.14); color: var(--accent-primary); font-weight: 700; font-size: 0.78rem; padding: 4px 10px; border-radius: 8px; }
+        .cancel-note { color: var(--text-secondary); font-size: 0.86rem; line-height: 1.5; margin: 12px 0 0; }
+        .cancel-steps { margin: 14px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 9px; color: var(--text-primary); font-size: 0.92rem; line-height: 1.45; }
+        .cancel-link { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--accent-primary); font-weight: 700; text-decoration: none; }
+        .cancel-foot { color: var(--text-secondary); font-size: 0.78rem; line-height: 1.5; margin-top: 12px; text-align: center; }
         .section-header { text-align: center; margin-bottom: 24px; padding: 18px 14px; background: var(--bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); border: 1px solid var(--border-color); }
         .section-header h2 { font-family: var(--font-heading); font-size: 2rem; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--text-primary); }
         .section-subtitle { color: var(--text-secondary); font-size: 1rem; max-width: 600px; margin: 0 auto 14px; }

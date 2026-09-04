@@ -23,6 +23,7 @@ const { reconcile, extractBalances } = require('./lib/reconcile');
 const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
+const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -634,7 +635,11 @@ const subscriptionSchema = new mongoose.Schema({
   cost:      { type: Number, required: true, min: 0 },
   frequency: { type: String, enum: ['monthly', 'yearly'], default: 'monthly' },
   category:  { type: String, default: 'Entertainment' },
-  status:    { type: String, enum: ['active', 'cancelled'], default: 'active' },
+  // 'cancelling' = the user started the assisted cancel flow; we watch the ledger to
+  // confirm the charge actually stops (C1). cancelRequestedAt is the verification
+  // baseline — any matching charge dated after it means the cancellation didn't take.
+  status:    { type: String, enum: ['active', 'cancelling', 'cancelled'], default: 'active' },
+  cancelRequestedAt: { type: Date },
   nextPayment: { type: Date },
   scheduledPayment: {
     enabled:    { type: Boolean, default: false },
@@ -3233,12 +3238,43 @@ app.post('/api/debts/:id/pay', auth, async (req, res) => {
   } catch (e) { console.error('Debt pay error:', e.message); res.status(500).json({ message: e.message || 'Server error' }); }
 });
 
-// Subscriptions (updated PUT to accept new fields)
+// Subscriptions. Each row is enriched with its cancellation guide (C1), and any
+// subscription mid-cancellation is verified against the ledger — did a matching
+// charge land AFTER the cancel request (didn't take) or has it gone quiet past a
+// billing cycle (confirmed stopped)? Confirmed ones are promoted to 'cancelled'.
 app.get('/api/subscriptions', auth, async (req, res) => {
   try {
-    const subs = await Subscription.find({ userId: req.user._id }).sort({ createdAt: -1 });
-    res.json(subs);
-  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+    const uid = req.user._id;
+    const subs = await Subscription.find({ userId: uid }).sort({ createdAt: -1 }).lean();
+    const cancelling = subs.filter((s) => s.status === 'cancelling' && s.cancelRequestedAt);
+    let txns = [];
+    if (cancelling.length) {
+      txns = await Transaction.find({ userId: uid, type: 'expense' }, { description: 1, date: 1 }).lean();
+    }
+    const promote = [];
+    const out = subs.map((s) => {
+      const guide = cancelGuideFor(s.name);
+      let cancelCheck = null;
+      if (s.status === 'cancelling' && s.cancelRequestedAt) {
+        const key = deriveCategoryKey(s.name);
+        const chargedAfter = !!key && txns.some((t) => deriveCategoryKey(t.description) === key && new Date(t.date) > new Date(s.cancelRequestedAt));
+        cancelCheck = verifyCancellation({ requestedAt: s.cancelRequestedAt, frequency: s.frequency, chargedAfter });
+        if (cancelCheck.state === 'confirmed') promote.push(s._id);
+      }
+      return { ...s, guide, cancelCheck };
+    });
+    // Persist confirmed cancellations so we stop re-checking them.
+    if (promote.length) {
+      try { await Subscription.updateMany({ _id: { $in: promote }, userId: uid }, { $set: { status: 'cancelled' } }); } catch (e) { console.error('[subs/promote]', e.message); }
+      for (const s of out) if (promote.some((id) => String(id) === String(s._id))) s.status = 'cancelled';
+    }
+    res.json(out);
+  } catch (e) { console.error('[subscriptions]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Look up the cancellation guide for a name without a saved subscription.
+app.get('/api/subscriptions/cancel-guide', auth, (req, res) => {
+  res.json({ guide: cancelGuideFor((req.query.name || '').toString()) });
 });
 
 // Auto-detect likely subscriptions from the user's transactions: recurring
@@ -3348,6 +3384,42 @@ app.delete('/api/subscriptions/:id', auth, async (req, res) => {
   try {
     await Subscription.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     res.json({ message: 'Deleted' });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// C1 — start the assisted cancellation: mark it 'cancelling', stamp the baseline we
+// verify against, and hand back the step-by-step guide for this provider.
+app.post('/api/subscriptions/:id/start-cancel', auth, async (req, res) => {
+  try {
+    const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!sub) return res.status(404).json({ message: 'Not found' });
+    sub.status = 'cancelling';
+    sub.cancelRequestedAt = new Date();
+    await sub.save();
+    res.json({ subscription: sub, guide: cancelGuideFor(sub.name) });
+  } catch (e) { console.error('[start-cancel]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// The user confirms it's fully cancelled (or we stop tracking it as active).
+app.post('/api/subscriptions/:id/mark-cancelled', auth, async (req, res) => {
+  try {
+    const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!sub) return res.status(404).json({ message: 'Not found' });
+    sub.status = 'cancelled';
+    await sub.save();
+    res.json(sub);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Undo — the user decided to keep the subscription after all.
+app.post('/api/subscriptions/:id/keep', auth, async (req, res) => {
+  try {
+    const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!sub) return res.status(404).json({ message: 'Not found' });
+    sub.status = 'active';
+    sub.cancelRequestedAt = null;
+    await sub.save();
+    res.json(sub);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 

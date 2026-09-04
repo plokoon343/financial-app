@@ -53,6 +53,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
   const [meta,            setMeta]            = useState(null);
   const [step,            setStep]            = useState('upload');
   const [message,         setMessage]         = useState(null);
+  const [reviewStartedAt, setReviewStartedAt] = useState(0); // for _parse timeToReviewMs
   const [pdfPassword,     setPdfPassword]     = useState('');  // NEW
   const [bank,            setBank]            = useState('');   // confirmed bank for this statement
   const [banks,           setBanks]           = useState([]);   // Paystack bank list for override
@@ -100,11 +101,26 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
         },
       });
       const txns = res.data.transactions || [];
-      setTransactions(txns);
+      const detectedBank = res.data.meta?.detectedBank || '';
+      const source = isPdf ? 'statement_pdf' : 'statement_csv';
+      // Snapshot each row's ORIGINAL parsed values as _parse training metadata, so
+      // any edit the user makes before importing is logged as a correction (spec A2).
+      const withParse = txns.map((tx) => ({
+        ...tx,
+        _parse: {
+          rawText: '', source, bank: detectedBank,
+          parserVersion: 'stmt-server-v1', parserPath: 'deterministic',
+          amount: Math.abs(Number(tx.amount)) || 0,
+          direction: tx.type === 'income' ? 'credit' : 'debit',
+          date: tx.date, counterparty: tx.description || '', category: tx.category || '',
+        },
+      }));
+      setTransactions(withParse);
       setMeta(res.data.meta || null);
-      setBank(res.data.meta?.detectedBank || '');
+      setBank(detectedBank);
+      setReviewStartedAt(Date.now());
       setSelectedIndices(
-        txns.reduce((acc, tx, i) => { if (!tx.duplicate) acc.push(i); return acc; }, [])
+        withParse.reduce((acc, tx, i) => { if (!tx.duplicate) acc.push(i); return acc; }, [])
       );
       setStep('review');
       setMessage({ text: `Found ${txns.length} transaction${txns.length !== 1 ? 's' : ''}`, type: 'success' });
@@ -141,7 +157,13 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
     setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, category } : t)));
 
   const handleImport = async () => {
-    const toImport = selectedIndices.map((i) => transactions[i]);
+    const elapsed = reviewStartedAt ? Date.now() - reviewStartedAt : null;
+    const toImport = selectedIndices.map((i) => {
+      const t = transactions[i];
+      // Finalise _parse with the confirmed bank + time-to-review so corrections are
+      // attributed correctly (backend diffs _parse against the imported values).
+      return t._parse ? { ...t, _parse: { ...t._parse, bank: bank || t._parse.bank, timeToReviewMs: elapsed } } : t;
+    });
     if (!toImport.length) {
       setMessage({ text: 'No transactions selected', type: 'error' });
       return;

@@ -22,6 +22,7 @@ const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
 const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
+const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -5476,6 +5477,33 @@ app.post('/api/transactions/reclassify-kinds', auth, async (req, res) => {
     }
     res.json({ reclassified: ops.length, reversalsPaired: pairs.length });
   } catch (e) { console.error('[reclassify-kinds]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Verified income & financial report (spec C6). Aggregates the user's own data into
+// a professional summary for visa / rent / loan / japa applications. `?format=html`
+// returns a printable document (the mobile app prints it to PDF; web prints it
+// directly); otherwise JSON for an in-app preview. `months` = 1..24 (default 6).
+app.get('/api/reports/income-summary', auth, async (req, res) => {
+  try {
+    const months = Math.max(1, Math.min(24, parseInt(req.query.months, 10) || 6));
+    const [txns, user, wallet] = await Promise.all([
+      Transaction.find({ userId: req.user._id }).select('type amount date description category').lean(),
+      User.findById(req.user._id).select('name').lean(),
+      Wallet.findOne({ userId: req.user._id }).select('balance').lean().catch(() => null),
+    ]);
+    const summary = buildIncomeSummary(txns, {
+      months,
+      userName: user?.name || '',
+      // Only show a balance line when it's a real, positive figure (the BaaS wallet
+      // is usually ₦0 and would just look bad on the report).
+      walletBalance: wallet && wallet.balance > 0 ? wallet.balance : null,
+    });
+    if ((req.query.format || '').toLowerCase() === 'html') {
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      return res.send(renderIncomeReportHTML(summary, { brand: 'Automonie' }));
+    }
+    return res.json(summary);
+  } catch (e) { console.error('[income-summary]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Record a daily check-in and return the current streak. Server-side so the

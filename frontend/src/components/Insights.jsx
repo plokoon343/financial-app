@@ -1,4 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import axios from 'axios';
+import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, recordCheckin, seasonFor } from '../lib/insights';
 
@@ -55,6 +57,26 @@ const Card = ({ title, right, children }) => (
 export default function Insights({ transactions = [] }) {
   const [month, setMonth] = useState(currentMonth());
   const isCurrent = month === currentMonth();
+  const [reportBusy, setReportBusy] = useState(false);
+
+  // Verified financial report (C6): fetch the server-rendered document and print it
+  // (the browser's print dialog lets the user save it as a PDF).
+  const downloadReport = async (months = 6) => {
+    setReportBusy(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/api/reports/income-summary`, {
+        params: { months, format: 'html' }, responseType: 'text',
+        headers: { Authorization: `Bearer ${token}` }, transformResponse: (r) => r,
+      });
+      const w = window.open('', '_blank');
+      if (!w) { alert('Please allow pop-ups to open your report.'); return; }
+      w.document.open(); w.document.write(res.data); w.document.close();
+      w.onload = () => setTimeout(() => w.print(), 400);
+    } catch {
+      alert('Could not build your report. Please try again.');
+    } finally { setReportBusy(false); }
+  };
 
   const inMonth = useMemo(
     () => transactions.filter((t) => monthKey(t.date) === month),
@@ -150,6 +172,19 @@ export default function Insights({ transactions = [] }) {
           <p style={{ color: 'var(--text-secondary)', margin: '4px 0 0' }}>Where your money went, and where it's heading.</p>
         </div>
         {monthNav}
+      </div>
+
+      {/* Financial report (C6) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '14px 18px', flexWrap: 'wrap' }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 26, color: 'var(--accent-primary)' }}>description</span>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <strong style={{ color: 'var(--text-primary)' }}>Financial report</strong>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>A shareable income &amp; spending summary for visa, rent or loan applications.</div>
+        </div>
+        <button onClick={() => downloadReport(6)} disabled={reportBusy}
+          style={{ padding: '9px 16px', borderRadius: 10, border: 'none', background: 'var(--gradient-primary, var(--accent-primary))', color: '#fff', fontWeight: 700, cursor: reportBusy ? 'wait' : 'pointer' }}>
+          {reportBusy ? 'Preparing…' : 'Download PDF'}
+        </button>
       </div>
 
       {/* Clarity streak + season chips */}

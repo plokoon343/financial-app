@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import ProPaywall from './ProPaywall';
 import { fmtNaira } from '../utils/format';
 
 // Subscriptions: manage your own (manual add/delete) AND see recurring charges
@@ -20,6 +21,8 @@ const SubscriptionManager = () => {
   const [form, setForm] = useState({ name: '', cost: '', frequency: 'monthly', category: 'Entertainment' });
   const [cancelSub, setCancelSub] = useState(null); // subscription whose cancel guide is open
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [isPro, setIsPro] = useState(true); // optimistic; corrected below
+  const [paywall, setPaywall] = useState(false);
 
   const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
   const flash = (text, type = 'success') => { setMessage({ text, type }); setTimeout(() => setMessage(null), 3500); };
@@ -41,6 +44,13 @@ const SubscriptionManager = () => {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Assisted cancellation is Pro-gated (C1) — know upfront so the button reads right.
+  useEffect(() => {
+    axios.get(`${API_URL}/api/billing/status`, authHeaders()).then((r) => setIsPro(!!r.data.isPro)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const openCancel = (s) => { if (isPro) setCancelSub(s); else setPaywall(true); };
 
   const addSub = async (e) => {
     e.preventDefault();
@@ -80,7 +90,10 @@ const SubscriptionManager = () => {
       await axios.post(`${API_URL}/api/subscriptions/${s._id}/start-cancel`, {}, authHeaders());
       flash("Tracking it — we'll confirm the charge stops.");
       setCancelSub(null); load();
-    } catch { flash('Could not start.', 'error'); }
+    } catch (err) {
+      if (err.response?.status === 402) { setCancelSub(null); setPaywall(true); return; }
+      flash('Could not start.', 'error');
+    }
     finally { setCancelBusy(false); }
   };
   const markCancelled = async (s) => {
@@ -194,8 +207,8 @@ const SubscriptionManager = () => {
                     <i className="fas fa-tag"></i>{s.category}
                   </span>
                   {s.status === 'active' && (
-                    <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => setCancelSub(s)}>
-                      <i className="fas fa-ban"></i> Help me cancel
+                    <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => openCancel(s)}>
+                      <i className={`fas ${isPro ? 'fa-ban' : 'fa-lock'}`}></i> Help me cancel{isPro ? '' : ' · Pro'}
                     </button>
                   )}
                   {s.status === 'cancelled' && (
@@ -289,6 +302,8 @@ const SubscriptionManager = () => {
           </div>
         </div>
       )}
+
+      <ProPaywall open={paywall} feature="cancel" onClose={() => setPaywall(false)} />
 
       <style jsx="true">{`
         .subscriptions-page { padding: 20px; max-width: 1100px; margin: 0 auto; }

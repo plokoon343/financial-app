@@ -529,6 +529,22 @@ const parseCorrectionSchema = new mongoose.Schema({
 });
 const ParseCorrection = mongoose.model('ParseCorrection', parseCorrectionSchema);
 
+// Reconciliation outcome per statement import (spec A5/A7). Powers the accuracy
+// dashboard's "% of imports that reconcile" — the single best measure of parser
+// health, tracked per bank. One row per upload that produced transactions.
+const reconLogSchema = new mongoose.Schema({
+  userId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  bank:       { type: String, default: '' },
+  source:     { type: String, default: 'statement' }, // statement_pdf | statement_csv | statement
+  checked:    { type: Boolean, default: false },       // did we have balances to verify?
+  ok:         { type: Boolean, default: null },         // balanced (only when checked)
+  difference: { type: Number, default: null },
+  rows:       { type: Number, default: 0 },
+  uncertain:  { type: Number, default: 0 },             // rows flagged low/medium confidence (A6)
+  createdAt:  { type: Date, default: Date.now, index: true },
+});
+const ReconLog = mongoose.model('ReconLog', reconLogSchema);
+
 // Only real merchant/spend categories feed the SHARED pool. Person-to-person
 // categories (Transfer, Savings, Family & Friends), income, and the catch-alls are
 // excluded - a transfer key can be someone's name, which must never be shared. A
@@ -2495,6 +2511,96 @@ app.get('/api/admin/parse-corrections/stats', auth, superAdminAuth, async (req, 
   } catch (e) { console.error('[pc-stats]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// The ingestion accuracy dashboard (spec A7). Combines the correction log (how often
+// users fix a parsed field, per bank/source/field — amount + direction fixes are the
+// emergencies) with the reconciliation log (what % of statement imports balance, per
+// bank). One glance answers: which bank is failing my users right now?
+app.get('/api/admin/ingestion/accuracy', auth, superAdminAuth, async (req, res) => {
+  try {
+    const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : 0);
+    // Per-bank correction breakdown incl. the critical amount/direction fixes.
+    const corrByBank = await ParseCorrection.aggregate([
+      { $group: {
+        _id: '$bankCode',
+        total: { $sum: 1 },
+        corrected: { $sum: { $cond: ['$wasCorrected', 1, 0] } },
+        amountFix: { $sum: { $cond: [{ $in: ['amount', { $ifNull: ['$correctedFields', []] }] }, 1, 0] } },
+        directionFix: { $sum: { $cond: [{ $in: ['direction', { $ifNull: ['$correctedFields', []] }] }, 1, 0] } },
+      } },
+      { $sort: { total: -1 } },
+    ]);
+    const bySource = await ParseCorrection.aggregate([
+      { $group: { _id: '$source', total: { $sum: 1 }, corrected: { $sum: { $cond: ['$wasCorrected', 1, 0] } } } },
+      { $sort: { total: -1 } },
+    ]);
+    const byField = await ParseCorrection.aggregate([
+      { $unwind: '$correctedFields' },
+      { $group: { _id: '$correctedFields', count: { $sum: 1 } } }, { $sort: { count: -1 } },
+    ]);
+    const byPath = await ParseCorrection.aggregate([
+      { $group: { _id: '$parserPath', count: { $sum: 1 } } }, { $sort: { count: -1 } },
+    ]);
+    const totalsA = await ParseCorrection.aggregate([
+      { $group: { _id: null, total: { $sum: 1 }, corrected: { $sum: { $cond: ['$wasCorrected', 1, 0] } },
+        amountFix: { $sum: { $cond: [{ $in: ['amount', { $ifNull: ['$correctedFields', []] }] }, 1, 0] } } } },
+    ]);
+    // Reconciliation health per bank + overall (statements only).
+    const reconByBank = await ReconLog.aggregate([
+      { $group: { _id: '$bank', imports: { $sum: 1 },
+        checked: { $sum: { $cond: ['$checked', 1, 0] } },
+        balanced: { $sum: { $cond: [{ $eq: ['$ok', true] }, 1, 0] } } } },
+      { $sort: { imports: -1 } },
+    ]);
+    const reconTotals = await ReconLog.aggregate([
+      { $group: { _id: null, imports: { $sum: 1 }, checked: { $sum: { $cond: ['$checked', 1, 0] } },
+        balanced: { $sum: { $cond: [{ $eq: ['$ok', true] }, 1, 0] } } } },
+    ]);
+
+    const ct = totalsA[0] || { total: 0, corrected: 0, amountFix: 0 };
+    const rt = reconTotals[0] || { imports: 0, checked: 0, balanced: 0 };
+    const reconMap = new Map(reconByBank.map((r) => [r._id || '', r]));
+
+    // Merge correction + reconcile per bank, and rank "worst" first (high correction
+    // rate + amount fixes + low reconcile) so the failing banks surface at the top.
+    const banks = corrByBank.map((b) => {
+      const key = b._id || '(unknown)';
+      const rec = reconMap.get((b._id || '')) || { imports: 0, checked: 0, balanced: 0 };
+      const correctionRate = pct(b.corrected, b.total);
+      const amountFixRate = pct(b.amountFix, b.total);
+      const reconcileRate = pct(rec.balanced, rec.checked);
+      return {
+        bank: key, samples: b.total, correctionRate, amountFix: b.amountFix, amountFixRate, directionFix: b.directionFix,
+        imports: rec.imports, reconcileChecked: rec.checked, reconcileRate,
+        health: Math.round((amountFixRate * 2 + correctionRate + (rec.checked ? (100 - reconcileRate) : 0))),
+      };
+    });
+    // Include banks that have imports but no corrections yet.
+    for (const r of reconByBank) {
+      const key = r._id || '';
+      if (!corrByBank.some((b) => (b._id || '') === key)) {
+        banks.push({ bank: key || '(unknown)', samples: 0, correctionRate: 0, amountFix: 0, amountFixRate: 0, directionFix: 0,
+          imports: r.imports, reconcileChecked: r.checked, reconcileRate: pct(r.balanced, r.checked), health: r.checked ? (100 - pct(r.balanced, r.checked)) : 0 });
+      }
+    }
+    banks.sort((a, b) => b.health - a.health);
+
+    res.json({
+      corrections: {
+        total: ct.total, corrected: ct.corrected, overallRate: pct(ct.corrected, ct.total),
+        amountFix: ct.amountFix, amountFixRate: pct(ct.amountFix, ct.total),
+        bySource: bySource.map((s) => ({ key: s._id || '(none)', total: s.total, corrected: s.corrected, rate: pct(s.corrected, s.total) })),
+        byField: byField.map((f) => ({ field: f._id, count: f.count })),
+        byParserPath: byPath.map((p) => ({ path: p._id || 'none', count: p.count })),
+      },
+      reconciliation: {
+        imports: rt.imports, checked: rt.checked, balanced: rt.balanced,
+        reconcileRate: pct(rt.balanced, rt.checked), checkedRate: pct(rt.checked, rt.imports),
+      },
+      banks,
+    });
+  } catch (e) { console.error('[ingestion-accuracy]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Let a user opt out of contributing anonymised parse corrections to training.
 app.post('/api/me/training-optout', auth, async (req, res) => {
   try {
@@ -2923,6 +3029,14 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
     // category passes below. Health metric: log every import's balance outcome.
     const reconciliation = (transactions && transactions.reconciliation) || { checked: false, ok: null };
     console.log(`[reconcile] user=${req.user._id} bank=${detectedBank || '?'} checked=${reconciliation.checked} ok=${reconciliation.ok} rows=${transactions.length} diff=${reconciliation.difference}`);
+    // Persist the outcome for the accuracy dashboard (A7). Fire-and-forget.
+    ReconLog.create({
+      userId: req.user._id, bank: (detectedBank || '').toLowerCase(),
+      source: ext === 'pdf' ? 'statement_pdf' : (ext === 'csv' ? 'statement_csv' : 'statement'),
+      checked: !!reconciliation.checked, ok: reconciliation.ok,
+      difference: reconciliation.difference ?? null, rows: transactions.length,
+      uncertain: transactions.filter(t => t.confidenceLevel === 'low' || t.confidenceLevel === 'medium').length,
+    }).catch((e) => console.error('[reconlog]', e.message));
 
     // Apply categories the user has taught the app from previous corrections.
     transactions = await applyLearnedCategories(req.user._id, transactions);

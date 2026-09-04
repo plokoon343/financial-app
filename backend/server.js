@@ -21,6 +21,7 @@ const { classifyKind } = require('./lib/txnKinds');
 const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
 const { normalizeAmount } = require('./lib/amount');
+const inboundEmail = require('./lib/inboundEmail');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -139,6 +140,7 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '5mb', verify: (req, _res, buf) => { req.rawBody = buf; } })); // raw body kept for webhook signature checks
+app.use(express.urlencoded({ extended: true, limit: '5mb' })); // inbound-email providers post form fields
 
 // Strip MongoDB operator keys ($..., or keys with dots) from request body/query
 // so user input can't inject query operators (e.g. { email: { $ne: null } }).
@@ -223,6 +225,12 @@ const userSchema = new mongoose.Schema({
   // Days (YYYY-MM-DD) the user checked in — powers the "clarity streak". Stored
   // server-side so the streak survives a reinstall / new device.
   checkinDays:   { type: [String], default: [] },
+  // Email forwarding (B1): a unique high-entropy inbound address token so the user
+  // can forward bank-alert emails to <token>@in.automonie.com and have them parsed
+  // automatically. lastAt drives the "we're receiving your alerts ✓" status.
+  inboundEmailToken: { type: String, index: true, sparse: true },
+  inboundEmailLastAt: { type: Date },
+  inboundEmailCount:  { type: Number, default: 0 },
   onboarded:     { type: Boolean, default: false },
   lastLogin:     { type: Date },
   // Email-based 2-step verification (#21/#22).
@@ -2867,7 +2875,7 @@ const CREDIT_HINTS = /\b(cr|credit(ed)?|received|inflow|deposit|reversal|refund)
 const DEBIT_HINTS = /\b(dr|debit(ed)?|withdrawn|withdrawal|purchase|payment|paid|pos|transfer to|sent)\b/i;
 const SMS_DATE_RE = /\b(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/i;
 
-function parseOneAlert(msg) {
+function parseOneAlert(msg, source = 'sms') {
   const raw = msg.trim();
   if (!raw) return null;
   // Amount: first money-looking token, normalised (handles NGN2,5OO OCR etc.).
@@ -2904,8 +2912,9 @@ function parseOneAlert(msg) {
     type, category, bank, reference: null, raw,
     // low-confidence amount is left visibly empty for the user to fill (spec A6).
     needsReview: confidence === 'low',
+    confidence,
     _parse: {
-      rawText: raw, source: 'sms', bank, parserVersion: 'backend-sms-lite-v1', parserPath: 'deterministic',
+      rawText: raw, source, bank, parserVersion: 'backend-sms-lite-v1', parserPath: 'deterministic',
       amount: amount != null ? +Number(amount).toFixed(2) : null,
       direction: type === 'income' ? 'credit' : 'debit',
       date, counterparty: description, category, confidence,
@@ -2931,6 +2940,102 @@ app.post('/api/parse-sms', auth, async (req, res) => {
     console.error('[parse-sms]', e.message);
     return res.status(500).json({ message: 'Could not parse those alerts.' });
   }
+});
+
+// ── Email forwarding (spec B1) ─────────────────────────────────────────────────
+// The user forwards bank-alert emails to <token>@in.automonie.com; the inbound
+// provider POSTs them to the webhook below, and we parse them like SMS. Activated
+// once INBOUND_EMAIL_SECRET (+ DNS/MX for the inbound domain) are configured.
+const INBOUND_DOMAIN = process.env.INBOUND_EMAIL_DOMAIN || 'in.automonie.com';
+const inboundExtraDomains = (process.env.INBOUND_EMAIL_EXTRA_DOMAINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const inboundActive = () => !!process.env.INBOUND_EMAIL_SECRET;
+
+// The user's unique inbound address (creates the token on first request) + whether
+// we've started receiving mail for them.
+app.get('/api/inbound-email/address', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('inboundEmailToken inboundEmailLastAt inboundEmailCount');
+    if (!user.inboundEmailToken) {
+      // Generate a unique token (retry on the rare index collision).
+      for (let i = 0; i < 5; i++) {
+        const tok = inboundEmail.genToken();
+        if (!(await User.exists({ inboundEmailToken: tok }))) { user.inboundEmailToken = tok; break; }
+      }
+      await user.save();
+    }
+    res.json({
+      address: `${user.inboundEmailToken}@${INBOUND_DOMAIN}`,
+      domain: INBOUND_DOMAIN,
+      active: inboundActive(),                       // false until keys/DNS are set
+      receiving: !!user.inboundEmailLastAt,
+      lastAt: user.inboundEmailLastAt || null,
+      count: user.inboundEmailCount || 0,
+    });
+  } catch (e) { console.error('[inbound-email/address]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Poll for the "we're receiving your alerts ✓" state (drives the test-email step).
+app.get('/api/inbound-email/status', auth, async (req, res) => {
+  try {
+    const u = await User.findById(req.user._id).select('inboundEmailLastAt inboundEmailCount');
+    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0 });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Provider webhook. Provider-agnostic: normalises Mailgun / Postmark / SES field
+// names. Always answers 200 for accepted-but-ignored mail so the provider doesn't
+// retry; 503 until activated, 401 on a bad secret.
+app.post('/api/inbound-email/webhook', async (req, res) => {
+  try {
+    if (!inboundActive()) return res.status(503).json({ message: 'Email forwarding is not enabled yet.' });
+    const key = req.get('x-inbound-key') || req.query.key || req.body?.key || '';
+    if (key !== process.env.INBOUND_EMAIL_SECRET) return res.status(401).json({ message: 'Bad webhook key' });
+
+    const b = req.body || {};
+    const recipient = b.recipient || b.To || b.to || (Array.isArray(b.ToFull) && b.ToFull[0]?.Email) || '';
+    const from = b.sender || b.From || b.from || b.FromFull?.Email || '';
+    const subject = b.subject || b.Subject || '';
+    const text = b['body-plain'] || b['stripped-text'] || b.TextBody || b.text || b.plain || '';
+    const html = b['body-html'] || b.HtmlBody || b.html || '';
+
+    const token = inboundEmail.extractToken(recipient, INBOUND_DOMAIN);
+    if (!token) return res.json({ ok: true, skipped: 'no-token' });
+    const user = await User.findOne({ inboundEmailToken: token }).select('_id name inboundEmailCount');
+    if (!user) return res.json({ ok: true, skipped: 'unknown-recipient' });
+    // Sender allowlist — silently drop anything that isn't a known bank (spec B1).
+    if (!inboundEmail.isAllowedSender(from, inboundExtraDomains)) return res.json({ ok: true, skipped: 'sender-not-allowed' });
+
+    // We're receiving mail for this user → light up the status regardless of parse.
+    user.inboundEmailLastAt = new Date();
+
+    const body = inboundEmail.emailToText({ subject, text, html });
+    const parsed = parseOneAlert(body, 'email');
+    let created = 0;
+    if (parsed && parsed.amount > 0) {
+      // Dedupe against everything already saved in a ±1 day window (SMS often
+      // carries the same transaction — never double-count).
+      const when = new Date(parsed.date);
+      const gte = new Date(when.getTime() - 86400000), lte = new Date(when.getTime() + 86400000);
+      const existing = await Transaction.find({ userId: user._id, date: { $gte: gte, $lte: lte } })
+        .select('amount type date bank description').lean();
+      const fp = fingerprint({ amount: parsed.amount, type: parsed.type, date: parsed.date, bank: parsed.bank, description: parsed.description });
+      const dup = existing.some((e) => matchScore(fp, fingerprint({ amount: e.amount, type: e.type, date: new Date(e.date).toISOString().slice(0, 10), bank: e.bank, description: e.description })) >= MERGE);
+      if (!dup) {
+        const signed = parsed.type === 'income' ? Math.abs(parsed.amount) : -Math.abs(parsed.amount);
+        const kind = classifyKind({ type: parsed.type, description: parsed.description, category: parsed.category });
+        await new Transaction({
+          userId: user._id, date: when, description: parsed.description, amount: signed,
+          category: parsed.category || 'Other', type: kind || parsed.type,
+          source: 'email', bank: parsed.bank || '', importedAt: new Date(),
+        }).save();
+        created = 1;
+        user.inboundEmailCount = (user.inboundEmailCount || 0) + 1;
+        try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
+      }
+    }
+    await user.save();
+    return res.json({ ok: true, created });
+  } catch (e) { console.error('[inbound-email/webhook]', e.message); return res.status(500).json({ message: 'Server error' }); }
 });
 
 // Import selected transactions

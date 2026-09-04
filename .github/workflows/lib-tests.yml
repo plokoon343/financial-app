@@ -27,3 +27,4 @@ jobs:
       - run: node lib/reconcile.test.js
       - run: node lib/dedupe.test.js
       - run: node lib/amount.test.js
+      - run: node lib/inboundEmail.test.js

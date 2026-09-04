@@ -46,3 +46,10 @@ jobs:
             -H "x-cron-secret: $SECRET" \
             --max-time 150 --retry 5 --retry-delay 15 --retry-all-errors \
             -w "\ninsights → HTTP %{http_code}\n"
+
+      - name: Renew due Pro subscriptions
+        run: |
+          curl -fsS -X POST "$BASE/api/cron/renew-pro" \
+            -H "x-cron-secret: $SECRET" \
+            --max-time 150 --retry 5 --retry-delay 15 --retry-all-errors \
+            -w "\nrenew-pro → HTTP %{http_code}\n"

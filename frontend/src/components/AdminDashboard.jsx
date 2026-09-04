@@ -10,6 +10,7 @@ const AdminDashboard = () => {
   const [tickets, setTickets] = useState([]);
   const [waitlist, setWaitlist] = useState([]);
   const [recapCfg, setRecapCfg] = useState(null);
+  const [accuracy, setAccuracy] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -46,18 +47,20 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const [statsRes, usersRes, ticketsRes, waitlistRes, recapRes] = await Promise.all([
+      const [statsRes, usersRes, ticketsRes, waitlistRes, recapRes, accRes] = await Promise.all([
         axios.get(`${API_URL}/api/admin/stats`, { headers }),
         axios.get(`${API_URL}/api/admin/users`, { headers }),
         axios.get(`${API_URL}/api/admin/tickets`, { headers }),
         axios.get(`${API_URL}/api/admin/waitlist`, { headers }),
-        axios.get(`${API_URL}/api/recaps/config`, { headers })
+        axios.get(`${API_URL}/api/recaps/config`, { headers }),
+        axios.get(`${API_URL}/api/admin/ingestion/accuracy`, { headers }).catch(() => ({ data: null })),
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data);
       setTickets(ticketsRes.data);
       setWaitlist(waitlistRes.data.items || []);
       setRecapCfg(recapRes.data);
+      setAccuracy(accRes.data);
     } catch (error) { showMessage('Failed to load data', 'error'); }
     finally { setLoading(false); }
   };
@@ -160,7 +163,7 @@ const AdminDashboard = () => {
         </div>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
-        {['overview', 'users', 'tickets', 'waitlist', 'recaps'].map(tab => {
+        {['overview', 'accuracy', 'users', 'tickets', 'waitlist', 'recaps'].map(tab => {
           const openCount = tab === 'tickets' ? tickets.filter(t => t.status === 'open').length : 0;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? 'var(--gradient-primary)' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>
@@ -190,6 +193,82 @@ const AdminDashboard = () => {
               <tbody>{stats.recentUsers.map(u => <tr key={u._id}><td style={{ ...textPrimary, padding: '0.75rem' }}>{u.name}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{u.email}</td><td style={{ padding: '0.75rem' }}><span style={{ padding: '0.25rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '600', background: u.role === 'superadmin' ? '#553c9a' : '#2b6cb0', color: 'white' }}>{u.role}</span></td><td style={{ ...textSecondary, padding: '0.75rem' }}>{new Date(u.createdAt).toLocaleDateString()}</td></tr>)}</tbody>
             </table>
           </div>
+        </>
+      )}
+
+      {activeTab === 'accuracy' && (
+        <>
+          {!accuracy ? (
+            <div style={cardStyle}><p style={{ ...textSecondary, margin: 0 }}>No ingestion data yet. Accuracy fills in as users import statements and correct parsed rows.</p></div>
+          ) : (() => {
+            const c = accuracy.corrections, r = accuracy.reconciliation;
+            const rateColor = (rate, good) => (good ? (rate >= 95 ? '#38a169' : rate >= 85 ? '#dd6b20' : '#e53e3e') : (rate <= 5 ? '#38a169' : rate <= 15 ? '#dd6b20' : '#e53e3e'));
+            const kpi = (label, value, color, title) => <div key={label} style={{ ...cardStyle, minWidth: 0 }}><p style={{ ...textSecondary, fontSize: '0.85rem', fontWeight: 600, margin: '0 0 0.5rem' }}>{label}</p><p title={title} style={{ color, fontSize: '1.6rem', fontWeight: 700, margin: 0 }}>{value}</p></div>;
+            const th = (h) => <th key={h} style={{ ...textSecondary, textAlign: 'left', padding: '0.6rem 0.75rem', fontSize: '0.8rem', fontWeight: 600, borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, whiteSpace: 'nowrap' }}>{h}</th>;
+            const td = (child, extra) => <td style={{ padding: '0.6rem 0.75rem', ...textPrimary, ...extra }}>{child}</td>;
+            return (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
+                  {kpi('Correction rate', `${c.overallRate}%`, rateColor(c.overallRate, false), `${c.corrected} of ${c.total} parsed rows were edited`)}
+                  {kpi('Amount fixes ⚠', `${c.amountFixRate}%`, rateColor(c.amountFixRate, false), `${c.amountFix} amount corrections — the emergency metric`)}
+                  {kpi('Statements reconciled', r.checked ? `${r.reconcileRate}%` : '—', rateColor(r.reconcileRate, true), `${r.balanced} of ${r.checked} verifiable imports balanced`)}
+                  {kpi('Imports', `${r.imports}`, 'var(--accent-primary)', `${r.checkedRate}% had balances to verify`)}
+                  {kpi('Labelled samples', `${c.total}`, '#805ad5', 'From the preview-gate correction log')}
+                </div>
+
+                <div style={cardStyle}>
+                  <h3 style={{ ...textPrimary, marginTop: 0, marginBottom: '0.5rem' }}>Which bank is failing users?</h3>
+                  <p style={{ ...textSecondary, fontSize: '0.85rem', marginTop: 0 }}>Ranked worst-first. Amount fixes and low reconcile rates are the red flags.</p>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>{['Bank', 'Samples', 'Correction %', 'Amount fixes', 'Imports', 'Reconciled %'].map(th)}</tr></thead>
+                      <tbody>
+                        {accuracy.banks.length === 0 && <tr><td colSpan={6} style={{ ...textSecondary, padding: '1rem', textAlign: 'center' }}>No bank data yet.</td></tr>}
+                        {accuracy.banks.map((b) => (
+                          <tr key={b.bank}>
+                            {td(<strong>{b.bank}</strong>)}
+                            {td(b.samples)}
+                            {td(<span style={{ color: rateColor(b.correctionRate, false), fontWeight: 700 }}>{b.correctionRate}%</span>)}
+                            {td(<span style={{ color: b.amountFix > 0 ? '#e53e3e' : (textSecondary.color), fontWeight: b.amountFix > 0 ? 700 : 400 }}>{b.amountFix}{b.samples ? ` (${b.amountFixRate}%)` : ''}</span>)}
+                            {td(b.imports)}
+                            {td(b.reconcileChecked ? <span style={{ color: rateColor(b.reconcileRate, true), fontWeight: 700 }}>{b.reconcileRate}%</span> : <span style={textSecondary}>—</span>)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem', marginTop: '1.5rem' }}>
+                  <div style={cardStyle}>
+                    <h3 style={{ ...textPrimary, marginTop: 0 }}>Corrections by field</h3>
+                    {c.byField.length === 0 ? <p style={textSecondary}>None yet.</p> : c.byField.map((f) => (
+                      <div key={f.field} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: `1px solid ${darkMode ? '#2d3748' : '#edf2f7'}` }}>
+                        <span style={{ ...textPrimary, textTransform: 'capitalize', fontWeight: (f.field === 'amount' || f.field === 'direction') ? 700 : 400, color: (f.field === 'amount' || f.field === 'direction') ? '#e53e3e' : textPrimary.color }}>{f.field}{(f.field === 'amount' || f.field === 'direction') ? ' ⚠' : ''}</span>
+                        <span style={textSecondary}>{f.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={cardStyle}>
+                    <h3 style={{ ...textPrimary, marginTop: 0 }}>By source</h3>
+                    {c.bySource.map((s) => (
+                      <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: `1px solid ${darkMode ? '#2d3748' : '#edf2f7'}` }}>
+                        <span style={{ ...textPrimary, textTransform: 'capitalize' }}>{s.key}</span>
+                        <span style={textSecondary}>{s.total} rows · {s.rate}% edited</span>
+                      </div>
+                    ))}
+                    <h3 style={{ ...textPrimary, marginBottom: '0.5rem' }}>Parser path</h3>
+                    {c.byParserPath.map((p) => (
+                      <div key={p.path} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.3rem 0' }}>
+                        <span style={{ ...textPrimary, textTransform: 'capitalize' }}>{p.path.replace('_', ' ')}</span>
+                        <span style={textSecondary}>{p.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </>
       )}
 

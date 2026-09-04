@@ -12,7 +12,7 @@ import {
   FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
   FaArrowUp, FaArrowDown, FaTrash, FaEdit, FaChartPie, FaWallet, FaPiggyBank, FaRegMoneyBillAlt,
   FaFileUpload, FaTimes, FaCheck, FaSpinner, FaExclamationTriangle,
-  FaCloudUploadAlt, FaPaperclip, FaMagic, FaInfoCircle, FaEye, FaEyeSlash, FaCheckCircle
+  FaCloudUploadAlt, FaPaperclip, FaMagic, FaInfoCircle, FaEye, FaEyeSlash, FaCheckCircle, FaEnvelopeOpenText
 } from 'react-icons/fa';
 
 const API = `${API_URL}`;
@@ -436,6 +436,9 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
           </motion.button>
           </>
           )}
+          <Link to="/email-forwarding" style={{ display: 'block', textAlign: 'center', marginTop: '1rem', color: 'var(--accent-primary)', fontWeight: 600, fontSize: '0.88rem', textDecoration: 'none' }}>
+            <FaEnvelopeOpenText style={{ marginRight: '0.4rem' }} />Auto-import by forwarding your bank emails →
+          </Link>
         </>
       )}
       {step === 'review' && (

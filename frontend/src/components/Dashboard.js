@@ -448,6 +448,11 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                   <FaInfoCircle style={{ marginRight: '0.3rem' }} />{meta.duplicateCount} already imported (pre-deselected)
                 </span>
               )}
+              {meta?.uncertainCount > 0 && (
+                <span style={{ marginLeft: '0.75rem', fontSize: '0.8rem', color: '#f59e0b' }}>
+                  <FaExclamationTriangle style={{ marginRight: '0.3rem' }} />{meta.uncertainCount} to check
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: theme.labelColor }}>
@@ -516,6 +521,9 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                     <td style={{ padding: '0.5rem 0.7rem', color: theme.labelColor, maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tx.description}
                       {tx.duplicate && <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>Dup</span>}
+                      {!tx.duplicate && (tx.confidenceLevel === 'low' || tx.confidenceLevel === 'medium') && (
+                        <span title="We weren't fully sure of this row — please check it" style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>⚠ check</span>
+                      )}
                     </td>
                     <td style={{ padding: '0.5rem 0.7rem', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                       <input
@@ -523,12 +531,12 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                         value={tx.amount || ''}
                         onChange={(e) => updateTxAmount(idx, e.target.value)}
                         placeholder="0.00"
-                        title={tx.needsReview ? 'We were unsure of this amount — please set it' : 'Edit amount'}
+                        title={(tx.needsReview || tx.confidenceLevel === 'low') ? 'We were unsure of this amount — please check it' : 'Edit amount'}
                         style={{
                           width: '92px', padding: '3px 6px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, textAlign: 'right',
                           color: tx.type === 'income' ? '#38a169' : '#e53e3e',
-                          background: tx.needsReview ? 'rgba(245,158,11,0.12)' : (darkMode ? '#4a5568' : '#edf2f7'),
-                          border: `1px solid ${tx.needsReview ? '#f59e0b' : theme.inputBorder}`,
+                          background: (tx.needsReview || tx.confidenceLevel === 'low') ? 'rgba(245,158,11,0.12)' : (darkMode ? '#4a5568' : '#edf2f7'),
+                          border: `1px solid ${(tx.needsReview || tx.confidenceLevel === 'low') ? '#f59e0b' : theme.inputBorder}`,
                         }}
                       />
                     </td>

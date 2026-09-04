@@ -20,6 +20,7 @@ const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfer
 const { classifyKind } = require('./lib/txnKinds');
 const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
+const { normalizeAmount } = require('./lib/amount');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -2850,6 +2851,85 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
     console.error('Upload error:', error);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     return res.status(500).json({ message: 'Error processing file: ' + error.message });
+  }
+});
+
+// Best-effort SMS/alert parser for the WEB paste box. This is deliberately a
+// review-gate DRAFT — the canonical, corpus-tested parser lives in the mobile app;
+// here we reuse the server's amount/date/type/category helpers to seed the review
+// table. What matters for accuracy is that the RAW text + the values the user
+// finalises are logged (source 'sms'), so they grow the golden corpus.
+// Money in an alert: "NGN 5,000.00" / "₦5,000" / "N5000" (N only when it directly
+// precedes a digit, so the 'n' in "on"/"in" isn't mistaken for naira) / a bare 2dp
+// figure. Groups 1|2|3 hold the number.
+const SMS_MONEY_RE = /(?:ngn|naira|₦)\s*([\d,]+(?:\.\d{1,2})?)|\bn(\d[\d,]*(?:\.\d{1,2})?)|\b([\d,]+\.\d{2})\b/gi;
+const CREDIT_HINTS = /\b(cr|credit(ed)?|received|inflow|deposit|reversal|refund)\b/i;
+const DEBIT_HINTS = /\b(dr|debit(ed)?|withdrawn|withdrawal|purchase|payment|paid|pos|transfer to|sent)\b/i;
+const SMS_DATE_RE = /\b(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/i;
+
+function parseOneAlert(msg) {
+  const raw = msg.trim();
+  if (!raw) return null;
+  // Amount: first money-looking token, normalised (handles NGN2,5OO OCR etc.).
+  const monies = [];
+  let m;
+  SMS_MONEY_RE.lastIndex = 0;
+  while ((m = SMS_MONEY_RE.exec(raw)) !== null) monies.push(m[1] || m[2] || m[3]);
+  let amount = null, amtConf = 'low';
+  for (const tok of monies) {
+    const norm = normalizeAmount(tok);
+    if (norm.value != null) { amount = norm.value; amtConf = norm.confidence; break; }
+  }
+  // Direction: credit vs debit keywords (debit wins ties — most alerts are spends).
+  const isCredit = CREDIT_HINTS.test(raw) && !DEBIT_HINTS.test(raw);
+  const type = isCredit ? 'income' : 'expense';
+  const dirConf = (CREDIT_HINTS.test(raw) || DEBIT_HINTS.test(raw)) ? 'high' : 'low';
+  // Date: first date-looking token, else today.
+  const dm = raw.match(SMS_DATE_RE);
+  const date = (dm && normalizeAnyDate(dm[1])) || new Date().toISOString().slice(0, 10);
+  // Description: strip money, dates, long refs.
+  const description = (raw
+    .replace(SMS_MONEY_RE, ' ')
+    .replace(SMS_DATE_RE, ' ')
+    .replace(/\b(?:ref|txn|transaction id|receipt)[:#\s]*[A-Za-z0-9]+/gi, ' ')
+    .replace(/\b\d{6,}\b/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, 140)) || 'Bank alert';
+  const bank = detectBank(raw);
+  const category = categorizeTransaction(description, type);
+  const confidence = amount != null && dirConf === 'high' && amtConf !== 'low' ? 'high' : (amount != null ? 'medium' : 'low');
+  return {
+    date, description, amount: amount != null ? +Number(amount).toFixed(2) : 0,
+    type, category, bank, reference: null, raw,
+    // low-confidence amount is left visibly empty for the user to fill (spec A6).
+    needsReview: confidence === 'low',
+    _parse: {
+      rawText: raw, source: 'sms', bank, parserVersion: 'backend-sms-lite-v1', parserPath: 'deterministic',
+      amount: amount != null ? +Number(amount).toFixed(2) : null,
+      direction: type === 'income' ? 'credit' : 'debit',
+      date, counterparty: description, category, confidence,
+    },
+  };
+}
+
+app.post('/api/parse-sms', auth, async (req, res) => {
+  try {
+    const text = (req.body?.text || '').toString();
+    if (!text.trim()) return res.status(400).json({ message: 'Paste one or more bank alerts first.' });
+    // Split into individual alerts on blank lines; fall back to the whole block.
+    const blocks = text.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+    const source = blocks.length ? blocks : [text];
+    let rows = source.map(parseOneAlert).filter((r) => r && (r.amount > 0 || r.needsReview));
+    if (!rows.length) return res.status(422).json({ message: "Couldn't read a transaction from that. Check you pasted the full alert.", transactions: [] });
+    // Apply the user's learned categories, then the shared consensus.
+    rows = await applyLearnedCategories(req.user._id, rows);
+    rows = await applyGlobalCategories(rows);
+    const detectedBank = rows.find((r) => r.bank)?.bank || '';
+    return res.json({ transactions: rows, meta: { totalFound: rows.length, detectedBank, source: 'sms' } });
+  } catch (e) {
+    console.error('[parse-sms]', e.message);
+    return res.status(500).json({ message: 'Could not parse those alerts.' });
   }
 });
 

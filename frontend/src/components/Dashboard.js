@@ -54,6 +54,8 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
   const [step,            setStep]            = useState('upload');
   const [message,         setMessage]         = useState(null);
   const [reviewStartedAt, setReviewStartedAt] = useState(0); // for _parse timeToReviewMs
+  const [importMode,      setImportMode]      = useState('file'); // 'file' | 'paste'
+  const [smsText,         setSmsText]         = useState('');
   const [pdfPassword,     setPdfPassword]     = useState('');  // NEW
   const [bank,            setBank]            = useState('');   // confirmed bank for this statement
   const [banks,           setBanks]           = useState([]);   // Paystack bank list for override
@@ -139,6 +141,29 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
     }
   };
 
+  // Parse pasted bank alerts (web SMS import). Rows come back already carrying
+  // _parse (source 'sms'), so corrections feed the golden corpus like mobile does.
+  const handleParseSms = async () => {
+    if (!smsText.trim()) { setMessage({ text: 'Paste one or more bank alerts first', type: 'error' }); return; }
+    setUploading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API}/api/parse-sms`, { text: smsText }, { headers: { Authorization: `Bearer ${token}` } });
+      const txns = res.data.transactions || [];
+      setTransactions(txns);
+      setMeta(res.data.meta || null);
+      setBank(res.data.meta?.detectedBank || '');
+      setReviewStartedAt(Date.now());
+      setSelectedIndices(txns.map((_, i) => i));
+      setStep('review');
+      setMessage({ text: `Found ${txns.length} transaction${txns.length !== 1 ? 's' : ''}`, type: 'success' });
+    } catch (err) {
+      setMessage({ text: err.response?.data?.message || 'Could not read those alerts.', type: 'error' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const toggleAll = () =>
     setSelectedIndices(
       selectedIndices.length === transactions.length
@@ -155,6 +180,15 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
   // (and learned by the backend) when the user imports.
   const updateTxCategory = (idx, category) =>
     setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, category } : t)));
+
+  // Edit the amount on the review screen (highest-stakes field). Lets the user fix a
+  // low-confidence parse before importing — the correction is then logged (A2/A6).
+  const updateTxAmount = (idx, value) => {
+    const amt = Math.abs(parseFloat(String(value).replace(/,/g, ''))) || 0;
+    setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, amount: amt, needsReview: amt <= 0 } : t)));
+  };
+  const updateTxType = (idx, type) =>
+    setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, type } : t)));
 
   const handleImport = async () => {
     const elapsed = reviewStartedAt ? Date.now() - reviewStartedAt : null;
@@ -185,6 +219,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
       setMeta(null);
       setPdfPassword('');
       setBank('');
+      setSmsText('');
     } catch (err) {
       setMessage({ text: 'Import failed. Please try again.', type: 'error' });
       setStep('review');
@@ -200,6 +235,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
     setMeta(null);
     setPdfPassword('');
     setBank('');
+    setSmsText('');
   };
 
   return (
@@ -231,6 +267,51 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
 
       {step === 'upload' && (
         <>
+          {/* Mode toggle: upload a statement file, or paste bank alerts (SMS/email). */}
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+            {[['file', 'Upload file'], ['paste', 'Paste alerts']].map(([m, label]) => (
+              <button key={m} onClick={() => setImportMode(m)} style={{
+                flex: 1, padding: '0.6rem', borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem',
+                border: `1px solid ${importMode === m ? 'var(--accent-primary)' : theme.inputBorder}`,
+                background: importMode === m ? 'var(--accent-primary)' : 'transparent',
+                color: importMode === m ? '#fff' : theme.labelColor,
+              }}>{label}</button>
+            ))}
+          </div>
+
+          {importMode === 'paste' ? (
+            <>
+              <textarea
+                value={smsText}
+                onChange={(e) => setSmsText(e.target.value)}
+                placeholder={'Paste your bank alert(s) here — e.g.\n\n"Acct GTBank debited NGN5,000.00 on 03-Jul-2026 to SHOPRITE. Bal NGN12,000.00"\n\nSeparate multiple alerts with a blank line.'}
+                rows={7}
+                style={{
+                  width: '100%', padding: '0.85rem 1rem', backgroundColor: theme.inputBg,
+                  border: `2px solid ${theme.inputBorder}`, borderRadius: '10px', fontSize: '0.9rem',
+                  color: theme.inputText, outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit',
+                }}
+              />
+              <p style={{ color: darkMode ? '#a0aec0' : '#718096', fontSize: '0.8rem', margin: '0.5rem 0 1rem' }}>
+                Nothing saves until you review it. Anything we&apos;re unsure of is left for you to fill in.
+              </p>
+              <motion.button
+                onClick={handleParseSms}
+                disabled={uploading || !smsText.trim()}
+                whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                style={{
+                  width: '100%', padding: '0.9rem', borderRadius: '10px', border: 'none',
+                  background: !smsText.trim() ? (darkMode ? '#4a5568' : '#e2e8f0') : 'var(--gradient-primary)',
+                  color: !smsText.trim() ? (darkMode ? '#718096' : '#a0aec0') : 'white',
+                  fontWeight: 600, cursor: smsText.trim() ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                }}
+              >
+                {uploading ? <><FaSpinner /> Reading…</> : <><FaMagic /> Read Alerts</>}
+              </motion.button>
+            </>
+          ) : (
+          <>
           <div
             onClick={() => document.getElementById('importFileInput').click()}
             style={{
@@ -353,6 +434,8 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
               </>
             )}
           </motion.button>
+          </>
+          )}
         </>
       )}
       {step === 'review' && (
@@ -434,8 +517,28 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                       {tx.description}
                       {tx.duplicate && <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>Dup</span>}
                     </td>
-                    <td style={{ padding: '0.5rem 0.7rem', fontWeight: 700, color: tx.type === 'income' ? '#38a169' : '#e53e3e', whiteSpace: 'nowrap' }}>{fmtNaira(Number(tx.amount))}</td>
-                    <td style={{ padding: '0.5rem 0.7rem', color: tx.type === 'income' ? '#38a169' : '#e53e3e', fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{tx.type === 'income' ? '↑' : '↓'} {tx.type}</td>
+                    <td style={{ padding: '0.5rem 0.7rem', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={tx.amount || ''}
+                        onChange={(e) => updateTxAmount(idx, e.target.value)}
+                        placeholder="0.00"
+                        title={tx.needsReview ? 'We were unsure of this amount — please set it' : 'Edit amount'}
+                        style={{
+                          width: '92px', padding: '3px 6px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, textAlign: 'right',
+                          color: tx.type === 'income' ? '#38a169' : '#e53e3e',
+                          background: tx.needsReview ? 'rgba(245,158,11,0.12)' : (darkMode ? '#4a5568' : '#edf2f7'),
+                          border: `1px solid ${tx.needsReview ? '#f59e0b' : theme.inputBorder}`,
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: '0.5rem 0.7rem', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                      <select value={tx.type} onChange={(e) => updateTxType(idx, e.target.value)}
+                        style={{ background: darkMode ? '#4a5568' : '#edf2f7', color: tx.type === 'income' ? '#38a169' : '#e53e3e', border: `1px solid ${theme.inputBorder}`, borderRadius: '6px', padding: '3px 4px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                        <option value="expense">↓ expense</option>
+                        <option value="income">↑ income</option>
+                      </select>
+                    </td>
                     <td style={{ padding: '0.5rem 0.7rem' }} onClick={(e) => e.stopPropagation()}>
                       <select
                         value={tx.category || 'Other'}

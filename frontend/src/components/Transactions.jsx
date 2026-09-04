@@ -167,6 +167,24 @@ const Transactions = () => {
     catch { flash('Could not update category', 'error'); fetchAll(); }
   };
 
+  // Mark / unmark a transfer between the user's own accounts (excluded from
+  // spending & income). Tries to auto-pair the opposite side on the server. This is
+  // the reliable fallback when auto-detection misses a self-transfer.
+  const markTransfer = async (t) => {
+    try {
+      await axios.post(`${API_URL}/api/transactions/${t._id}/mark-transfer`, {}, auth());
+      await fetchAll();
+      flash('Marked as a transfer between your accounts');
+    } catch { flash('Could not mark as transfer', 'error'); }
+  };
+  const unmarkTransfer = async (t) => {
+    try {
+      await axios.post(`${API_URL}/api/transactions/${t._id}/unmark-transfer`, {}, auth());
+      await fetchAll();
+      flash('Restored — counted again');
+    } catch { flash('Could not undo the transfer', 'error'); }
+  };
+
   const startEdit = (t) => {
     setEditingId(t._id);
     setEditForm({ date: monthKey(t.date) ? new Date(t.date).toISOString().slice(0, 10) : '', description: t.description, amount: Math.abs(t.amount), type: t.type, category: t.category });
@@ -342,17 +360,26 @@ const Transactions = () => {
                 <td><input type="checkbox" checked={selected.has(t._id)} onChange={() => toggleSel(t._id)} /></td>
                 <td className="nowrap">{new Date(t.date).toLocaleDateString()}</td>
                 <td className="desc" title={t.description}>{t.description}</td>
-                <td className={`nowrap ${t.type === 'income' ? 'pos' : 'neg'}`}>{t.type === 'income' ? '+' : '−'}{money(t.amount)}</td>
-                <td className="nowrap">{t.type === 'income' ? 'Income' : 'Expense'}</td>
+                <td className={`nowrap ${t.type === 'internal_transfer' ? '' : t.type === 'income' ? 'pos' : 'neg'}`}>{t.type === 'internal_transfer' ? '⇄ ' : t.type === 'income' ? '+' : '−'}{money(t.amount)}</td>
+                <td className="nowrap">{t.type === 'internal_transfer' ? 'Transfer' : t.type === 'income' ? 'Income' : 'Expense'}</td>
                 <td>
-                  <select className="cat-select" value={allCategoriesFor(t.type).includes(t.category) ? t.category : ''} onChange={e => { const v = resolveCategoryChoice(t.type, e.target.value); if (v) quickCategory(t, v); }}>
-                    {!allCategoriesFor(t.type).includes(t.category) && <option value="">{t.category}</option>}
-                    {allCategoriesFor(t.type).map(c => <option key={c} value={c}>{c}</option>)}
-                    <option value={ADD_NEW}>➕ Add new…</option>
-                  </select>
+                  {t.type === 'internal_transfer' ? (
+                    <span style={{ opacity: 0.7, fontSize: '0.82rem' }}>Between your accounts</span>
+                  ) : (
+                    <select className="cat-select" value={allCategoriesFor(t.type).includes(t.category) ? t.category : ''} onChange={e => { const v = resolveCategoryChoice(t.type, e.target.value); if (v) quickCategory(t, v); }}>
+                      {!allCategoriesFor(t.type).includes(t.category) && <option value="">{t.category}</option>}
+                      {allCategoriesFor(t.type).map(c => <option key={c} value={c}>{c}</option>)}
+                      <option value={ADD_NEW}>➕ Add new…</option>
+                    </select>
+                  )}
                 </td>
                 <td className="nowrap">{t.bank || '-'}</td>
                 <td className="row-actions">
+                  {t.type === 'internal_transfer' ? (
+                    <button className="icon-btn" onClick={() => unmarkTransfer(t)} title="Not a transfer — count it again"><i className="fas fa-rotate-left"></i></button>
+                  ) : (
+                    <button className="icon-btn" onClick={() => markTransfer(t)} title="Transfer between my own accounts"><i className="fas fa-right-left"></i></button>
+                  )}
                   <button className="icon-btn" onClick={() => startEdit(t)} title="Edit"><i className="fas fa-pen"></i></button>
                   <button className="icon-btn del" onClick={() => deleteOne(t._id)} title="Delete"><i className="fas fa-trash"></i></button>
                 </td>

@@ -12,7 +12,7 @@ import {
   FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
   FaArrowUp, FaArrowDown, FaTrash, FaEdit, FaChartPie, FaWallet, FaPiggyBank, FaRegMoneyBillAlt,
   FaFileUpload, FaTimes, FaCheck, FaSpinner, FaExclamationTriangle,
-  FaCloudUploadAlt, FaPaperclip, FaMagic, FaInfoCircle, FaEye, FaEyeSlash
+  FaCloudUploadAlt, FaPaperclip, FaMagic, FaInfoCircle, FaEye, FaEyeSlash, FaCheckCircle
 } from 'react-icons/fa';
 
 const API = `${API_URL}`;
@@ -364,6 +364,30 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
               <button onClick={reset} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', border: `1px solid ${theme.inputBorder}`, background: 'transparent', color: theme.labelColor, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>← Back</button>
             </div>
           </div>
+          {/* Balance reconciliation (A5): did the parsed ledger match the statement's
+              own opening/closing balance? Only shown when we could actually verify. */}
+          {meta?.reconciliation?.checked && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.6rem', marginBottom: '1rem',
+              padding: '0.75rem 0.9rem', borderRadius: '10px',
+              border: `1px solid ${meta.reconciliation.ok ? '#38a169' : '#f59e0b'}`,
+              background: meta.reconciliation.ok ? 'rgba(56,161,105,0.08)' : 'rgba(245,158,11,0.1)',
+            }}>
+              {meta.reconciliation.ok
+                ? <FaCheckCircle style={{ color: '#38a169', marginTop: 2, flexShrink: 0 }} />
+                : <FaExclamationTriangle style={{ color: '#f59e0b', marginTop: 2, flexShrink: 0 }} />}
+              <div>
+                <div style={{ fontWeight: 700, color: theme.labelColor, fontSize: '0.86rem' }}>
+                  {meta.reconciliation.ok ? 'Balances with your statement' : "Doesn't balance — review carefully"}
+                </div>
+                <div style={{ color: theme.labelColor, opacity: 0.8, fontSize: '0.78rem', marginTop: 2, lineHeight: 1.5 }}>
+                  {meta.reconciliation.ok
+                    ? `Opening ${fmtNaira(meta.reconciliation.openingBalance || 0)} + ${fmtNaira(meta.reconciliation.credits)} in − ${fmtNaira(meta.reconciliation.debits)} out = closing ${fmtNaira(meta.reconciliation.closingBalance || 0)}.`
+                    : `We read a closing balance of ${fmtNaira(meta.reconciliation.closingBalance || 0)} but the transactions add up to ${fmtNaira(meta.reconciliation.computedClosing || 0)} (off by ${fmtNaira(Math.abs(meta.reconciliation.difference || 0))}). A transaction may be missing or misread${meta.reconciliation.firstDivergenceIndex != null ? ` — starting around row ${meta.reconciliation.firstDivergenceIndex + 1}` : ''}.`}
+                </div>
+              </div>
+            </div>
+          )}
           <div style={{ maxHeight: '300px', overflowY: 'auto', border: `1px solid ${theme.inputBorder}`, borderRadius: '10px', marginBottom: '1rem' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem' }}>
               <thead>
@@ -374,10 +398,13 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((tx, idx) => (
+                {transactions.map((tx, idx) => {
+                  const diverges = meta?.reconciliation?.checked && meta.reconciliation.ok === false && meta.reconciliation.firstDivergenceIndex === idx;
+                  return (
                   <tr key={idx} onClick={() => toggleOne(idx)} style={{
-                    background: selectedIndices.includes(idx) ? (darkMode ? 'rgba(66,153,225,0.12)' : 'rgba(66,153,225,0.06)') : 'transparent',
+                    background: diverges ? 'rgba(245,158,11,0.14)' : selectedIndices.includes(idx) ? (darkMode ? 'rgba(66,153,225,0.12)' : 'rgba(66,153,225,0.06)') : 'transparent',
                     cursor: 'pointer', opacity: tx.duplicate && !selectedIndices.includes(idx) ? 0.5 : 1,
+                    boxShadow: diverges ? 'inset 3px 0 0 #f59e0b' : 'none',
                   }}>
                     <td style={{ padding: '0.5rem 0.7rem' }}><input type="checkbox" checked={selectedIndices.includes(idx)} onChange={() => toggleOne(idx)} onClick={e => e.stopPropagation()} /></td>
                     <td style={{ padding: '0.5rem 0.7rem', color: darkMode ? '#cbd5e0' : '#4a5568', whiteSpace: 'nowrap' }}>{tx.date}</td>
@@ -409,7 +436,8 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                       </select>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

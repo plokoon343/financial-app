@@ -1,0 +1,29 @@
+name: lib-tests
+
+# Fast guard for the dependency-free ingestion libs (reconciliation, dedupe, amount
+# normalisation). They're pure modules, so no npm install is needed — just run them.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/lib/**'
+      - '.github/workflows/lib-tests.yml'
+  pull_request:
+    paths:
+      - 'backend/lib/**'
+      - '.github/workflows/lib-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node lib/reconcile.test.js
+      - run: node lib/dedupe.test.js
+      - run: node lib/amount.test.js

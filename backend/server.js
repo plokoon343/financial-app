@@ -19,6 +19,7 @@ const { fingerprint, matchScore, MERGE } = require('./lib/dedupe');
 const { detectTransfers, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
 const { pairReversals } = require('./lib/reversals');
+const { reconcile, extractBalances } = require('./lib/reconcile');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -1074,15 +1075,12 @@ const genericToISO = (token) => {
 const parseStatementByBalance = (rawText) => {
   const lines = rawText.split('\n').map(l => l.replace(/ /g, ' ').trim()).filter(Boolean);
 
-  // Opening balance = first money figure appearing after the words "opening balance".
-  // Collapse all whitespace first so tab-separated labels ("Opening\tBalance") match.
-  let prevBalance = null;
-  const joined = lines.join(' ').replace(/\s+/g, ' ');
-  const oi = joined.toLowerCase().indexOf('opening balance');
-  if (oi !== -1) {
-    const m = joined.slice(oi + 'opening balance'.length).match(/(?:\d{1,3}(?:,\d{3})+|\d+)?\.\d{2}/);
-    if (m) prevBalance = parseFloat(m[0].replace(/,/g, ''));
-  }
+  // Opening + closing balance read straight from the statement's labelled summary
+  // ("Opening Balance ..." / "Closing Balance ..."). The opening seeds the running-
+  // balance derivation below; the closing is the independent anchor for reconciliation
+  // (A5) — opening + credits - debits must equal it, or a row was lost/misread.
+  const { openingBalance, closingBalance } = extractBalances(rawText);
+  let prevBalance = openingBalance != null ? openingBalance : null;
 
   // Group lines into records; each record starts on a line beginning with a date.
   const records = [];
@@ -1155,6 +1153,12 @@ const parseStatementByBalance = (rawText) => {
       balance,
     });
   }
+  // Reconcile the parsed ledger against the statement's own opening/closing balance.
+  // Attached to the array (like .bank) so the upload route can surface it and flag
+  // an import that doesn't balance before the user saves anything.
+  transactions.openingBalance = openingBalance;
+  transactions.closingBalance = closingBalance;
+  transactions.reconciliation = reconcile({ transactions, openingBalance, closingBalance });
   return transactions;
 };
 
@@ -1314,6 +1318,14 @@ const parsePDF = async (filePath, password = '') => {
 
   console.log(`[parsePDF] Parsed ${transactions.length} transactions`);
   transactions.bank = detectBank(rawText);
+  // Even on the generic path, reconcile against any labelled opening/closing balance
+  // in the text — it's the check that catches a dropped row on an unfamiliar format.
+  {
+    const { openingBalance, closingBalance } = extractBalances(rawText);
+    transactions.openingBalance = openingBalance;
+    transactions.closingBalance = closingBalance;
+    transactions.reconciliation = reconcile({ transactions, openingBalance, closingBalance });
+  }
   return transactions;
 };
 const inferTransactionType = (description) => {
@@ -2812,6 +2824,10 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
 
     // Bank detected from the statement text (attached by the parser); user confirms it.
     const detectedBank = (transactions && transactions.bank) || '';
+    // Reconciliation result (A5), captured before the array is rebuilt by the
+    // category passes below. Health metric: log every import's balance outcome.
+    const reconciliation = (transactions && transactions.reconciliation) || { checked: false, ok: null };
+    console.log(`[reconcile] user=${req.user._id} bank=${detectedBank || '?'} checked=${reconciliation.checked} ok=${reconciliation.ok} rows=${transactions.length} diff=${reconciliation.difference}`);
 
     // Apply categories the user has taught the app from previous corrections.
     transactions = await applyLearnedCategories(req.user._id, transactions);
@@ -2822,9 +2838,13 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
     const existingKeys = new Set(existing.map(t => `${new Date(t.date).toISOString().split('T')[0]}|${Math.abs(t.amount)}|${t.description}`));
     const tagged = transactions.map(t => ({ ...t, duplicate: existingKeys.has(`${t.date}|${t.amount}|${t.description}`) }));
     const dupCount = tagged.filter(t => t.duplicate).length;
+    const warnings = dupCount > 0 ? [`${dupCount} transaction(s) already exist and are pre‑marked.`] : [];
+    if (reconciliation.checked && reconciliation.ok === false) {
+      warnings.unshift(`This statement doesn't balance — ${reconciliation.reason}. Review carefully before saving.`);
+    }
     return res.json({
       transactions: tagged,
-      meta: { totalFound: tagged.length, duplicateCount: dupCount, detectedBank, warnings: dupCount > 0 ? [`${dupCount} transaction(s) already exist and are pre‑marked.`] : [] },
+      meta: { totalFound: tagged.length, duplicateCount: dupCount, detectedBank, reconciliation, warnings },
     });
   } catch (error) {
     console.error('Upload error:', error);

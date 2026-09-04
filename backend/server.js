@@ -1122,15 +1122,19 @@ const parseStatementByBalance = (rawText) => {
     if (monies.length === 0) continue;
     const balance = monies[monies.length - 1]; // last money on the record is the balance
 
-    let type, amount;
+    let type, amount, confidenceLevel;
     if (prevBalance !== null && Math.abs(balance - prevBalance) > 0.005) {
-      // Derive amount + direction from how the running balance moved.
+      // Derive amount + direction from how the running balance moved — the balance
+      // column validates both, so this is our high-confidence path (A6).
       amount = Math.abs(balance - prevBalance);
       type = balance >= prevBalance ? 'income' : 'expense';
+      confidenceLevel = 'high';
     } else {
       // No usable balance baseline - fall back to the amount column + keywords.
+      // Unvalidated → medium confidence, flagged for a look in the review gate.
       amount = monies.length >= 2 ? monies[monies.length - 2] : monies[0];
       type = inferTransactionType(block);
+      confidenceLevel = 'medium';
     }
     prevBalance = balance;
     if (!amount || amount < 0.005) continue;
@@ -1160,6 +1164,7 @@ const parseStatementByBalance = (rawText) => {
       category: categorizeTransaction(description, type),
       reference: null,
       balance,
+      confidenceLevel,
     });
   }
   // Reconcile the parsed ledger against the statement's own opening/closing balance.
@@ -1167,7 +1172,17 @@ const parseStatementByBalance = (rawText) => {
   // an import that doesn't balance before the user saves anything.
   transactions.openingBalance = openingBalance;
   transactions.closingBalance = closingBalance;
-  transactions.reconciliation = reconcile({ transactions, openingBalance, closingBalance });
+  const rec = reconcile({ transactions, openingBalance, closingBalance });
+  transactions.reconciliation = rec;
+  // If the ledger doesn't balance, the whole import is suspect: no row is "clean"
+  // any more (drop high→medium), and the first divergent row and everything after it
+  // are where the error lives (→ low). This is A6 confidence driven by A5.
+  if (rec.checked && rec.ok === false) {
+    transactions.forEach((t, i) => {
+      if (t.confidenceLevel === 'high') t.confidenceLevel = 'medium';
+      if (rec.firstDivergenceIndex != null && i >= rec.firstDivergenceIndex) t.confidenceLevel = 'low';
+    });
+  }
   return transactions;
 };
 
@@ -1278,7 +1293,8 @@ const parsePDF = async (filePath, password = '') => {
       type,
       category: categorizeTransaction(description, type),
       reference: null,
-      balance
+      balance,
+      confidenceLevel: 'medium', // generic column parse, no balance validation (A6)
     });
   }
 
@@ -1318,9 +1334,10 @@ const parsePDF = async (filePath, password = '') => {
         type,
         category: categorizeTransaction(description, type),
         reference: null,
-        balance: null
+        balance: null,
+        confidenceLevel: 'low', // speculative line-pair guess — flag for the user (A6)
       });
-      
+
       i++; // skip the next line since we used it
     }
   }
@@ -2847,13 +2864,15 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
     const existingKeys = new Set(existing.map(t => `${new Date(t.date).toISOString().split('T')[0]}|${Math.abs(t.amount)}|${t.description}`));
     const tagged = transactions.map(t => ({ ...t, duplicate: existingKeys.has(`${t.date}|${t.amount}|${t.description}`) }));
     const dupCount = tagged.filter(t => t.duplicate).length;
+    // How many rows we're not fully sure about (A6) — drives a "give these a look" hint.
+    const uncertainCount = tagged.filter(t => t.confidenceLevel === 'medium' || t.confidenceLevel === 'low').length;
     const warnings = dupCount > 0 ? [`${dupCount} transaction(s) already exist and are pre‑marked.`] : [];
     if (reconciliation.checked && reconciliation.ok === false) {
       warnings.unshift(`This statement doesn't balance — ${reconciliation.reason}. Review carefully before saving.`);
     }
     return res.json({
       transactions: tagged,
-      meta: { totalFound: tagged.length, duplicateCount: dupCount, detectedBank, reconciliation, warnings },
+      meta: { totalFound: tagged.length, duplicateCount: dupCount, uncertainCount, detectedBank, reconciliation, warnings },
     });
   } catch (error) {
     console.error('Upload error:', error);

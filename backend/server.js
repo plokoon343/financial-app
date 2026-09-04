@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const Anthropic = require('@anthropic-ai/sdk');
 const { fingerprint, matchScore, MERGE } = require('./lib/dedupe');
-const { detectTransfers, routeKey } = require('./lib/internalTransfers');
+const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
 const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
@@ -5155,6 +5155,90 @@ app.post('/api/transactions/split-transfer', auth, async (req, res) => {
     }
     res.json({ ok: true, restored: rows.length });
   } catch (e) { console.error('[split-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Manually mark ONE transaction as a transfer between the user's own accounts
+// ("Move between my accounts") — excludes it from spending/income math. This is the
+// reliable fallback for self-transfers auto-detection misses: a cross-bank move where
+// only one side was imported, or a pair that scored too low (e.g. done across days
+// with no bank name in the narration). We still TRY to pair the opposite side when
+// it's present, so both sides drop out together; otherwise the single row is excluded
+// on its own. The amount sign is preserved so "Undo" can restore the direction.
+app.post('/api/transactions/:id/mark-transfer', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: uid });
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+    if (txn.type === 'internal_transfer') return res.json({ ok: true, already: true, paired: !!txn.transferPairId });
+
+    const isDebit = txn.type === 'expense' || txn.amount < 0;
+    const wantType = isDebit ? 'income' : 'expense';
+    const winMs = 72 * 3600000;
+    const from = new Date(new Date(txn.date).getTime() - winMs);
+    const to = new Date(new Date(txn.date).getTime() + winMs);
+    // Candidate opposite sides not already tied to a transfer.
+    const cands = await Transaction.find({
+      userId: uid, type: wantType,
+      date: { $gte: from, $lte: to },
+      $or: [{ transferPairId: { $exists: false } }, { transferPairId: '' }, { transferPairId: null }],
+    }).select('type amount date bank description').lean();
+
+    const user = await User.findById(uid).select('name').lean();
+    const self = { type: txn.type === 'expense' ? 'expense' : (txn.amount < 0 ? 'expense' : 'income'), amount: txn.amount, date: txn.date, bank: txn.bank, description: txn.description };
+    // Score each candidate as a (debit, credit) pair and keep the best plausible one.
+    let best = null, bestScore = 0;
+    for (const c of cands) {
+      if (String(c._id) === String(txn._id)) continue;
+      const debit = isDebit ? self : c;
+      const credit = isDebit ? c : self;
+      const s = scorePair(debit, credit, { userName: user?.name || '' });
+      if (s > bestScore) { bestScore = s; best = c; }
+    }
+
+    const pairId = new mongoose.Types.ObjectId().toString();
+    txn.type = 'internal_transfer'; txn.transferPairId = pairId; // sign preserved
+    await txn.save();
+
+    let paired = false, fee = 0;
+    if (best && bestScore >= 40) { // amount matches at least (scorePair floors amount at 30/40)
+      await Transaction.updateOne({ _id: best._id, userId: uid }, { $set: { type: 'internal_transfer', transferPairId: pairId } });
+      paired = true;
+      const da = isDebit ? Math.abs(txn.amount) : Math.abs(best.amount);
+      const ca = isDebit ? Math.abs(best.amount) : Math.abs(txn.amount);
+      fee = Math.max(0, da - ca);
+      if (fee > 0) {
+        const feeBank = isDebit ? (txn.bank || '') : (best.bank || '');
+        await new Transaction({ userId: uid, date: txn.date, amount: -Math.abs(fee), description: 'Transfer fee', category: 'Bank Charges', type: 'expense', source: 'import', bank: feeBank, transferPairId: pairId }).save();
+      }
+      try {
+        const rk = routeKey(isDebit ? txn.bank : best.bank, isDebit ? best.bank : txn.bank);
+        await TransferRoute.updateOne({ userId: uid, routeKey: rk }, { $setOnInsert: { userId: uid, routeKey: rk } }, { upsert: true });
+      } catch { /* dup ok */ }
+    }
+    res.json({ ok: true, paired, fee, transferPairId: pairId });
+  } catch (e) { console.error('[mark-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Undo a manual/auto transfer classification for a single transaction. Restores the
+// whole pair (and drops any generated fee row) when it was paired; otherwise just the
+// one row, recovering its direction from the preserved amount sign.
+app.post('/api/transactions/:id/unmark-transfer', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: uid });
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+    const restore = async (r) => { r.type = r.amount >= 0 ? 'income' : 'expense'; r.transferPairId = ''; await r.save(); };
+    if (txn.transferPairId) {
+      const rows = await Transaction.find({ userId: uid, transferPairId: txn.transferPairId });
+      for (const r of rows) {
+        if (r.description === 'Transfer fee' && r.category === 'Bank Charges') { await r.deleteOne(); continue; }
+        await restore(r);
+      }
+      return res.json({ ok: true, restored: rows.length });
+    }
+    await restore(txn);
+    res.json({ ok: true, restored: 1 });
+  } catch (e) { console.error('[unmark-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Reclassify existing income/expense rows into their non-discretionary KIND

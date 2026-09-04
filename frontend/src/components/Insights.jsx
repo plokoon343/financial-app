@@ -4,6 +4,7 @@ import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, recordCheckin, seasonFor } from '../lib/insights';
 import ProPaywall from './ProPaywall';
+import { verifyPendingPro } from '../lib/pro';
 
 // Palette for category legend dots (categories carry no colour of their own).
 const PALETTE = ['#14b8a6', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#84cc16', '#ec4899'];
@@ -62,11 +63,13 @@ export default function Insights({ transactions = [] }) {
   const [isPro, setIsPro] = useState(true); // optimistic; corrected by billing status
   const [paywall, setPaywall] = useState(false);
 
-  // Know whether the report export is unlocked (C6 is a Pro feature).
+  // Know whether the report export is unlocked (C6 is a Pro feature), and finalise a
+  // Pro checkout the user may just have returned from.
   useEffect(() => {
     const token = localStorage.getItem('token');
-    axios.get(`${API_URL}/api/billing/status`, { headers: { Authorization: `Bearer ${token}` } })
+    const fetchStatus = () => axios.get(`${API_URL}/api/billing/status`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => setIsPro(!!r.data.isPro)).catch(() => {});
+    verifyPendingPro().then((ok) => { if (ok) setIsPro(true); }).finally(fetchStatus);
   }, []);
 
   // Verified financial report (C6): fetch the server-rendered document and print it

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import ProPaywall from './ProPaywall';
+import { verifyPendingPro } from '../lib/pro';
 import { fmtNaira } from '../utils/format';
 
 // Subscriptions: manage your own (manual add/delete) AND see recurring charges
@@ -45,9 +46,11 @@ const SubscriptionManager = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  // Assisted cancellation is Pro-gated (C1) — know upfront so the button reads right.
+  // Assisted cancellation is Pro-gated (C1) — know upfront, and finalise any Pro
+  // checkout the user just returned from.
   useEffect(() => {
-    axios.get(`${API_URL}/api/billing/status`, authHeaders()).then((r) => setIsPro(!!r.data.isPro)).catch(() => {});
+    const fetchStatus = () => axios.get(`${API_URL}/api/billing/status`, authHeaders()).then((r) => setIsPro(!!r.data.isPro)).catch(() => {});
+    verifyPendingPro().then((ok) => { if (ok) setIsPro(true); }).finally(fetchStatus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const openCancel = (s) => { if (isPro) setCancelSub(s); else setPaywall(true); };

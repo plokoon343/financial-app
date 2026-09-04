@@ -307,6 +307,16 @@ const userSchema = new mongoose.Schema({
     cardType:          { type: String, default: '' },
     active:            { type: Boolean, default: false },
   },
+  // Automonie Pro subscription (Paystack). We keep only the reusable authorization
+  // token so renewals can charge the card without re-checkout. plan/planExpiry above
+  // hold the entitlement; this holds how it renews.
+  proSub: {
+    authorizationCode: { type: String, default: '' },
+    last4:             { type: String, default: '' },
+    cardType:          { type: String, default: '' },
+    autoRenew:         { type: Boolean, default: false },
+    lastReference:     { type: String, default: '' },
+  },
   resetToken: String,
   resetTokenExpiry: Date,
 }, { timestamps: true });
@@ -330,6 +340,23 @@ const isPro = (user) => !!user && (
 );
 // Standard 402 body a gated route returns, so every client can show one paywall.
 const upgradeRequired = (feature) => ({ upgrade: true, feature, priceNaira: PRO_PRICE_NAIRA, features: PRO_FEATURES, message: 'This is an Automonie Pro feature.' });
+
+// Pro checkout stays OFF until BOTH the Paystack key is set AND it's explicitly
+// switched on — so it can be fully built and deployed without going live. Flip
+// PRO_CHECKOUT_ENABLED=true to launch.
+const proCheckoutReady = () => !!process.env.PAYSTACK_SECRET_KEY && process.env.PRO_CHECKOUT_ENABLED === 'true';
+
+// One row per successful Pro payment — makes granting idempotent (unique reference)
+// and doubles as billing history.
+const proPaymentSchema = new mongoose.Schema({
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  reference: { type: String, required: true, unique: true },
+  amount:    { type: Number, default: 0 },
+  months:    { type: Number, default: 1 },
+  kind:      { type: String, enum: ['checkout', 'renewal'], default: 'checkout' },
+  createdAt: { type: Date, default: Date.now },
+});
+const ProPayment = mongoose.model('ProPayment', proPaymentSchema);
 
 // Sign-ups are held here until the email OTP is confirmed - the real User is
 // only created on verification, so an unverified email never becomes an account.
@@ -1956,13 +1983,16 @@ app.get('/api/me', auth, async (req, res) => {
 // Paystack subscription billing is wired — the gate is real regardless, and flips
 // the moment a user's plan becomes 'pro'.
 app.get('/api/billing/status', auth, (req, res) => {
+  const ps = req.user.proSub || {};
   res.json({
     plan: req.user.plan || 'free',
     isPro: isPro(req.user),
     priceNaira: PRO_PRICE_NAIRA,
     features: PRO_FEATURES,
     planExpiry: req.user.planExpiry || null,
-    checkoutAvailable: false,
+    checkoutAvailable: proCheckoutReady(),
+    autoRenew: !!ps.autoRenew,
+    card: ps.last4 ? { last4: ps.last4, cardType: ps.cardType || '' } : null,
   });
 });
 
@@ -3964,11 +3994,16 @@ app.post('/api/paystack/webhook', async (req, res) => {
     const event = req.body;
     if (event?.event === 'charge.success') {
       const d = event.data || {};
+      // Prefer the userId we stamped in metadata (Pro checkout); fall back to
+      // customer lookup (wallet DVA / card funding).
+      let user = d.metadata?.userId ? await User.findById(d.metadata.userId).catch(() => null) : null;
       const customerCode = d.customer?.customer_code;
-      let user = customerCode ? await User.findOne({ 'virtualAccount.customerCode': customerCode }) : null;
+      if (!user && customerCode) user = await User.findOne({ 'virtualAccount.customerCode': customerCode });
       if (!user && d.customer?.email) user = await User.findOne({ email: d.customer.email });
-      // Idempotent on reference; credits wallet, stores the reusable card auth, notifies.
-      if (user) await creditFromCharge(user, d);
+      if (user) {
+        if (d.metadata?.purpose === 'pro_subscription') await grantProFromCharge(user, d, 'checkout');
+        else await creditFromCharge(user, d); // wallet top-up / DVA deposit
+      }
     }
     res.sendStatus(200);
   } catch (e) {
@@ -4070,6 +4105,124 @@ app.post('/api/wallet/fund/charge', auth, async (req, res) => {
     console.error('[wallet/fund/charge]', err.response?.data || err.message);
     res.status(502).json({ message: 'Could not charge your card. Try again.' });
   }
+});
+
+// ── Automonie Pro subscription (Paystack) ───────────────────────────────────────
+// Built but LAUNCH-GATED by proCheckoutReady() (needs PAYSTACK_SECRET_KEY +
+// PRO_CHECKOUT_ENABLED=true). checkout → Paystack → verify/webhook grants Pro; a
+// saved authorization lets the daily cron renew it. Extends from the later of now /
+// current expiry so paying early never loses days.
+
+// Grant (or extend) Pro from a successful Paystack charge. Idempotent on reference.
+// kind = 'checkout' (user paid) or 'renewal' (cron charged the saved card).
+async function grantProFromCharge(user, data, kind = 'checkout') {
+  const reference = data.reference;
+  if (!reference) return null;
+  if (await ProPayment.findOne({ reference })) return { already: true }; // processed
+  const months = Math.max(1, Math.min(12, Number(data.metadata?.months) || 1));
+  const amount = koboToNaira(data.amount || 0);
+  const base = user.planExpiry && new Date(user.planExpiry) > new Date() ? new Date(user.planExpiry) : new Date();
+  const expiry = new Date(base.getTime() + months * 30 * 24 * 60 * 60 * 1000);
+  user.plan = 'pro';
+  user.planExpiry = expiry;
+  const authz = data.authorization;
+  if (authz && authz.reusable && authz.authorization_code) {
+    user.proSub = {
+      authorizationCode: authz.authorization_code,
+      last4: authz.last4 || '', cardType: authz.card_type || '',
+      autoRenew: true, lastReference: reference,
+    };
+  } else if (user.proSub) {
+    user.proSub.lastReference = reference;
+  }
+  await user.save();
+  await new ProPayment({ userId: user._id, reference, amount, months, kind }).save();
+  try {
+    await createNotification(user._id, { type: 'success', title: 'Automonie Pro active', message: `You're on Pro until ${expiry.toLocaleDateString('en-NG', { dateStyle: 'medium' })}.` });
+    await logActivity(user._id, { type: 'wallet_funded', title: 'Automonie Pro', message: kind === 'renewal' ? 'Auto-renewed' : 'Subscribed', amount });
+  } catch { /* non-fatal */ }
+  return { plan: 'pro', planExpiry: expiry };
+}
+
+// Start Pro checkout — returns the Paystack authorization_url to open.
+app.post('/api/billing/checkout', auth, async (req, res) => {
+  try {
+    if (!proCheckoutReady()) return res.status(503).json({ message: 'Pro checkout is not available yet.' });
+    const months = Math.max(1, Math.min(12, Number(req.body.months) || 1));
+    const amount = PRO_PRICE_NAIRA * months;
+    const payload = {
+      email: req.user.email,
+      amount: amount * 100,
+      metadata: { userId: req.user._id.toString(), purpose: 'pro_subscription', months },
+      channels: ['card'],
+    };
+    if (process.env.PRO_CALLBACK_URL) payload.callback_url = process.env.PRO_CALLBACK_URL;
+    const r = await axios.post('https://api.paystack.co/transaction/initialize', payload, { headers: paystackHeaders(), timeout: 20000 });
+    const d = r.data?.data || {};
+    res.json({ authorization_url: d.authorization_url, access_code: d.access_code, reference: d.reference, amount, months });
+  } catch (err) {
+    console.error('[billing/checkout]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not start checkout. Try again.' });
+  }
+});
+
+// Verify a Pro checkout by reference (belt-and-suspenders alongside the webhook).
+app.post('/api/billing/verify', auth, async (req, res) => {
+  try {
+    if (!proCheckoutReady()) return res.status(503).json({ message: 'Pro checkout is not available yet.' });
+    const reference = (req.body.reference || '').toString();
+    if (!reference) return res.status(400).json({ message: 'reference is required' });
+    const r = await axios.get(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, { headers: paystackHeaders(), timeout: 20000 });
+    const d = r.data?.data || {};
+    if (d.status !== 'success') return res.status(402).json({ message: 'Payment not completed.' });
+    if (d.metadata?.purpose !== 'pro_subscription') return res.status(400).json({ message: 'Not a Pro payment.' });
+    await grantProFromCharge(req.user, d, 'checkout');
+    const u = await User.findById(req.user._id).select('plan planExpiry proSub');
+    res.json({ plan: u.plan, planExpiry: u.planExpiry, isPro: isPro(u), autoRenew: !!u.proSub?.autoRenew });
+  } catch (err) {
+    console.error('[billing/verify]', err.response?.data || err.message);
+    res.status(502).json({ message: 'Could not verify the payment.' });
+  }
+});
+
+// Turn auto-renew off/on. Off = user keeps Pro until it expires, then lapses to free.
+app.post('/api/billing/auto-renew', auth, async (req, res) => {
+  try {
+    const on = !!req.body.enabled;
+    const user = await User.findById(req.user._id);
+    if (!user.proSub) user.proSub = {};
+    user.proSub.autoRenew = on && !!user.proSub.authorizationCode;
+    await user.save();
+    res.json({ autoRenew: user.proSub.autoRenew });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Cron: renew Pro for users whose plan expires within ~24h and who have auto-renew +
+// a saved card. Charges the saved authorization; grantProFromCharge extends them.
+app.post('/api/cron/renew-pro', async (req, res) => {
+  try {
+    if ((req.headers['x-cron-secret'] || '') !== process.env.CRON_SECRET) return res.sendStatus(401);
+    if (!proCheckoutReady()) return res.json({ renewed: 0, skipped: 'not-live' });
+    const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const due = await User.find({
+      plan: 'pro', 'proSub.autoRenew': true,
+      'proSub.authorizationCode': { $nin: ['', null] },
+      planExpiry: { $lte: soon },
+    }).limit(200);
+    let renewed = 0, failed = 0;
+    for (const user of due) {
+      try {
+        const r = await axios.post('https://api.paystack.co/transaction/charge_authorization',
+          { email: user.email, amount: PRO_PRICE_NAIRA * 100, authorization_code: user.proSub.authorizationCode,
+            metadata: { userId: user._id.toString(), purpose: 'pro_subscription', months: 1 } },
+          { headers: paystackHeaders(), timeout: 20000 });
+        const d = r.data?.data || {};
+        if (d.status === 'success') { await grantProFromCharge(user, d, 'renewal'); renewed++; }
+        else { failed++; await createNotification(user._id, { type: 'info', title: 'Pro renewal failed', message: 'We couldn’t charge your card. Update it to stay on Pro.' }); }
+      } catch (e) { failed++; console.error('[renew-pro]', user._id.toString(), e.response?.data || e.message); }
+    }
+    res.json({ renewed, failed, considered: due.length });
+  } catch (e) { console.error('[renew-pro]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Saved funding card summary / removal.

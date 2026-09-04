@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import { startProCheckout } from '../lib/pro';
 
 // Reusable Pro paywall (monetization gating for the C6 report export + C1 subscription
 // cancellation). Presents the benefits + price. Checkout isn't wired yet (Paystack
@@ -15,6 +16,7 @@ const HEADLINES = {
 
 export default function ProPaywall({ open, feature = 'default', onClose }) {
   const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
   const head = HEADLINES[feature] || HEADLINES.default;
 
   useEffect(() => {
@@ -31,9 +33,11 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
     'AI money assistant',
     'Faster automatic bank sync',
   ];
-  const onUpgrade = () => {
-    if (status?.checkoutAvailable) alert('Opening checkout…');
-    else alert("Pro is launching soon — we'll let you know the moment it's live.");
+  const onUpgrade = async () => {
+    if (!status?.checkoutAvailable) { alert("Pro is launching soon — we'll let you know the moment it's live."); return; }
+    setBusy(true);
+    try { await startProCheckout(1); } // redirects to Paystack
+    catch { alert('Could not start checkout. Try again.'); setBusy(false); }
   };
 
   return (
@@ -45,8 +49,8 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
         <ul className="pro-features">
           {features.map((f) => <li key={f}><i className="fas fa-circle-check"></i> {f}</li>)}
         </ul>
-        <button className="pro-cta" onClick={onUpgrade}>
-          {status?.priceNaira ? `Get Pro — ${fmtNaira(status.priceNaira)}/mo` : 'Get Pro'}
+        <button className="pro-cta" onClick={onUpgrade} disabled={busy}>
+          {busy ? 'Starting…' : status?.priceNaira ? `Get Pro — ${fmtNaira(status.priceNaira)}/mo` : 'Get Pro'}
         </button>
         <button className="pro-later" onClick={onClose}>Maybe later</button>
       </div>

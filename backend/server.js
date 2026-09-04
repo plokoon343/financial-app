@@ -312,6 +312,25 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
+// ── Monetization / Pro gating ──────────────────────────────────────────────────
+// Premium features (spec C1/C6) are gated behind the 'pro' plan. Price + copy live
+// here (env-overridable) so the paywall and checkout read one source of truth.
+const PRO_PRICE_NAIRA = Number(process.env.PRO_PRICE_NAIRA) || 1500;
+const PRO_FEATURES = [
+  'Export your income & financial report as a shareable PDF',
+  'Guided subscription cancellation — and we confirm the charge stopped',
+  'AI money assistant',
+  'Faster automatic bank sync',
+];
+// True when the user may use Pro features: on the pro plan (and not expired), or a
+// superadmin (so admins/testers are never blocked).
+const isPro = (user) => !!user && (
+  user.role === 'superadmin' ||
+  (user.plan === 'pro' && (!user.planExpiry || new Date(user.planExpiry) > new Date()))
+);
+// Standard 402 body a gated route returns, so every client can show one paywall.
+const upgradeRequired = (feature) => ({ upgrade: true, feature, priceNaira: PRO_PRICE_NAIRA, features: PRO_FEATURES, message: 'This is an Automonie Pro feature.' });
+
 // Sign-ups are held here until the email OTP is confirmed - the real User is
 // only created on verification, so an unverified email never becomes an account.
 // The TTL index auto-purges abandoned sign-ups after 30 minutes.
@@ -1933,6 +1952,20 @@ app.get('/api/me', auth, async (req, res) => {
   });
 });
 
+// Pro / billing status for the client paywall. checkoutAvailable is false until
+// Paystack subscription billing is wired — the gate is real regardless, and flips
+// the moment a user's plan becomes 'pro'.
+app.get('/api/billing/status', auth, (req, res) => {
+  res.json({
+    plan: req.user.plan || 'free',
+    isPro: isPro(req.user),
+    priceNaira: PRO_PRICE_NAIRA,
+    features: PRO_FEATURES,
+    planExpiry: req.user.planExpiry || null,
+    checkoutAvailable: false,
+  });
+});
+
 // Update profile / onboarding fields
 app.put('/api/me', auth, async (req, res) => {
   try {
@@ -3251,9 +3284,13 @@ app.get('/api/subscriptions', auth, async (req, res) => {
     if (cancelling.length) {
       txns = await Transaction.find({ userId: uid, type: 'expense' }, { description: 1, date: 1 }).lean();
     }
+    const pro = isPro(req.user);
     const promote = [];
     const out = subs.map((s) => {
-      const guide = cancelGuideFor(s.name);
+      // Free users get a locked guide stub (name/method only) — the steps + tracking
+      // are the Pro deliverable (C1). Pro users get the full playbook.
+      const full = cancelGuideFor(s.name);
+      const guide = pro ? full : { name: full.name, method: full.method, matched: full.matched, steps: [], url: '', locked: true };
       let cancelCheck = null;
       if (s.status === 'cancelling' && s.cancelRequestedAt) {
         const key = deriveCategoryKey(s.name);
@@ -3268,12 +3305,13 @@ app.get('/api/subscriptions', auth, async (req, res) => {
       try { await Subscription.updateMany({ _id: { $in: promote }, userId: uid }, { $set: { status: 'cancelled' } }); } catch (e) { console.error('[subs/promote]', e.message); }
       for (const s of out) if (promote.some((id) => String(id) === String(s._id))) s.status = 'cancelled';
     }
-    res.json(out);
+    res.json(out); // array shape preserved; clients gate on plan / billing status
   } catch (e) { console.error('[subscriptions]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Look up the cancellation guide for a name without a saved subscription.
+// Look up the cancellation guide for a name without a saved subscription (Pro).
 app.get('/api/subscriptions/cancel-guide', auth, (req, res) => {
+  if (!isPro(req.user)) return res.status(402).json(upgradeRequired('cancel'));
   res.json({ guide: cancelGuideFor((req.query.name || '').toString()) });
 });
 
@@ -3391,6 +3429,7 @@ app.delete('/api/subscriptions/:id', auth, async (req, res) => {
 // verify against, and hand back the step-by-step guide for this provider.
 app.post('/api/subscriptions/:id/start-cancel', auth, async (req, res) => {
   try {
+    if (!isPro(req.user)) return res.status(402).json(upgradeRequired('cancel'));
     const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
     if (!sub) return res.status(404).json({ message: 'Not found' });
     sub.status = 'cancelling';
@@ -3679,6 +3718,22 @@ app.patch('/api/admin/users/:id/role', auth, superAdminAuth, async (req, res) =>
     res.json({ message: 'Role updated', user });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
+// Grant / revoke Pro for a user (until Paystack subscription billing is live, this is
+// how testers + comped users get Pro). `plan` = 'pro'|'free'; optional `months` sets
+// an expiry. Real billing will flip the same fields.
+app.patch('/api/admin/users/:id/plan', auth, superAdminAuth, async (req, res) => {
+  try {
+    const { plan, months } = req.body;
+    if (!['free', 'pro'].includes(plan)) return res.status(400).json({ message: 'Invalid plan' });
+    const update = { plan };
+    if (plan === 'pro') update.planExpiry = months ? new Date(Date.now() + Number(months) * 30 * 24 * 60 * 60 * 1000) : null;
+    else update.planExpiry = null;
+    const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json({ message: `Plan set to ${plan}`, user: { id: user._id, email: user.email, plan: user.plan, planExpiry: user.planExpiry } });
+  } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
 app.patch('/api/admin/users/:id/status', auth, superAdminAuth, async (req, res) => {
   try {
     if (req.params.id === req.user._id.toString()) return res.status(400).json({ message: 'Cannot change your own status' });
@@ -5571,10 +5626,13 @@ app.get('/api/reports/income-summary', auth, async (req, res) => {
       walletBalance: wallet && wallet.balance > 0 ? wallet.balance : null,
     });
     if ((req.query.format || '').toLowerCase() === 'html') {
+      // The shareable document is the paid deliverable (C6). The JSON preview above
+      // is free, so free users still see the value before the paywall.
+      if (!isPro(req.user)) return res.status(402).json(upgradeRequired('report'));
       res.set('Content-Type', 'text/html; charset=utf-8');
       return res.send(renderIncomeReportHTML(summary, { brand: 'Automonie' }));
     }
-    return res.json(summary);
+    return res.json({ ...summary, isPro: isPro(req.user) });
   } catch (e) { console.error('[income-summary]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 

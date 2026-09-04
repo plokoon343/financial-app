@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, recordCheckin, seasonFor } from '../lib/insights';
+import ProPaywall from './ProPaywall';
 
 // Palette for category legend dots (categories carry no colour of their own).
 const PALETTE = ['#14b8a6', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#84cc16', '#ec4899'];
@@ -58,10 +59,20 @@ export default function Insights({ transactions = [] }) {
   const [month, setMonth] = useState(currentMonth());
   const isCurrent = month === currentMonth();
   const [reportBusy, setReportBusy] = useState(false);
+  const [isPro, setIsPro] = useState(true); // optimistic; corrected by billing status
+  const [paywall, setPaywall] = useState(false);
+
+  // Know whether the report export is unlocked (C6 is a Pro feature).
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    axios.get(`${API_URL}/api/billing/status`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => setIsPro(!!r.data.isPro)).catch(() => {});
+  }, []);
 
   // Verified financial report (C6): fetch the server-rendered document and print it
-  // (the browser's print dialog lets the user save it as a PDF).
+  // (the browser's print dialog lets the user save it as a PDF). Pro-gated.
   const downloadReport = async (months = 6) => {
+    if (!isPro) { setPaywall(true); return; }
     setReportBusy(true);
     try {
       const token = localStorage.getItem('token');
@@ -73,7 +84,8 @@ export default function Insights({ transactions = [] }) {
       if (!w) { alert('Please allow pop-ups to open your report.'); return; }
       w.document.open(); w.document.write(res.data); w.document.close();
       w.onload = () => setTimeout(() => w.print(), 400);
-    } catch {
+    } catch (err) {
+      if (err.response?.status === 402) { setPaywall(true); return; }
       alert('Could not build your report. Please try again.');
     } finally { setReportBusy(false); }
   };
@@ -183,9 +195,10 @@ export default function Insights({ transactions = [] }) {
         </div>
         <button onClick={() => downloadReport(6)} disabled={reportBusy}
           style={{ padding: '9px 16px', borderRadius: 10, border: 'none', background: 'var(--gradient-primary, var(--accent-primary))', color: '#fff', fontWeight: 700, cursor: reportBusy ? 'wait' : 'pointer' }}>
-          {reportBusy ? 'Preparing…' : 'Download PDF'}
+          {reportBusy ? 'Preparing…' : isPro ? 'Download PDF' : 'Download PDF · Pro'}
         </button>
       </div>
+      <ProPaywall open={paywall} feature="report" onClose={() => setPaywall(false)} />
 
       {/* Clarity streak + season chips */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

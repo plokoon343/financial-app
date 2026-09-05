@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
+import { kindMeta, isExcludedKind } from '../utils/txnKind';
 import { FeatureTip, InfoTip } from './FeatureTip';
 import { fmtNaira } from '../utils/format';
 
@@ -355,16 +356,19 @@ const Transactions = () => {
                   <button className="icon-btn" onClick={() => setEditingId(null)}><i className="fas fa-times"></i></button>
                 </td>
               </tr>
-            ) : (
+            ) : (() => {
+              const km = kindMeta(t.type);            // excluded kind → neutral display
+              const shortKind = km ? (t.type === 'internal_transfer' ? 'Transfer' : km.label.split('·')[0].trim()) : (t.type === 'income' ? 'Income' : 'Expense');
+              return (
               <tr key={t._id} className={selected.has(t._id) ? 'sel' : ''}>
                 <td><input type="checkbox" checked={selected.has(t._id)} onChange={() => toggleSel(t._id)} /></td>
                 <td className="nowrap">{new Date(t.date).toLocaleDateString()}</td>
                 <td className="desc" title={t.description}>{t.description}</td>
-                <td className={`nowrap ${t.type === 'internal_transfer' ? '' : t.type === 'income' ? 'pos' : 'neg'}`}>{t.type === 'internal_transfer' ? '⇄ ' : t.type === 'income' ? '+' : '−'}{money(t.amount)}</td>
-                <td className="nowrap">{t.type === 'internal_transfer' ? 'Transfer' : t.type === 'income' ? 'Income' : 'Expense'}</td>
+                <td className={`nowrap ${km ? '' : t.type === 'income' ? 'pos' : 'neg'}`}>{km ? `${km.symbol} ` : t.type === 'income' ? '+' : '−'}{money(t.amount)}</td>
+                <td className="nowrap">{shortKind}</td>
                 <td>
-                  {t.type === 'internal_transfer' ? (
-                    <span style={{ opacity: 0.7, fontSize: '0.82rem' }}>Between your accounts</span>
+                  {km ? (
+                    <span style={{ opacity: 0.7, fontSize: '0.82rem' }} title={km.label}>{km.label}</span>
                   ) : (
                     <select className="cat-select" value={allCategoriesFor(t.type).includes(t.category) ? t.category : ''} onChange={e => { const v = resolveCategoryChoice(t.type, e.target.value); if (v) quickCategory(t, v); }}>
                       {!allCategoriesFor(t.type).includes(t.category) && <option value="">{t.category}</option>}
@@ -377,14 +381,15 @@ const Transactions = () => {
                 <td className="row-actions">
                   {t.type === 'internal_transfer' ? (
                     <button className="icon-btn" onClick={() => unmarkTransfer(t)} title="Not a transfer — count it again"><i className="fas fa-rotate-left"></i></button>
-                  ) : (
+                  ) : !isExcludedKind(t.type) ? (
                     <button className="icon-btn" onClick={() => markTransfer(t)} title="Transfer between my own accounts"><i className="fas fa-right-left"></i></button>
-                  )}
+                  ) : null}
                   <button className="icon-btn" onClick={() => startEdit(t)} title="Edit"><i className="fas fa-pen"></i></button>
                   <button className="icon-btn del" onClick={() => deleteOne(t._id)} title="Delete"><i className="fas fa-trash"></i></button>
                 </td>
               </tr>
-            ))}
+              );
+            })())}
             {filtered.length === 0 && (
               <tr><td colSpan="8" className="empty">No transactions match these filters.</td></tr>
             )}

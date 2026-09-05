@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
+import { kindMeta } from '../utils/txnKind';
 import { fmtNaira } from '../utils/format';
 import { detectSalary, salaryPromptSeen, markSalaryPromptSeen } from '../lib/insights';
 import {
@@ -1087,18 +1088,20 @@ const Dashboard = () => {
           </div>
           {filteredTransactions.length > 0 ? (
             <div>
-              {filteredTransactions.slice(0, 6).map(tx => (
+              {filteredTransactions.slice(0, 6).map(tx => {
+                const km = kindMeta(tx.type); // excluded kind → neutral (not counted)
+                return (
                 <div key={tx._id || tx.id}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.7rem 0', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#f1f5f9'}` }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '10px', background: tx.type === 'income' ? 'rgba(56,161,105,0.12)' : 'rgba(229,62,62,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '10px', background: km ? (darkMode ? 'rgba(160,174,192,0.15)' : 'rgba(113,128,150,0.12)') : tx.type === 'income' ? 'rgba(56,161,105,0.12)' : 'rgba(229,62,62,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     {categoryIcons[tx.category] || categoryIcons.Other}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, color: darkMode ? '#f7fafc' : '#1a365d', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.description}</div>
-                    <div style={{ fontSize: '0.78rem', color: darkMode ? '#a0aec0' : '#718096' }}>{new Date(tx.date).toLocaleDateString()} · {tx.category}</div>
+                    <div style={{ fontSize: '0.78rem', color: darkMode ? '#a0aec0' : '#718096' }}>{new Date(tx.date).toLocaleDateString()} · {km ? km.label : tx.category}</div>
                   </div>
-                  <div style={{ fontWeight: 700, color: tx.type === 'income' ? '#38a169' : '#e53e3e', whiteSpace: 'nowrap', fontSize: '0.92rem' }}>
-                    {tx.type === 'income' ? '+' : '-'}{hideAmounts ? '••••' : fmtNaira(Math.abs(tx.amount))}
+                  <div style={{ fontWeight: 700, color: km ? (darkMode ? '#a0aec0' : '#718096') : tx.type === 'income' ? '#38a169' : '#e53e3e', whiteSpace: 'nowrap', fontSize: '0.92rem' }}>
+                    {km ? `${km.symbol} ` : tx.type === 'income' ? '+' : '-'}{hideAmounts ? '••••' : fmtNaira(Math.abs(tx.amount))}
                   </div>
                   <button onClick={() => deleteTransaction(tx._id || tx.id)}
                     style={{ background: 'none', border: 'none', color: darkMode ? '#718096' : '#cbd5e0', cursor: 'pointer', padding: '0.25rem', borderRadius: '6px', flexShrink: 0 }}
@@ -1107,7 +1110,8 @@ const Dashboard = () => {
                     <FaTrash size={12} />
                   </button>
                 </div>
-              ))}
+                );
+              })}
               {filteredTransactions.length > 6 && (
                 <Link to="/transactions" style={{ display: 'block', textAlign: 'center', fontSize: '0.83rem', fontWeight: 600, color: 'var(--accent-primary)', margin: '0.75rem 0 0', textDecoration: 'none' }}>
                   +{filteredTransactions.length - 6} more transactions

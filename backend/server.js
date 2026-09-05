@@ -390,6 +390,11 @@ const transactionSchema = new mongoose.Schema({
   importedAt: { type: Date },
   transferPairId: { type: String, default: '' },  // links the two sides of an internal transfer
   reversalPairId: { type: String, default: '' },  // links a reversal credit to the debit it cancels
+  // Cash tracking (spec C4): a cash_withdrawal the user has broken down into what the
+  // cash was actually spent on. The child expense rows carry cashParentId = the
+  // withdrawal's id, so the spending is counted while the withdrawal stays excluded.
+  cashAllocated: { type: Boolean, default: false },
+  cashParentId:  { type: String, default: '' },
 }, { timestamps: true });
 
 // Confirmed self-transfer routes (a pair of the user's own banks). Once a user
@@ -5838,6 +5843,60 @@ app.post('/api/transactions/:id/unmark-transfer', auth, async (req, res) => {
     await restore(txn);
     res.json({ ok: true, restored: 1 });
   } catch (e) { console.error('[unmark-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// ── Cash tracking (spec C4) ─────────────────────────────────────────────────────
+// Cash withdrawals are excluded from spending (the money left the bank but we don't
+// know where it went). This lets the user break a withdrawal down into what the cash
+// was actually spent on, turning the biggest blind spot in Nigerian finance into real,
+// categorised spending — without double-counting (the withdrawal stays excluded).
+app.get('/api/cash/pending', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const rows = await Transaction.find({ userId: uid, type: 'cash_withdrawal', cashAllocated: { $ne: true } })
+      .select('amount date description bank').sort({ date: -1 }).limit(50).lean();
+    res.json(rows.map((r) => ({ ...r, amount: Math.abs(r.amount) })));
+  } catch (e) { console.error('[cash/pending]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.post('/api/transactions/:id/allocate-cash', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: uid });
+    if (!txn) return res.status(404).json({ message: 'Not found' });
+    if (txn.type !== 'cash_withdrawal') return res.status(400).json({ message: 'Not a cash withdrawal' });
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    const clean = items
+      .map((i) => ({ category: (i.category || 'Other').toString().trim(), amount: Math.abs(Number(i.amount)) || 0, description: (i.description || '').toString().trim() }))
+      .filter((i) => i.amount > 0);
+    if (!clean.length) return res.status(400).json({ message: 'Add at least one cash expense.' });
+    const total = clean.reduce((s, i) => s + i.amount, 0);
+    const cashAmount = Math.abs(txn.amount);
+    if (total > cashAmount + 0.5) return res.status(400).json({ message: `That's more than the ₦${cashAmount.toLocaleString()} you withdrew.` });
+
+    const docs = clean.map((i) => new Transaction({
+      userId: uid, date: txn.date, description: i.description || `Cash · ${i.category}`,
+      amount: -i.amount, category: i.category, type: 'expense',
+      source: 'manual', bank: txn.bank || '', cashParentId: String(txn._id),
+    }));
+    const inserted = await Transaction.insertMany(docs, { ordered: false });
+    txn.cashAllocated = true;
+    await txn.save();
+    await learnCategories(uid, clean); // teach description→category from the allocation
+    res.json({ ok: true, created: inserted.length, allocated: total, remaining: Math.round((cashAmount - total) * 100) / 100 });
+  } catch (e) { console.error('[allocate-cash]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// "Don't track this one" — mark a withdrawal handled so it stops prompting, without
+// creating any spending rows.
+app.post('/api/transactions/:id/skip-cash', auth, async (req, res) => {
+  try {
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!txn) return res.status(404).json({ message: 'Not found' });
+    txn.cashAllocated = true;
+    await txn.save();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // Reclassify existing income/expense rows into their non-discretionary KIND

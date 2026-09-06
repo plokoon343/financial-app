@@ -191,9 +191,14 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
   const updateTxType = (idx, type) =>
     setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, type } : t)));
 
-  const handleImport = async () => {
+  // Addendum B — indices that auto-accept (confident, not duplicate) vs need review.
+  const confidentIdx = transactions.map((_, i) => i).filter((i) => !transactions[i].duplicate && transactions[i].confidenceLevel !== 'low' && transactions[i].confidenceLevel !== 'medium');
+  const flaggedCount = transactions.filter((t) => !t.duplicate && (t.confidenceLevel === 'low' || t.confidenceLevel === 'medium')).length;
+
+  const handleImport = async (indices) => {
+    const idxList = Array.isArray(indices) ? indices : selectedIndices; // may be called as a click handler
     const elapsed = reviewStartedAt ? Date.now() - reviewStartedAt : null;
-    const toImport = selectedIndices.map((i) => {
+    const toImport = idxList.map((i) => {
       const t = transactions[i];
       // Finalise _parse with the confirmed bank + time-to-review so corrections are
       // attributed correctly (backend diffs _parse against the imported values).
@@ -472,6 +477,11 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                   {banks.map((b) => <option key={b.code || b.name} value={b.name} />)}
                 </datalist>
               </label>
+              {flaggedCount > 0 && confidentIdx.length > 0 && (
+                <button onClick={() => handleImport(confidentIdx)} title="Save the confident ones and deal with the flagged rows below" style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', border: 'none', background: 'var(--gradient-primary, #10b981)', color: '#fff', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>
+                  <FaCheckCircle style={{ marginRight: '0.35rem' }} />Save the {confidentIdx.length} good ones
+                </button>
+              )}
               <button onClick={toggleAll} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', border: `1px solid ${theme.inputBorder}`, background: 'transparent', color: theme.labelColor, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>
                 {selectedIndices.length === transactions.length ? 'Deselect All' : 'Select All'}
               </button>

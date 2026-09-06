@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
-import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, recordCheckin, seasonFor } from '../lib/insights';
+import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, recordCheckin, seasonFor, betterThanLastMonth } from '../lib/insights';
 import ProPaywall from './ProPaywall';
 import { verifyPendingPro } from '../lib/pro';
 
@@ -92,6 +92,8 @@ export default function Insights({ transactions = [] }) {
       alert('Could not build your report. Please try again.');
     } finally { setReportBusy(false); }
   };
+
+  const monthWin = useMemo(() => betterThanLastMonth(transactions), [transactions]);
 
   const inMonth = useMemo(
     () => transactions.filter((t) => monthKey(t.date) === month),
@@ -201,6 +203,21 @@ export default function Insights({ transactions = [] }) {
           {reportBusy ? 'Preparing…' : isPro ? 'Download PDF' : 'Download PDF · Pro'}
         </button>
       </div>
+
+      {/* Better than last month (C5) — only when earned */}
+      {monthWin && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 16, padding: '14px 16px' }}>
+          <span className="material-symbols-outlined" style={{ color: '#10b981' }}>trending_down</span>
+          <div>
+            <strong style={{ color: 'var(--text-primary)' }}>Better than last month</strong>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 2 }}>
+              {monthWin.scope === 'category'
+                ? `You've spent ${fmtNaira(monthWin.saved)} less on ${monthWin.category} than this time last month. Nice work.`
+                : `Your spending is ${fmtNaira(monthWin.saved)} lower than the same stretch last month. Nice work.`}
+            </div>
+          </div>
+        </div>
+      )}
       <ProPaywall open={paywall} feature="report" onClose={() => setPaywall(false)} />
 
       {/* Clarity streak + season chips */}

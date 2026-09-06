@@ -5965,6 +5965,35 @@ app.get('/api/reports/income-summary', auth, async (req, res) => {
 // Record a daily check-in and return the current streak. Server-side so the
 // streak survives a reinstall / new device. Accepts optional `days` (local
 // history) to merge — so a first sync after reinstall restores the run.
+// Clarity streak with forgiveness (Gen-Z spec): consecutive check-in days ending
+// today, but a single missed day is bridged by a free "freeze" — at most one per
+// calendar month. Today itself is never frozen (no live streak until you check in).
+// Returns { streak, frozen: [YYYY-MM-DD bridged] }. Pure + deterministic from the
+// day set, so client and server agree.
+function streakWithFreeze(days, today = new Date()) {
+  const set = new Set(days);
+  const todayKey = today.toISOString().slice(0, 10);
+  const usedMonths = new Set();
+  const confirmed = [];   // freezes that actually bridged to an earlier check-in
+  let pending = [];       // freezes not yet known to bridge anything
+  let streak = 0;
+  const d = new Date(today);
+  for (let i = 0; i < 800; i++) {
+    const key = d.toISOString().slice(0, 10);
+    if (set.has(key)) {
+      streak += 1;
+      if (pending.length) { confirmed.push(...pending); pending = []; } // the gap(s) bridged to here
+    } else if (key !== todayKey && !usedMonths.has(key.slice(0, 7))) {
+      usedMonths.add(key.slice(0, 7)); pending.push(key);               // tentative bridge
+    } else {
+      break;
+    }
+    d.setDate(d.getDate() - 1);
+  }
+  // Trailing pending freezes (before the earliest check-in) bridged nothing — drop them.
+  return { streak, frozen: confirmed };
+}
+
 app.post('/api/checkin', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('checkinDays');
@@ -5976,11 +6005,9 @@ app.post('/api/checkin', auth, async (req, res) => {
     }
     user.checkinDays = [...set].sort().slice(-400);
     await user.save();
-    const has = new Set(user.checkinDays);
-    let streak = 0;
-    const d = new Date();
-    while (has.has(d.toISOString().slice(0, 10))) { streak += 1; d.setDate(d.getDate() - 1); }
-    res.json({ streak, days: user.checkinDays });
+    const { streak, frozen } = streakWithFreeze(user.checkinDays);
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    res.json({ streak, days: user.checkinDays, frozen, freezeUsedThisMonth: frozen.some((d) => d.startsWith(thisMonth)) });
   } catch (e) { console.error('[checkin]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 

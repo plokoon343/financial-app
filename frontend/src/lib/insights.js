@@ -206,14 +206,37 @@ export function recordCheckin() {
   } catch { /* ignore */ }
 }
 
+// Streak with forgiveness (mirrors the server): a single missed day is bridged by a
+// free freeze, at most one per calendar month; today is never frozen; trailing gaps
+// bridge nothing. Returns { streak, frozen[] }.
+export function streakWithFreeze(days, today = new Date()) {
+  const set = new Set(days);
+  const todayKey = dayStr(today);
+  const usedMonths = new Set();
+  const confirmed = [];
+  let pending = [], streak = 0;
+  const d = new Date(today);
+  for (let i = 0; i < 800; i++) {
+    const key = dayStr(d);
+    if (set.has(key)) { streak += 1; if (pending.length) { confirmed.push(...pending); pending = []; } }
+    else if (key !== todayKey && !usedMonths.has(key.slice(0, 7))) { usedMonths.add(key.slice(0, 7)); pending.push(key); }
+    else break;
+    d.setDate(d.getDate() - 1);
+  }
+  return { streak, frozen: confirmed };
+}
+
 export function getStreak() {
+  try { return streakWithFreeze(JSON.parse(localStorage.getItem(STREAK_KEY) || '[]')).streak; }
+  catch { return 0; }
+}
+
+export function getStreakInfo() {
   try {
-    const set = new Set(JSON.parse(localStorage.getItem(STREAK_KEY) || '[]'));
-    let streak = 0;
-    const d = new Date();
-    while (set.has(dayStr(d))) { streak += 1; d.setDate(d.getDate() - 1); }
-    return streak;
-  } catch { return 0; }
+    const { streak, frozen } = streakWithFreeze(JSON.parse(localStorage.getItem(STREAK_KEY) || '[]'));
+    const m = new Date().toISOString().slice(0, 7);
+    return { streak, freezeUsedThisMonth: frozen.some((x) => x.startsWith(m)) };
+  } catch { return { streak: 0, freezeUsedThisMonth: false }; }
 }
 
 export function seasonFor(monthKey) {

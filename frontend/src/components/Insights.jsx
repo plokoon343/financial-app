@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
-import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, recordCheckin, seasonFor, betterThanLastMonth } from '../lib/insights';
+import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, getStreakInfo, recordCheckin, seasonFor, betterThanLastMonth } from '../lib/insights';
 import ProPaywall from './ProPaywall';
 import { verifyPendingPro } from '../lib/pro';
 
@@ -167,7 +167,8 @@ export default function Insights({ transactions = [] }) {
   useEffect(() => { setVoiceIdx(0); }, [month]);
 
   const [streak, setStreak] = useState(0);
-  useEffect(() => { recordCheckin(); setStreak(getStreak()); }, []);
+  const [freezeSaved, setFreezeSaved] = useState(false);
+  useEffect(() => { recordCheckin(); setStreak(getStreak()); setFreezeSaved(getStreakInfo().freezeUsedThisMonth); }, []);
 
   if (!transactions.length) {
     return <div className="empty-state"><h3>No insights yet</h3><p>Add or import some transactions to see where your money goes.</p></div>;
@@ -226,6 +227,12 @@ export default function Insights({ transactions = [] }) {
           <span style={chipStyle}>
             <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#f97316' }}>local_fire_department</span>
             {streak}-day clarity streak
+          </span>
+        )}
+        {freezeSaved && (
+          <span style={{ ...chipStyle, color: '#10b981', borderColor: '#10b981' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#10b981' }}>ac_unit</span>
+            Streak saved — free freeze used
           </span>
         )}
         <span style={chipStyle}>

@@ -259,6 +259,42 @@ export function detectSalary(all, monthlyIncome) {
   return { id: `${top.date}-${Math.round(amt)}`, date: top.date, amount: amt, lastMonthSpentPct };
 }
 
+// "Better than last month" (C5) — the category where the user spent LESS so far this
+// month than in the same elapsed stretch last month, framed positively. Same-window
+// comparison so a partial month isn't unfairly flattering. Mirrors the mobile lib.
+export function betterThanLastMonth(all, now = new Date()) {
+  const ym = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const day = now.getDate();
+  const thisKey = ym(now);
+  const lastKey = ym(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const thisCat = new Map(), lastCat = new Map();
+  let thisTotal = 0, lastTotal = 0;
+  for (const t of all) {
+    if (t.type !== 'expense') continue;
+    const d = new Date(t.date);
+    if (d.getDate() > day) continue;
+    const key = ym(d), amt = Math.abs(t.amount), cat = t.category || 'Other';
+    if (key === thisKey) { thisCat.set(cat, (thisCat.get(cat) || 0) + amt); thisTotal += amt; }
+    else if (key === lastKey) { lastCat.set(cat, (lastCat.get(cat) || 0) + amt); lastTotal += amt; }
+  }
+  const MIN_SAVED = 1000, MIN_SHARE = 0.12;
+  let best = null;
+  for (const [cat, lastAmount] of lastCat) {
+    if (lastAmount <= 0) continue;
+    const thisAmount = thisCat.get(cat) || 0;
+    const saved = lastAmount - thisAmount;
+    if (saved >= MIN_SAVED && saved >= lastAmount * MIN_SHARE && (!best || saved > best.saved)) {
+      best = { scope: 'category', category: cat, saved, lastAmount, thisAmount };
+    }
+  }
+  if (best) return best;
+  const savedTotal = lastTotal - thisTotal;
+  if (lastTotal > 0 && savedTotal >= MIN_SAVED * 2 && savedTotal >= lastTotal * 0.08) {
+    return { scope: 'overall', saved: savedTotal, lastAmount: lastTotal, thisAmount: thisTotal };
+  }
+  return null;
+}
+
 export function salaryPromptSeen(id) {
   try { return localStorage.getItem(SALARY_SEEN_KEY) === id; } catch { return false; }
 }

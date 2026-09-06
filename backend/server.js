@@ -3082,9 +3082,32 @@ const CREDIT_HINTS = /\b(cr|credit(ed)?|received|inflow|deposit|reversal|refund)
 const DEBIT_HINTS = /\b(dr|debit(ed)?|withdrawn|withdrawal|purchase|payment|paid|pos|transfer to|sent)\b/i;
 const SMS_DATE_RE = /\b(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/i;
 
+// Stage 1.3 — "is this even a transaction?" Drop OTP/promo/login/balance-enquiry/
+// card notices before parsing (mirrors the mobile parser's ignoreReason). Conservative:
+// a message with a real debit/credit signature is never ignored.
+const ALERT_DIRECTION_RE = /\b(debit(?:ed)?|credit(?:ed)?|dr|cr|withdraw(?:n|al)?|deposit(?:ed)?|received|transfer(?:red)?|pos\b|reversal)\b/i;
+const ALERT_CONTEXT_RE = /\b(bal(?:ance)?|avail|a\/c|acct|account|ref|value date|txn|transaction|desc)\b/i;
+function alertLooksTransactional(s) {
+  return ALERT_DIRECTION_RE.test(s) && SMS_MONEY_RE.test(s) && ALERT_CONTEXT_RE.test(s);
+}
+function alertIgnoreReason(raw) {
+  const s = (raw || '').toLowerCase();
+  if (!s.trim()) return 'empty';
+  SMS_MONEY_RE.lastIndex = 0;
+  if (alertLooksTransactional(raw)) { SMS_MONEY_RE.lastIndex = 0; return null; }
+  SMS_MONEY_RE.lastIndex = 0;
+  if (/\b(otp|one[-\s]?time (?:password|pin|code)|verification code|do not (?:share|disclose)|is your (?:code|otp|pin|token))\b/.test(s)) return 'otp';
+  if (/\b(enjoy|special offer|promo(?:tion)?|discount|cash ?back|congratulations|you(?:'?re| are) eligible|eligible for|download our app|dial \*\d|upgrade to|win a|get a loan|borrow up to|loan offer|apply now|limited time)\b/.test(s)) return 'promo';
+  if (/\b(login|log[-\s]?in|sign[-\s]?in|new device|password (?:has been|was|is) (?:changed|reset|updated)|security alert)\b/.test(s)) return 'login';
+  if (/\b(balance (?:enquiry|inquiry)|bal(?:ance)? enq|your (?:available )?balance is)\b/.test(s)) return 'balance_enquiry';
+  if (/\b(card (?:is )?(?:ready|delivered|activated|blocked)|cheque ?book|statement (?:is )?ready|e-?statement (?:is )?ready)\b/.test(s)) return 'notice';
+  return null;
+}
+
 function parseOneAlert(msg, source = 'sms') {
   const raw = msg.trim();
   if (!raw) return null;
+  if (alertIgnoreReason(raw)) return null; // Stage 1.3: not a transaction → drop
   // Amount: first money-looking token, normalised (handles NGN2,5OO OCR etc.).
   const monies = [];
   let m;

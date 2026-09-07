@@ -11,6 +11,8 @@ const AdminDashboard = () => {
   const [waitlist, setWaitlist] = useState([]);
   const [recapCfg, setRecapCfg] = useState(null);
   const [accuracy, setAccuracy] = useState(null);
+  const [senders, setSenders] = useState(null);
+  const [senderThreshold, setSenderThreshold] = useState(3);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -47,13 +49,14 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const [statsRes, usersRes, ticketsRes, waitlistRes, recapRes, accRes] = await Promise.all([
+      const [statsRes, usersRes, ticketsRes, waitlistRes, recapRes, accRes, sendersRes] = await Promise.all([
         axios.get(`${API_URL}/api/admin/stats`, { headers }),
         axios.get(`${API_URL}/api/admin/users`, { headers }),
         axios.get(`${API_URL}/api/admin/tickets`, { headers }),
         axios.get(`${API_URL}/api/admin/waitlist`, { headers }),
         axios.get(`${API_URL}/api/recaps/config`, { headers }),
         axios.get(`${API_URL}/api/admin/ingestion/accuracy`, { headers }).catch(() => ({ data: null })),
+        axios.get(`${API_URL}/api/admin/senders`, { headers }).catch(() => ({ data: null })),
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data);
@@ -61,6 +64,7 @@ const AdminDashboard = () => {
       setWaitlist(waitlistRes.data.items || []);
       setRecapCfg(recapRes.data);
       setAccuracy(accRes.data);
+      if (sendersRes.data) { setSenders(sendersRes.data.senders || []); setSenderThreshold(sendersRes.data.threshold || 3); }
     } catch (error) { showMessage('Failed to load data', 'error'); }
     finally { setLoading(false); }
   };
@@ -77,6 +81,30 @@ const AdminDashboard = () => {
   const showMessage = (text, type = 'success') => {
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 3000);
+  };
+
+  // Unknown-sender flywheel (Addendum A slice 3): promote a sender to a bank so it
+  // resolves for everyone, or dismiss it (not a bank).
+  const promoteSender = async (senderKey, bankCode) => {
+    if (!bankCode) { showMessage('Pick a bank first', 'error'); return; }
+    setActionLoading(senderKey);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_URL}/api/admin/senders/${encodeURIComponent(senderKey)}/promote`, { bankCode }, { headers: { Authorization: `Bearer ${token}` } });
+      setSenders((prev) => prev.map((s) => s.senderKey === senderKey ? { ...s, status: 'promoted', promotedBankCode: bankCode } : s));
+      showMessage('Sender promoted');
+    } catch { showMessage('Could not promote', 'error'); }
+    finally { setActionLoading(null); }
+  };
+  const dismissSender = async (senderKey) => {
+    setActionLoading(senderKey);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_URL}/api/admin/senders/${encodeURIComponent(senderKey)}/dismiss`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      setSenders((prev) => prev.map((s) => s.senderKey === senderKey ? { ...s, status: 'dismissed' } : s));
+      showMessage('Sender dismissed');
+    } catch { showMessage('Could not dismiss', 'error'); }
+    finally { setActionLoading(null); }
   };
 
   const handleRoleChange = async (userId, newRole) => {
@@ -163,7 +191,7 @@ const AdminDashboard = () => {
         </div>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
-        {['overview', 'accuracy', 'users', 'tickets', 'waitlist', 'recaps'].map(tab => {
+        {['overview', 'accuracy', 'senders', 'users', 'tickets', 'waitlist', 'recaps'].map(tab => {
           const openCount = tab === 'tickets' ? tickets.filter(t => t.status === 'open').length : 0;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? 'var(--gradient-primary)' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>
@@ -270,6 +298,62 @@ const AdminDashboard = () => {
             );
           })()}
         </>
+      )}
+
+      {activeTab === 'senders' && (
+        <div style={cardStyle}>
+          <h3 style={{ ...textPrimary, marginTop: 0, marginBottom: '0.25rem' }}>Unknown senders</h3>
+          <p style={{ ...textSecondary, fontSize: '0.85rem', marginTop: 0 }}>
+            Sender IDs the parser couldn&apos;t map to a bank. They auto-promote once {senderThreshold} users agree; you can also promote or dismiss manually.
+          </p>
+          {(!senders || senders.length === 0) ? (
+            <p style={{ ...textSecondary, margin: 0 }}>No unknown senders logged yet.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['Sender', 'Seen', 'Status', 'Top votes', 'Action'].map((h) => (
+                  <th key={h} style={{ ...textSecondary, textAlign: 'left', padding: '0.6rem 0.75rem', fontSize: '0.8rem', fontWeight: 600, borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, whiteSpace: 'nowrap' }}>{h}</th>
+                ))}</tr></thead>
+                <tbody>
+                  {senders.map((s) => {
+                    const top = (s.votes || [])[0];
+                    const statusColor = s.status === 'promoted' ? '#38a169' : s.status === 'dismissed' ? '#a0aec0' : '#dd6b20';
+                    return (
+                      <tr key={s.senderKey}>
+                        <td style={{ padding: '0.6rem 0.75rem', ...textPrimary }}>
+                          <strong>{s.senderKey}</strong>
+                          {s.sample ? <div style={{ ...textSecondary, fontSize: '0.78rem', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.sample}</div> : null}
+                        </td>
+                        <td style={{ padding: '0.6rem 0.75rem', ...textPrimary }}>{s.count}</td>
+                        <td style={{ padding: '0.6rem 0.75rem' }}>
+                          <span style={{ color: statusColor, fontWeight: 700, textTransform: 'capitalize' }}>{s.status}</span>
+                          {s.status === 'promoted' && s.promotedBankName ? <div style={{ ...textSecondary, fontSize: '0.78rem' }}>{s.promotedBankName}</div> : null}
+                        </td>
+                        <td style={{ padding: '0.6rem 0.75rem', ...textSecondary, fontSize: '0.82rem' }}>
+                          {(s.votes || []).length === 0 ? '—' : (s.votes.slice(0, 3).map((v) => `${v.bankName || v.bankCode} (${v.votes})`).join(', '))}
+                        </td>
+                        <td style={{ padding: '0.6rem 0.75rem' }}>
+                          {s.status !== 'dismissed' && (
+                            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                              {top && s.status !== 'promoted' && (
+                                <button disabled={actionLoading === s.senderKey} onClick={() => promoteSender(s.senderKey, top.bankCode)} style={{ padding: '0.35rem 0.7rem', border: 'none', borderRadius: '6px', background: '#38a169', color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem' }}>
+                                  Promote → {top.bankName || top.bankCode}
+                                </button>
+                              )}
+                              <button disabled={actionLoading === s.senderKey} onClick={() => dismissSender(s.senderKey)} style={{ padding: '0.35rem 0.7rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, borderRadius: '6px', background: 'transparent', color: textSecondary.color, fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem' }}>
+                                Dismiss
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === 'users' && (

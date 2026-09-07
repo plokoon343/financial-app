@@ -100,6 +100,10 @@ export default function Insights({ transactions = [] }) {
     [transactions, month],
   );
 
+  const bankCharges = useMemo(() => {
+    const rows = inMonth.filter((t) => t.type === 'expense' && t.category === 'Bank Charges');
+    return { total: rows.reduce((s, t) => s + Math.abs(t.amount), 0), count: rows.length };
+  }, [inMonth]);
   const income = useMemo(() => inMonth.filter((t) => t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0), [inMonth]);
   const expense = useMemo(() => inMonth.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(t.amount), 0), [inMonth]);
   const net = income - expense;
@@ -215,6 +219,19 @@ export default function Insights({ transactions = [] }) {
               {monthWin.scope === 'category'
                 ? `You've spent ${fmtNaira(monthWin.saved)} less on ${monthWin.category} than this time last month. Nice work.`
                 : `Your spending is ${fmtNaira(monthWin.saved)} lower than the same stretch last month. Nice work.`}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bank charges this month (5.4) */}
+      {bankCharges.total > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(245,158,11,0.09)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 16, padding: '14px 16px' }}>
+          <span className="material-symbols-outlined" style={{ color: '#f59e0b' }}>do_not_disturb_on</span>
+          <div>
+            <strong style={{ color: 'var(--text-primary)' }}>{fmtNaira(bankCharges.total)} in bank charges this month</strong>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 2 }}>
+              {bankCharges.count} fee{bankCharges.count === 1 ? '' : 's'} — SMS alerts, transfer charges, stamp duty and the like.
             </div>
           </div>
         </div>

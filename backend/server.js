@@ -1467,7 +1467,7 @@ const categorizeTransaction = (description, typeOrAmount) => {
     { for: 'expense', keywords: ['cinema','bet9ja','nairabet','sportybet','1xbet','betking','merrybet','gaming','event','ticket','lounge','concert','movie'], category: 'Entertainment' },
     { for: 'expense', keywords: ['piggyvest','cowrywise','risevest','target savings',' ajo','esusu','thrift','vault'], category: 'Savings' },
     { for: 'expense', keywords: ['atm withdrawal','atm cash','cash withdrawal',' atm ','pos purchase','pos debit','pos withdrawal',' pos ','point of sale'], category: 'ATM/POS' },
-    { for: 'expense', keywords: ['stamp dut','stamp duty','vat','bank fee','maintenance fee','sms alert','commission','cot','levy','account maintenance','charge'], category: 'Bank Charges' },
+    { for: 'expense', keywords: ['stamp dut','stamp duty','vat','bank fee','transfer fee','nip fee','maintenance fee','account maintenance','amf','emtl','e-levy','electronic money transfer levy','sms alert','commission','cot','levy','atm charge','card fee','charge'], category: 'Bank Charges' },
 
     // ── Catch-all transfer (either direction) ──
     { for: 'both',    keywords: ['transfer','nip','neft',' trf','send money','pos transfer','opay','palmpay','moniepoint',' kuda','paystack'], category: 'Transfer' },

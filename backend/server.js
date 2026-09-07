@@ -24,6 +24,7 @@ const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
+const { resolveBank: resolveBankRegistry } = require('./lib/bankRegistry');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -1715,6 +1716,10 @@ const BANK_SIGNATURES = [
   ['Paystack-Titan', ['titan-paystack', 'paystack titan']],
 ];
 const detectBank = (text = '') => {
+  // Registry cascade first (resolves truncated sender IDs like PREMIUMTRST, and email
+  // domains), then the legacy keyword signatures as a fallback.
+  const m = resolveBankRegistry(text);
+  if (m) return m.name;
   const l = (text || '').toLowerCase();
   for (const [name, kws] of BANK_SIGNATURES) {
     if (kws.some(kw => l.includes(kw))) return name;

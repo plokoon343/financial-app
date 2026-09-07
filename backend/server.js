@@ -24,7 +24,7 @@ const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
-const { resolveBank: resolveBankRegistry, extractAccountMask } = require('./lib/bankRegistry');
+const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -393,6 +393,9 @@ const transactionSchema = new mongoose.Schema({
   // so a UserAccount can be named and multi-account / internal-transfer scoping works.
   bankCode: { type: String, default: '' },
   accountMask: { type: String, default: '' },    // e.g. '4120'
+  // Normalised sender ID kept when the bank couldn't be resolved, so the user can
+  // tag it later and we can retro-stamp their matching rows (Addendum A slice 3).
+  senderKey: { type: String, default: '' },
   importBatch: { type: String, default: '' },     // one id per uploaded statement
   importedAt: { type: Date },
   transferPairId: { type: String, default: '' },  // links the two sides of an internal transfer
@@ -434,6 +437,35 @@ const userAccountSchema = new mongoose.Schema({
 }, { timestamps: true });
 userAccountSchema.index({ userId: 1, bankCode: 1, accountMask: 1 }, { unique: true });
 const UserAccount = mongoose.model('UserAccount', userAccountSchema);
+
+// Learn-unknown-senders flywheel (spec Addendum A, slice 3). A sender ID the parser
+// couldn't map to a bank becomes an UnknownSender (one global doc per senderKey). As
+// users tag it (SenderTag), votes accumulate; once enough distinct users agree on the
+// same bank it's promoted, and from then on everyone's alerts from that sender
+// resolve automatically. `status`: open → promoted (learned) | dismissed (not a bank).
+const unknownSenderSchema = new mongoose.Schema({
+  senderKey:       { type: String, required: true, unique: true },
+  sample:          { type: String, default: '' },   // one redacted example, for context
+  source:          { type: String, default: 'sms' },
+  count:           { type: Number, default: 0 },     // total times seen (all users)
+  status:          { type: String, enum: ['open', 'promoted', 'dismissed'], default: 'open' },
+  promotedBankCode: { type: String, default: '' },
+  promotedBankName: { type: String, default: '' },
+  lastSeen:        { type: Date },
+}, { timestamps: true });
+const UnknownSender = mongoose.model('UnknownSender', unknownSenderSchema);
+
+// One user's answer to "which bank is this sender?" — their own resolution AND a vote
+// toward promoting the sender globally. Unique per (user, sender).
+const senderTagSchema = new mongoose.Schema({
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  senderKey: { type: String, required: true },
+  bankCode:  { type: String, required: true },
+  bankName:  { type: String, default: '' },
+}, { timestamps: true });
+senderTagSchema.index({ userId: 1, senderKey: 1 }, { unique: true });
+senderTagSchema.index({ senderKey: 1, bankCode: 1 });
+const SenderTag = mongoose.model('SenderTag', senderTagSchema);
 
 const budgetSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -1760,12 +1792,19 @@ const detectBank = (text = '') => {
 // Account fingerprint from an alert/statement (spec Addendum A, slice 2): the
 // registry bank code + name (so multiple sender-ID spellings collapse to one code)
 // and the masked account tail. Returns empty strings when unknown — never guesses.
-const fingerprintAccount = (text = '') => {
-  const m = resolveBankRegistry(text);
+// An explicit sender ID (SMS address / email from) is fed to the resolver's fuzzy
+// path and, when the bank is still unknown, kept as senderKey for the learn-unknown
+// -senders flywheel (Addendum A slice 3).
+const normalizeSenderKey = (s = '') => (s || '').toString().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
+const fingerprintAccount = (text = '', sender = '') => {
+  const m = resolveBankRegistry(text, sender || undefined);
+  const key = normalizeSenderKey(sender);
   return {
     bankCode: m ? m.code : '',
     bankName: m ? m.name : detectBank(text),
     accountMask: extractAccountMask(text) || '',
+    // Only a meaningful (≥4 char) sender is worth learning; skip shortcodes/blanks.
+    senderKey: !m && key.length >= 4 ? key : '',
   };
 };
 
@@ -1790,6 +1829,63 @@ async function touchUserAccount(userId, { bankCode, bankName, accountMask }, whe
     // A concurrent upsert can race the unique index; ignore duplicate-key noise.
     if (e && e.code !== 11000) console.error('[touchUserAccount]', e.message);
   }
+}
+
+// ── Learn-unknown-senders flywheel (Addendum A slice 3) ──
+const SENDER_PROMOTE_THRESHOLD = 3; // distinct users agreeing on the same bank
+
+// Record a sender ID we couldn't resolve, so it can be tagged. Idempotent-ish upsert.
+async function logUnknownSender(senderKey, sample, source) {
+  if (!senderKey || senderKey.length < 4) return;
+  try {
+    await UnknownSender.updateOne(
+      { senderKey },
+      {
+        $setOnInsert: { senderKey, status: 'open', sample: (sample || '').slice(0, 160), source: source || 'sms' },
+        $set: { lastSeen: new Date() },
+        $inc: { count: 1 },
+      },
+      { upsert: true },
+    );
+  } catch (e) { if (e && e.code !== 11000) console.error('[logUnknownSender]', e.message); }
+}
+
+// The bank a sender resolves to via learning: the user's own tag first, then a
+// globally-promoted consensus. Returns { code, name } or null.
+async function learnedBankFor(userId, senderKey) {
+  if (!senderKey) return null;
+  const mine = await SenderTag.findOne({ userId, senderKey }).lean();
+  if (mine && mine.bankCode) return { code: mine.bankCode, name: mine.bankName || '' };
+  const promoted = await UnknownSender.findOne({ senderKey, status: 'promoted' }).lean();
+  if (promoted && promoted.promotedBankCode) return { code: promoted.promotedBankCode, name: promoted.promotedBankName || '' };
+  return null;
+}
+
+// After a tag lands, promote the sender if enough distinct users agree on one bank.
+async function maybePromoteSender(senderKey) {
+  try {
+    const tags = await SenderTag.find({ senderKey }).select('userId bankCode bankName').lean();
+    const byBank = new Map();
+    for (const t of tags) {
+      const e = byBank.get(t.bankCode) || { users: new Set(), name: t.bankName || '' };
+      e.users.add(String(t.userId));
+      if (!e.name && t.bankName) e.name = t.bankName;
+      byBank.set(t.bankCode, e);
+    }
+    let winner = null;
+    for (const [code, e] of byBank) {
+      if (e.users.size >= SENDER_PROMOTE_THRESHOLD && (!winner || e.users.size > winner.size)) {
+        winner = { code, name: e.name, size: e.users.size };
+      }
+    }
+    if (winner) {
+      await UnknownSender.updateOne(
+        { senderKey },
+        { $set: { status: 'promoted', promotedBankCode: winner.code, promotedBankName: winner.name } },
+        { upsert: true },
+      );
+    }
+  } catch (e) { console.error('[maybePromoteSender]', e.message); }
 }
 
 // --------------------------
@@ -3174,7 +3270,7 @@ function alertIgnoreReason(raw) {
   return null;
 }
 
-function parseOneAlert(msg, source = 'sms') {
+function parseOneAlert(msg, source = 'sms', sender = '') {
   const raw = msg.trim();
   if (!raw) return null;
   if (alertIgnoreReason(raw)) return null; // Stage 1.3: not a transaction → drop
@@ -3204,13 +3300,13 @@ function parseOneAlert(msg, source = 'sms') {
     .replace(/\s{2,}/g, ' ')
     .trim()
     .slice(0, 140)) || 'Bank alert';
-  const { bankCode, bankName, accountMask } = fingerprintAccount(raw);
+  const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(raw, sender);
   const bank = bankName || detectBank(raw);
   const category = categorizeTransaction(description, type);
   const confidence = amount != null && dirConf === 'high' && amtConf !== 'low' ? 'high' : (amount != null ? 'medium' : 'low');
   return {
     date, description, amount: amount != null ? +Number(amount).toFixed(2) : 0,
-    type, category, bank, bankCode, accountMask, reference: null, raw,
+    type, category, bank, bankCode, accountMask, senderKey, reference: null, raw,
     // low-confidence amount is left visibly empty for the user to fill (spec A6).
     needsReview: confidence === 'low',
     confidence,
@@ -3310,7 +3406,7 @@ app.post('/api/inbound-email/webhook', async (req, res) => {
     user.inboundEmailLastAt = new Date();
 
     const body = inboundEmail.emailToText({ subject, text, html });
-    const parsed = parseOneAlert(body, 'email');
+    const parsed = parseOneAlert(body, 'email', from);
     let created = 0;
     if (parsed && parsed.amount > 0) {
       // Dedupe against everything already saved in a ±1 day window (SMS often
@@ -3324,15 +3420,23 @@ app.post('/api/inbound-email/webhook', async (req, res) => {
       if (!dup) {
         const signed = parsed.type === 'income' ? Math.abs(parsed.amount) : -Math.abs(parsed.amount);
         const kind = classifyKind({ type: parsed.type, description: parsed.description, category: parsed.category });
-        const eCode = (parsed.bankCode || '').toString().toLowerCase().slice(0, 24);
+        let eCode = (parsed.bankCode || '').toString().toLowerCase().slice(0, 24);
+        let eBank = parsed.bank || '';
         const eMask = (parsed.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
+        let eSender = normalizeSenderKey(parsed.senderKey || '');
+        // Learn-unknown-senders (slice 3): resolve via learning, else keep + log it.
+        if (!eCode && eSender) {
+          const learned = await learnedBankFor(user._id, eSender);
+          if (learned) { eCode = learned.code; if (!eBank) eBank = learned.name; eSender = ''; }
+          else { await logUnknownSender(eSender, body, 'email'); }
+        }
         await new Transaction({
           userId: user._id, date: when, description: parsed.description, amount: signed,
           category: parsed.category || 'Other', type: kind || parsed.type,
-          source: 'email', bank: parsed.bank || '', importedAt: new Date(),
-          bankCode: eCode, accountMask: eMask,
+          source: 'email', bank: eBank, importedAt: new Date(),
+          bankCode: eCode, accountMask: eMask, senderKey: eSender,
         }).save();
-        await touchUserAccount(user._id, { bankCode: eCode, bankName: parsed.bank, accountMask: eMask }, when);
+        await touchUserAccount(user._id, { bankCode: eCode, bankName: eBank, accountMask: eMask }, when);
         created = 1;
         user.inboundEmailCount = (user.inboundEmailCount || 0) + 1;
         try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
@@ -3386,6 +3490,22 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     const skipped = valid.length - fresh.length;
     if (fresh.length === 0) return res.json({ message: `Skipped ${skipped} duplicate(s) - nothing new to import.`, count: 0, skipped });
 
+    // Learn-unknown-senders (Addendum A slice 3): for rows the parser couldn't map
+    // to a bank but that carry a sender ID, try the learning layer (the user's own
+    // tag, then a promoted global consensus). If it resolves, fill the bank in place;
+    // otherwise keep the senderKey on the row and log the sender so it can be tagged.
+    const learnedCache = new Map();
+    for (const t of fresh) {
+      const key = normalizeSenderKey(t.senderKey || '');
+      if (!key) { t.senderKey = ''; continue; }
+      t.senderKey = key;
+      if (t.bankCode) continue; // already resolved by the parser
+      let learned = learnedCache.get(key);
+      if (learned === undefined) { learned = await learnedBankFor(req.user._id, key); learnedCache.set(key, learned); }
+      if (learned) { t.bankCode = learned.code; if (!t.bank) t.bank = learned.name; t.senderKey = ''; }
+      else { await logUnknownSender(key, t.raw || t.description || '', t._parse?.source || 'sms'); }
+    }
+
     const docs = fresh.map(t => {
       // Sign stays tied to the real direction (income +, expense −); the KIND
       // (cash-out / loan / repayment / reversal / failed) only overrides the type,
@@ -3401,6 +3521,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
         // Account fingerprint (Addendum A slice 2) — carried through from the parse.
         bankCode: (t.bankCode || '').toString().toLowerCase().slice(0, 24),
         accountMask: (t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4),
+        senderKey: (t.senderKey || '').toString().slice(0, 24), // unresolved sender (slice 3)
       });
     });
     const inserted = await Transaction.insertMany(docs, { ordered: false });
@@ -3502,6 +3623,133 @@ app.post('/api/accounts/:id/dismiss', auth, async (req, res) => {
     if (!acct) return res.status(404).json({ message: 'Account not found' });
     res.json({ ok: true });
   } catch (e) { console.error('[accounts/dismiss]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// --------------------------
+// Unknown senders (spec Addendum A, slice 3: learn-unknown-senders flywheel)
+// --------------------------
+// Registry banks the user can pick from when tagging a sender (code + display name).
+app.get('/api/banks', auth, (req, res) => {
+  res.json({ banks: BANK_REGISTRY.map((b) => ({ code: b.code, name: b.name })) });
+});
+
+// Senders on the user's own transactions we couldn't map to a bank — they can tag
+// each one so those (and future) alerts resolve. Grouped, with a sample + count.
+app.get('/api/senders/unknown', auth, async (req, res) => {
+  try {
+    const rows = await Transaction.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(req.user._id), senderKey: { $ne: '' } } },
+      { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' }, lastSeen: { $max: '$date' } } },
+      { $sort: { count: -1 } },
+      { $limit: 50 },
+    ]);
+    const promoted = rows.length
+      ? await UnknownSender.find({ senderKey: { $in: rows.map((r) => r._id) }, status: 'promoted' }).lean()
+      : [];
+    const pMap = new Map(promoted.map((p) => [p.senderKey, p]));
+    res.json({
+      senders: rows.map((r) => ({
+        senderKey: r._id,
+        count: r.count,
+        sample: (r.sample || '').slice(0, 80),
+        lastSeen: r.lastSeen || null,
+        // A community-promoted guess, offered as a one-tap suggestion.
+        suggestion: pMap.has(r._id) ? { bankCode: pMap.get(r._id).promotedBankCode, bankName: pMap.get(r._id).promotedBankName } : null,
+      })),
+    });
+  } catch (e) { console.error('[senders/unknown]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Tag a sender → bank. Records the user's answer (also a vote), retro-stamps their
+// matching transactions, registers the accounts, and promotes on consensus.
+app.post('/api/senders/tag', auth, async (req, res) => {
+  try {
+    const senderKey = normalizeSenderKey(req.body?.senderKey || '');
+    const bankCode = (req.body?.bankCode || '').toString().toLowerCase().trim();
+    if (!senderKey) return res.status(400).json({ message: 'Missing sender.' });
+    const bank = BANK_REGISTRY.find((b) => b.code === bankCode);
+    if (!bank) return res.status(400).json({ message: 'Pick a bank from the list.' });
+
+    await SenderTag.updateOne(
+      { userId: req.user._id, senderKey },
+      { $set: { bankCode: bank.code, bankName: bank.name } },
+      { upsert: true },
+    );
+    // Retro-stamp the user's own transactions carrying this sender.
+    const affected = await Transaction.find({ userId: req.user._id, senderKey }).select('accountMask date').lean();
+    await Transaction.updateMany(
+      { userId: req.user._id, senderKey },
+      { $set: { bankCode: bank.code, bank: bank.name, senderKey: '' } },
+    );
+    // Register any accounts those now-attributed transactions belong to.
+    const byMask = new Map();
+    for (const t of affected) {
+      const mask = (t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
+      if (!mask) continue;
+      const e = byMask.get(mask) || { count: 0, when: 0 };
+      e.count++; e.when = Math.max(e.when, +new Date(t.date));
+      byMask.set(mask, e);
+    }
+    for (const [mask, e] of byMask) {
+      await UserAccount.updateOne(
+        { userId: req.user._id, bankCode: bank.code, accountMask: mask },
+        {
+          $setOnInsert: { userId: req.user._id, bankCode: bank.code, accountMask: mask, label: '', hidden: false, firstSeen: new Date(e.when || Date.now()) },
+          $set: { bankName: bank.name, lastSeen: new Date(e.when || Date.now()) },
+          $inc: { txnCount: e.count },
+        },
+        { upsert: true },
+      );
+    }
+    await maybePromoteSender(senderKey);
+    res.json({ ok: true, updated: affected.length });
+  } catch (e) { console.error('[senders/tag]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Admin: review all unknown senders across users, with vote tallies, to promote or
+// dismiss. Promotion also happens automatically once enough users agree.
+app.get('/api/admin/senders', auth, superAdminAuth, async (req, res) => {
+  try {
+    const senders = await UnknownSender.find({}).sort({ count: -1 }).limit(200).lean();
+    const tallies = await SenderTag.aggregate([
+      { $group: { _id: { senderKey: '$senderKey', bankCode: '$bankCode' }, users: { $addToSet: '$userId' }, bankName: { $first: '$bankName' } } },
+    ]);
+    const byKey = new Map();
+    for (const t of tallies) {
+      const arr = byKey.get(t._id.senderKey) || [];
+      arr.push({ bankCode: t._id.bankCode, bankName: t.bankName, votes: t.users.length });
+      byKey.set(t._id.senderKey, arr);
+    }
+    res.json({
+      senders: senders.map((s) => ({
+        senderKey: s.senderKey, sample: s.sample, source: s.source, count: s.count,
+        status: s.status, promotedBankCode: s.promotedBankCode, promotedBankName: s.promotedBankName,
+        lastSeen: s.lastSeen, votes: (byKey.get(s.senderKey) || []).sort((a, b) => b.votes - a.votes),
+      })),
+      threshold: SENDER_PROMOTE_THRESHOLD,
+    });
+  } catch (e) { console.error('[admin/senders]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.post('/api/admin/senders/:key/promote', auth, superAdminAuth, async (req, res) => {
+  try {
+    const senderKey = normalizeSenderKey(req.params.key || '');
+    const bank = BANK_REGISTRY.find((b) => b.code === (req.body?.bankCode || '').toString().toLowerCase());
+    if (!bank) return res.status(400).json({ message: 'Unknown bank code.' });
+    await UnknownSender.updateOne(
+      { senderKey },
+      { $set: { status: 'promoted', promotedBankCode: bank.code, promotedBankName: bank.name } },
+      { upsert: true },
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error('[admin/senders/promote]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.post('/api/admin/senders/:key/dismiss', auth, superAdminAuth, async (req, res) => {
+  try {
+    await UnknownSender.updateOne({ senderKey: normalizeSenderKey(req.params.key || '') }, { $set: { status: 'dismissed' } });
+    res.json({ ok: true });
+  } catch (e) { console.error('[admin/senders/dismiss]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // --------------------------

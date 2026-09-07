@@ -54,6 +54,7 @@ const Sidebar = () => {
   const navGroups = [
     { title: 'Banking', items: [
       { path: '/connect-bank', label: 'Connect Bank', icon: 'account_balance' },
+      { path: '/accounts', label: 'My Accounts', icon: 'credit_card' },
     ]},
     { title: 'Money', items: [
       { path: '/', label: 'Dashboard', icon: 'dashboard' },

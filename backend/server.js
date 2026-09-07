@@ -24,7 +24,7 @@ const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
-const { resolveBank: resolveBankRegistry } = require('./lib/bankRegistry');
+const { resolveBank: resolveBankRegistry, extractAccountMask } = require('./lib/bankRegistry');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -385,8 +385,14 @@ const transactionSchema = new mongoose.Schema({
   // same way (they are neither 'income' nor 'expense', so aggregations skip them).
   type: { type: String, enum: ['income', 'expense', 'internal_transfer', 'cash_withdrawal', 'loan_in', 'debt_repayment', 'reversal', 'failed'], required: true },
   // Origin tracking so transactions can be grouped/deleted by bank statement.
-  source: { type: String, enum: ['manual', 'import'], default: 'manual' },
+  source: { type: String, enum: ['manual', 'import', 'email'], default: 'manual' },
   bank: { type: String, default: '' },           // e.g. 'GTBank', 'Union', 'Kuda'
+  // Account fingerprint (spec Addendum A, slice 2): the resolved bank code plus the
+  // masked account tail (last 3-4 digits) the alert/statement referenced. Together
+  // (bankCode, accountMask) identify WHICH of the user's accounts a transaction hit,
+  // so a UserAccount can be named and multi-account / internal-transfer scoping works.
+  bankCode: { type: String, default: '' },
+  accountMask: { type: String, default: '' },    // e.g. '4120'
   importBatch: { type: String, default: '' },     // one id per uploaded statement
   importedAt: { type: Date },
   transferPairId: { type: String, default: '' },  // links the two sides of an internal transfer
@@ -410,6 +416,24 @@ const TransferRoute = mongoose.model('TransferRoute', transferRouteSchema);
 transactionSchema.index({ userId: 1, date: -1 });
 transactionSchema.index({ userId: 1, importBatch: 1 });
 const Transaction = mongoose.model('Transaction', transactionSchema);
+
+// A distinct bank account the user has been seen transacting on (spec Addendum A,
+// slice 2). Keyed by (bankCode, accountMask); created the first time a transaction
+// fingerprints to a new pair, so the app can prompt "name this account" and later
+// scope views/transfers per account. label empty ⇒ not yet named by the user.
+const userAccountSchema = new mongoose.Schema({
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  bankCode:    { type: String, required: true },   // registry code, e.g. 'gtbank'
+  bankName:    { type: String, default: '' },      // display name at first sight
+  accountMask: { type: String, required: true },   // last 3-4 digits, e.g. '4120'
+  label:       { type: String, default: '' },      // user-given nickname ('' = unnamed)
+  txnCount:    { type: Number, default: 0 },
+  firstSeen:   { type: Date },
+  lastSeen:    { type: Date },
+  hidden:      { type: Boolean, default: false },   // user dismissed the naming prompt
+}, { timestamps: true });
+userAccountSchema.index({ userId: 1, bankCode: 1, accountMask: 1 }, { unique: true });
+const UserAccount = mongoose.model('UserAccount', userAccountSchema);
 
 const budgetSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -1246,6 +1270,12 @@ const parseStatementByBalance = (rawText) => {
   // an import that doesn't balance before the user saves anything.
   transactions.openingBalance = openingBalance;
   transactions.closingBalance = closingBalance;
+  // A statement is one account: fingerprint it once and stamp every row so the
+  // import can attribute all of them to (bankCode, accountMask) — Addendum A slice 2.
+  const acct = fingerprintAccount(rawText);
+  transactions.bankCode = acct.bankCode;
+  transactions.accountMask = acct.accountMask;
+  transactions.forEach((t) => { t.bankCode = acct.bankCode; t.accountMask = acct.accountMask; });
   const rec = reconcile({ transactions, openingBalance, closingBalance });
   transactions.reconciliation = rec;
   // If the ledger doesn't balance, the whole import is suspect: no row is "clean"
@@ -1726,6 +1756,41 @@ const detectBank = (text = '') => {
   }
   return '';
 };
+
+// Account fingerprint from an alert/statement (spec Addendum A, slice 2): the
+// registry bank code + name (so multiple sender-ID spellings collapse to one code)
+// and the masked account tail. Returns empty strings when unknown — never guesses.
+const fingerprintAccount = (text = '') => {
+  const m = resolveBankRegistry(text);
+  return {
+    bankCode: m ? m.code : '',
+    bankName: m ? m.name : detectBank(text),
+    accountMask: extractAccountMask(text) || '',
+  };
+};
+
+// Record that a (bankCode, accountMask) pair was seen for a user, creating the
+// UserAccount on first sight (unnamed) and bumping its counters otherwise. Needs a
+// mask AND a resolved bank to be meaningful; a bare mask with no bank is ignored so
+// we don't create ghost "unknown-bank" accounts. Fire-and-forget safe.
+async function touchUserAccount(userId, { bankCode, bankName, accountMask }, when) {
+  if (!bankCode || !accountMask) return;
+  const at = when ? new Date(when) : new Date();
+  try {
+    await UserAccount.updateOne(
+      { userId, bankCode, accountMask },
+      {
+        $setOnInsert: { userId, bankCode, accountMask, label: '', hidden: false, firstSeen: at },
+        $set: { bankName: bankName || '', lastSeen: at },
+        $inc: { txnCount: 1 },
+      },
+      { upsert: true },
+    );
+  } catch (e) {
+    // A concurrent upsert can race the unique index; ignore duplicate-key noise.
+    if (e && e.code !== 11000) console.error('[touchUserAccount]', e.message);
+  }
+}
 
 // --------------------------
 // Middleware
@@ -3139,12 +3204,13 @@ function parseOneAlert(msg, source = 'sms') {
     .replace(/\s{2,}/g, ' ')
     .trim()
     .slice(0, 140)) || 'Bank alert';
-  const bank = detectBank(raw);
+  const { bankCode, bankName, accountMask } = fingerprintAccount(raw);
+  const bank = bankName || detectBank(raw);
   const category = categorizeTransaction(description, type);
   const confidence = amount != null && dirConf === 'high' && amtConf !== 'low' ? 'high' : (amount != null ? 'medium' : 'low');
   return {
     date, description, amount: amount != null ? +Number(amount).toFixed(2) : 0,
-    type, category, bank, reference: null, raw,
+    type, category, bank, bankCode, accountMask, reference: null, raw,
     // low-confidence amount is left visibly empty for the user to fill (spec A6).
     needsReview: confidence === 'low',
     confidence,
@@ -3258,11 +3324,15 @@ app.post('/api/inbound-email/webhook', async (req, res) => {
       if (!dup) {
         const signed = parsed.type === 'income' ? Math.abs(parsed.amount) : -Math.abs(parsed.amount);
         const kind = classifyKind({ type: parsed.type, description: parsed.description, category: parsed.category });
+        const eCode = (parsed.bankCode || '').toString().toLowerCase().slice(0, 24);
+        const eMask = (parsed.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
         await new Transaction({
           userId: user._id, date: when, description: parsed.description, amount: signed,
           category: parsed.category || 'Other', type: kind || parsed.type,
           source: 'email', bank: parsed.bank || '', importedAt: new Date(),
+          bankCode: eCode, accountMask: eMask,
         }).save();
+        await touchUserAccount(user._id, { bankCode: eCode, bankName: parsed.bank, accountMask: eMask }, when);
         created = 1;
         user.inboundEmailCount = (user.inboundEmailCount || 0) + 1;
         try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
@@ -3328,9 +3398,38 @@ app.post('/api/import-transactions', auth, async (req, res) => {
         // Prefer a per-transaction bank (an SMS scan can span several banks),
         // falling back to the batch-level label.
         source: 'import', bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
+        // Account fingerprint (Addendum A slice 2) — carried through from the parse.
+        bankCode: (t.bankCode || '').toString().toLowerCase().slice(0, 24),
+        accountMask: (t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4),
       });
     });
     const inserted = await Transaction.insertMany(docs, { ordered: false });
+    // Register any accounts these transactions touched, so a new (bank, account)
+    // pair can be surfaced for naming. One touch per distinct account in the batch.
+    try {
+      const acctSeen = new Map();
+      for (const t of fresh) {
+        const code = (t.bankCode || '').toString().toLowerCase().slice(0, 24);
+        const mask = (t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
+        if (!code || !mask) continue;
+        const key = `${code}|${mask}`;
+        const prev = acctSeen.get(key);
+        const when = +new Date(t.date);
+        if (!prev) acctSeen.set(key, { code, mask, name: t.bank || '', when, count: 1 });
+        else { prev.count++; if (when > prev.when) prev.when = when; }
+      }
+      for (const a of acctSeen.values()) {
+        await UserAccount.updateOne(
+          { userId: req.user._id, bankCode: a.code, accountMask: a.mask },
+          {
+            $setOnInsert: { userId: req.user._id, bankCode: a.code, accountMask: a.mask, label: '', hidden: false, firstSeen: new Date(a.when) },
+            $set: { bankName: a.name || '', lastSeen: new Date(a.when) },
+            $inc: { txnCount: a.count },
+          },
+          { upsert: true },
+        );
+      }
+    } catch (e) { console.error('[import/accounts]', e.message); }
     // Learn description -> category from what the user chose to import (incl. any
     // edits they made on the review screen), so future imports auto-apply them.
     await learnCategories(req.user._id, fresh);
@@ -3356,6 +3455,53 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     console.error('Import error:', error);
     return res.status(500).json({ message: 'Error importing transactions' });
   }
+});
+
+// --------------------------
+// Bank accounts (spec Addendum A, slice 2: account fingerprinting)
+// --------------------------
+// The distinct accounts we've fingerprinted from the user's imports/alerts.
+// `needsNaming` accounts (label empty, not dismissed, seen ≥1) are surfaced by the
+// app for a one-tap "name this account" prompt.
+app.get('/api/accounts', auth, async (req, res) => {
+  try {
+    const accounts = await UserAccount.find({ userId: req.user._id }).sort({ lastSeen: -1 }).lean();
+    const out = accounts.map((a) => ({
+      id: a._id,
+      bankCode: a.bankCode,
+      bankName: a.bankName || '',
+      accountMask: a.accountMask,
+      label: a.label || '',
+      txnCount: a.txnCount || 0,
+      firstSeen: a.firstSeen || null,
+      lastSeen: a.lastSeen || null,
+      needsNaming: !a.label && !a.hidden && (a.txnCount || 0) > 0,
+    }));
+    res.json({ accounts: out, unnamed: out.filter((a) => a.needsNaming).length });
+  } catch (e) { console.error('[accounts/list]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Name (or rename) an account. Clearing the label reverts it to needing a name.
+app.patch('/api/accounts/:id', auth, async (req, res) => {
+  try {
+    const label = (req.body?.label ?? '').toString().trim().slice(0, 40);
+    const acct = await UserAccount.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!acct) return res.status(404).json({ message: 'Account not found' });
+    acct.label = label;
+    if (label) acct.hidden = false; // naming it un-dismisses it
+    await acct.save();
+    res.json({ ok: true, id: acct._id, label: acct.label });
+  } catch (e) { console.error('[accounts/patch]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Dismiss the naming prompt for an account without naming it (stops it nagging).
+app.post('/api/accounts/:id/dismiss', auth, async (req, res) => {
+  try {
+    const acct = await UserAccount.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id }, { $set: { hidden: true } }, { new: true });
+    if (!acct) return res.status(404).json({ message: 'Account not found' });
+    res.json({ ok: true });
+  } catch (e) { console.error('[accounts/dismiss]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // --------------------------

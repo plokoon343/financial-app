@@ -19,6 +19,14 @@ const ShareIcon = () => (
   </svg>
 );
 
+// Stroke phone glyph, replacing the phone emoji (Addendum C: consistent icon set).
+const PhoneIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" style={{ verticalAlign: '-3px', display: 'inline', marginRight: 6 }}
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="7" y="2" width="10" height="20" rx="2" /><path d="M11 18h2" />
+  </svg>
+);
+
 export default function InstallPrompt() {
   const [deferred, setDeferred] = useState(null);
   const [showIos, setShowIos] = useState(false);
@@ -64,12 +72,12 @@ export default function InstallPrompt() {
     <div style={bar} role="dialog" aria-label="Install Automonie">
       {deferred ? (
         <>
-          <span style={{ flex: 1 }}>📲 Install <b>Automonie</b> for a faster, full-screen experience.</span>
+          <span style={{ flex: 1 }}><PhoneIcon /> Install <b>Automonie</b> for a faster, full-screen experience.</span>
           <button style={btn} onClick={install}>Install</button>
         </>
       ) : (
         <span style={{ flex: 1 }}>
-          📲 Install <b>Automonie</b> on your iPhone: tap <b>Share</b> <ShareIcon /> then <b>“Add to Home Screen.”</b>
+          <PhoneIcon /> Install <b>Automonie</b> on your iPhone: tap <b>Share</b> <ShareIcon /> then <b>“Add to Home Screen.”</b>
         </span>
       )}
       <button style={x} onClick={dismiss} aria-label="Dismiss">✕</button>

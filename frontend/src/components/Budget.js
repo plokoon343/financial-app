@@ -307,7 +307,7 @@ const Budget = () => {
                     {allCategoriesFor('expense').map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
-                    <option value={ADD_NEW}>➕ Add new category…</option>
+                    <option value={ADD_NEW}>+ Add new category…</option>
                   </select>
                 </div>
               </div>

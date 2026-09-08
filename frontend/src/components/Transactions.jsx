@@ -347,7 +347,7 @@ const Transactions = () => {
                   <select value={editForm.category} onChange={e => { const v = resolveCategoryChoice(editForm.type, e.target.value); if (v) setEditForm({ ...editForm, category: v }); }}>
                     {allCategoriesFor(editForm.type).map(c => <option key={c} value={c}>{c}</option>)}
                     {editForm.category && !allCategoriesFor(editForm.type).includes(editForm.category) && <option value={editForm.category}>{editForm.category}</option>}
-                    <option value={ADD_NEW}>➕ Add new…</option>
+                    <option value={ADD_NEW}>+ Add new…</option>
                   </select>
                 </td>
                 <td>{t.bank || '-'}</td>
@@ -373,7 +373,7 @@ const Transactions = () => {
                     <select className="cat-select" value={allCategoriesFor(t.type).includes(t.category) ? t.category : ''} onChange={e => { const v = resolveCategoryChoice(t.type, e.target.value); if (v) quickCategory(t, v); }}>
                       {!allCategoriesFor(t.type).includes(t.category) && <option value="">{t.category}</option>}
                       {allCategoriesFor(t.type).map(c => <option key={c} value={c}>{c}</option>)}
-                      <option value={ADD_NEW}>➕ Add new…</option>
+                      <option value={ADD_NEW}>+ Add new…</option>
                     </select>
                   )}
                 </td>

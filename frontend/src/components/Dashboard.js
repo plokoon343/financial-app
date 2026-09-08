@@ -579,7 +579,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
                         {tx.category && !allCategoriesFor(tx.type).includes(tx.category) && (
                           <option value={tx.category}>{tx.category}</option>
                         )}
-                        <option value={ADD_NEW}>➕ Add new category…</option>
+                        <option value={ADD_NEW}>+ Add new category…</option>
                       </select>
                     </td>
                   </tr>
@@ -978,7 +978,7 @@ const Dashboard = () => {
                         {allCategoriesFor(formData.type).map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
-                        <option value={ADD_NEW}>➕ Add new category…</option>
+                        <option value={ADD_NEW}>+ Add new category…</option>
                       </select>
                     </div>
                     <div>

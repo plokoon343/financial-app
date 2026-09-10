@@ -3402,6 +3402,39 @@ app.post('/api/inbound-email/gmail-verification/clear', auth, async (req, res) =
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
+// Ingest one parsed email alert: dedupe (±1 day, any source), resolve/learn the bank
+// (Addendum A slice 3), and save. Returns 1 if a transaction was created, else 0.
+// Called once per alert — a digest email (spec 3.6) drives this several times; each
+// call re-queries so rows created earlier in the same digest also dedupe.
+async function ingestEmailAlert(user, parsed) {
+  const when = new Date(parsed.date);
+  const gte = new Date(when.getTime() - 86400000), lte = new Date(when.getTime() + 86400000);
+  const existing = await Transaction.find({ userId: user._id, date: { $gte: gte, $lte: lte } })
+    .select('amount type date bank description').lean();
+  const fp = fingerprint({ amount: parsed.amount, type: parsed.type, date: parsed.date, bank: parsed.bank, description: parsed.description });
+  const dup = existing.some((e) => matchScore(fp, fingerprint({ amount: e.amount, type: e.type, date: new Date(e.date).toISOString().slice(0, 10), bank: e.bank, description: e.description })) >= MERGE);
+  if (dup) return 0;
+  const signed = parsed.type === 'income' ? Math.abs(parsed.amount) : -Math.abs(parsed.amount);
+  const kind = classifyKind({ type: parsed.type, description: parsed.description, category: parsed.category });
+  let eCode = (parsed.bankCode || '').toString().toLowerCase().slice(0, 24);
+  let eBank = parsed.bank || '';
+  const eMask = (parsed.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
+  let eSender = normalizeSenderKey(parsed.senderKey || '');
+  if (!eCode && eSender) {
+    const learned = await learnedBankFor(user._id, eSender);
+    if (learned) { eCode = learned.code; if (!eBank) eBank = learned.name; eSender = ''; }
+    else { await logUnknownSender(eSender, parsed.raw || parsed.description || '', 'email'); }
+  }
+  await new Transaction({
+    userId: user._id, date: when, description: parsed.description, amount: signed,
+    category: parsed.category || 'Other', type: kind || parsed.type,
+    source: 'email', bank: eBank, importedAt: new Date(),
+    bankCode: eCode, accountMask: eMask, senderKey: eSender,
+  }).save();
+  await touchUserAccount(user._id, { bankCode: eCode, bankName: eBank, accountMask: eMask }, when);
+  return 1;
+}
+
 // Provider webhook. Provider-agnostic: normalises Mailgun / Postmark / SES field
 // names. Always answers 200 for accepted-but-ignored mail so the provider doesn't
 // retry; 503 until activated, 401 on a bad secret.
@@ -3443,42 +3476,26 @@ app.post('/api/inbound-email/webhook', async (req, res) => {
     // We're receiving mail for this user → light up the status regardless of parse.
     user.inboundEmailLastAt = new Date();
 
-    const body = inboundEmail.emailToText({ subject, text, html });
-    const parsed = parseOneAlert(body, 'email', from);
+    // Digest emails (spec 3.6): one mail may cover several transactions. Split the
+    // body into per-transaction segments — a single alert yields exactly one — and
+    // ingest each. Only for a single alert do we prepend the subject (banks often put
+    // the amount/direction there); a digest's subject is a generic summary line.
+    const bodyOnly = inboundEmail.emailBodyText({ text, html });
+    const segments = inboundEmail.splitEmailAlerts(bodyOnly);
+    let parsedRows;
+    if (segments.length > 1) {
+      parsedRows = segments.map((s) => parseOneAlert(s, 'email', from)).filter((r) => r && r.amount > 0);
+    } else {
+      const one = parseOneAlert(inboundEmail.emailToText({ subject, text, html }), 'email', from);
+      parsedRows = one && one.amount > 0 ? [one] : [];
+    }
     let created = 0;
-    if (parsed && parsed.amount > 0) {
-      // Dedupe against everything already saved in a ±1 day window (SMS often
-      // carries the same transaction — never double-count).
-      const when = new Date(parsed.date);
-      const gte = new Date(when.getTime() - 86400000), lte = new Date(when.getTime() + 86400000);
-      const existing = await Transaction.find({ userId: user._id, date: { $gte: gte, $lte: lte } })
-        .select('amount type date bank description').lean();
-      const fp = fingerprint({ amount: parsed.amount, type: parsed.type, date: parsed.date, bank: parsed.bank, description: parsed.description });
-      const dup = existing.some((e) => matchScore(fp, fingerprint({ amount: e.amount, type: e.type, date: new Date(e.date).toISOString().slice(0, 10), bank: e.bank, description: e.description })) >= MERGE);
-      if (!dup) {
-        const signed = parsed.type === 'income' ? Math.abs(parsed.amount) : -Math.abs(parsed.amount);
-        const kind = classifyKind({ type: parsed.type, description: parsed.description, category: parsed.category });
-        let eCode = (parsed.bankCode || '').toString().toLowerCase().slice(0, 24);
-        let eBank = parsed.bank || '';
-        const eMask = (parsed.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
-        let eSender = normalizeSenderKey(parsed.senderKey || '');
-        // Learn-unknown-senders (slice 3): resolve via learning, else keep + log it.
-        if (!eCode && eSender) {
-          const learned = await learnedBankFor(user._id, eSender);
-          if (learned) { eCode = learned.code; if (!eBank) eBank = learned.name; eSender = ''; }
-          else { await logUnknownSender(eSender, body, 'email'); }
-        }
-        await new Transaction({
-          userId: user._id, date: when, description: parsed.description, amount: signed,
-          category: parsed.category || 'Other', type: kind || parsed.type,
-          source: 'email', bank: eBank, importedAt: new Date(),
-          bankCode: eCode, accountMask: eMask, senderKey: eSender,
-        }).save();
-        await touchUserAccount(user._id, { bankCode: eCode, bankName: eBank, accountMask: eMask }, when);
-        created = 1;
-        user.inboundEmailCount = (user.inboundEmailCount || 0) + 1;
-        try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
-      }
+    for (const parsed of parsedRows) {
+      created += await ingestEmailAlert(user, parsed);
+    }
+    if (created) {
+      user.inboundEmailCount = (user.inboundEmailCount || 0) + created;
+      try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
     }
     await user.save();
     return res.json({ ok: true, created });

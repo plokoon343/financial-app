@@ -25,6 +25,7 @@ const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
+const purposeInf = require('./lib/purposeInference');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -6017,6 +6018,83 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     if (e.status === 429) return res.status(429).json({ message: 'The assistant is busy right now. Please try again in a moment.' });
     res.status(500).json({ message: 'The assistant ran into a problem. Please try again.' });
   }
+});
+
+// --------------------------
+// AI counterparty -> purpose inference (spec 6.1) — turn generic "Transfer" rows into
+// real purposes (rent / savings / family / salary…). STAGED, keys-pending: the model
+// only runs when ANTHROPIC_API_KEY is set; it PROPOSES, lib/purposeInference validates
+// against a closed allow-list, and the user CONFIRMS before anything is written.
+// Pro-gated (an AI feature, like the assistant / C6 / C1).
+// --------------------------
+
+// The generic-transfer groups worth asking about — deterministic, no model call, so
+// the UI can show the work up front. `available` says whether inference is live.
+app.get('/api/ai/purpose/candidates', auth, async (req, res) => {
+  try {
+    if (!isPro(req.user)) return res.status(402).json(upgradeRequired('ai-purpose'));
+    const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
+      .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
+    const candidates = purposeInf.buildCandidates(txns);
+    res.json({
+      available: aiConfigured(),
+      candidates: candidates.map((c) => ({ counterparty: c.counterparty, count: c.count, avgAmount: c.avgAmount, totalAmount: c.totalAmount, direction: c.direction, cadence: c.cadence, txnIds: c.txnIds })),
+    });
+  } catch (e) { console.error('[ai/purpose/candidates]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Ask the model to propose a purpose per counterparty. Returns validated, user-
+// confirmable proposals (never applied here). 503 keys-pending; nothing leaves the
+// server but redacted names, amounts and cadence (no account numbers — spec 6.1).
+app.post('/api/ai/purpose/infer', auth, async (req, res) => {
+  try {
+    if (!isPro(req.user)) return res.status(402).json(upgradeRequired('ai-purpose'));
+    if (!aiConfigured()) return res.status(503).json({ available: false, proposals: [], message: 'Smart categorisation is coming soon.' });
+
+    const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
+      .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
+    const candidates = purposeInf.buildCandidates(txns);
+    if (!candidates.length) return res.json({ available: true, proposals: [] });
+
+    const prompt = purposeInf.buildInferencePrompt(candidates, naira);
+    const tool = purposeInf.proposalToolSchema();
+    const completion = await anthropic.messages.create({
+      model: process.env.AI_PURPOSE_MODEL || 'claude-haiku-4-5', // cheap bulk classifier; override via env
+      max_tokens: 1024,
+      system: 'You label the purpose of a user\'s uncategorised bank transfers. You only ever choose from the provided list and you must call the propose_purposes tool. Be conservative: prefer "other" over a wrong guess.',
+      tools: [tool],
+      tool_choice: { type: 'tool', name: tool.name },
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const call = (completion.content || []).find((b) => b.type === 'tool_use' && b.name === tool.name);
+    const raw = call && call.input && Array.isArray(call.input.proposals) ? call.input.proposals : [];
+    const proposals = purposeInf.validateProposals(raw, candidates);
+    res.json({ available: true, proposals });
+  } catch (e) {
+    console.error('[ai/purpose/infer]', e.status || '', e.message);
+    if (e.status === 429) return res.status(429).json({ message: 'Busy right now — try again in a moment.' });
+    res.status(500).json({ message: 'Could not analyse those transactions.' });
+  }
+});
+
+// Apply a confirmed proposal: set the category on the named transactions and LEARN it
+// so future transfers from the same counterparty auto-apply. Validates the category
+// is one the allow-list produces (a user can't push arbitrary categories through).
+app.post('/api/ai/purpose/apply', auth, async (req, res) => {
+  try {
+    if (!isPro(req.user)) return res.status(402).json(upgradeRequired('ai-purpose'));
+    const txnIds = Array.isArray(req.body?.txnIds) ? req.body.txnIds.filter((x) => mongoose.isValidObjectId(x)) : [];
+    const category = (req.body?.category || '').toString().trim();
+    const allowed = new Set(purposeInf.PURPOSES.map((p) => p.category).filter(Boolean));
+    if (!txnIds.length || !allowed.has(category)) return res.status(400).json({ message: 'Nothing to apply.' });
+
+    const result = await Transaction.updateMany(
+      { _id: { $in: txnIds }, userId: req.user._id }, { $set: { category } });
+    // Learn description -> category from the affected rows so it sticks next time.
+    const affected = await Transaction.find({ _id: { $in: txnIds }, userId: req.user._id }).select('description category').lean();
+    try { await learnCategories(req.user._id, affected); } catch { /* non-fatal */ }
+    res.json({ ok: true, updated: result.modifiedCount ?? result.nModified ?? 0 });
+  } catch (e) { console.error('[ai/purpose/apply]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // --------------------------

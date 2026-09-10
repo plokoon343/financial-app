@@ -101,13 +101,45 @@ function stripQuotedReply(text) {
   return out.join('\n').trim();
 }
 
+// Cleaned plain-text body only (no subject): prefer text, fall back to HTML, quoted
+// tail stripped. Used both for single-alert parsing (with the subject prepended) and
+// as the input to the digest splitter.
+function emailBodyText({ text = '', html = '' } = {}) {
+  const body = text && text.trim() ? text : htmlToText(html);
+  return stripQuotedReply(body);
+}
+
 // Best plain-text body from a provider payload (prefer text, fall back to HTML),
 // with the quoted tail stripped. Includes the subject — bank alerts often put the
 // amount/direction in the subject line.
 function emailToText({ subject = '', text = '', html = '' } = {}) {
-  const body = text && text.trim() ? text : htmlToText(html);
-  const clean = stripQuotedReply(body);
-  return [subject.trim(), clean].filter(Boolean).join('\n').trim();
+  return [(subject || '').trim(), emailBodyText({ text, html })].filter(Boolean).join('\n').trim();
+}
+
+// ── Digest emails (spec 3.6) ──
+// Some banks send one email covering several transactions (a daily/weekly summary or
+// a statement table). Split such a body into one segment per transaction so each is
+// parsed and saved individually. Conservative: a single-transaction alert (even one
+// that also quotes a balance) returns exactly one segment, so this never over-splits.
+const MONEY_ANY = /(?:ngn|₦)\s?\d[\d,]*(?:\.\d{1,2})?|\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\b\d+\.\d{2}\b/i;
+const DATE_ANY = /\b\d{1,2}[\/-][A-Za-z0-9]{2,4}[\/-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
+const DIRECTION_ANY = /\b(debit|credit|debited|credited|dr|cr|withdrawn|withdrawal|deposit|received|sent|paid|purchase|pos|transfer|trf)\b/i;
+
+function splitEmailAlerts(bodyText) {
+  const text = (bodyText || '').trim();
+  if (!text) return [];
+  // 1) Blank-line blocks — each block that carries money AND a direction/date cue is
+  //    its own transaction (banks that stack full alert paragraphs in one mail).
+  const blocks = text.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+  const richBlocks = blocks.filter((b) => MONEY_ANY.test(b) && (DIRECTION_ANY.test(b) || DATE_ANY.test(b)));
+  if (richBlocks.length >= 2) return richBlocks;
+  // 2) Table rows — a statement/digest puts one transaction per line. Count lines that
+  //    have money AND a date or direction; if two or more, each such line is a row.
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const txnLines = lines.filter((l) => MONEY_ANY.test(l) && (DATE_ANY.test(l) || DIRECTION_ANY.test(l)));
+  if (txnLines.length >= 2) return txnLines;
+  // Single alert (or nothing splittable) — hand back the whole body unchanged.
+  return [text];
 }
 
 // ── Gmail forwarding confirmation (spec 3.4) ──
@@ -148,6 +180,6 @@ function extractGmailVerification({ subject = '', text = '', html = '' } = {}) {
 
 module.exports = {
   genToken, BANK_EMAIL_DOMAINS, isAllowedSender, senderDomain, emailAddress,
-  extractToken, htmlToText, stripQuotedReply, emailToText,
-  isGmailForwardingVerification, extractGmailVerification,
+  extractToken, htmlToText, stripQuotedReply, emailToText, emailBodyText,
+  isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts,
 };

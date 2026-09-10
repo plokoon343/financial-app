@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/inboundEmail.test.js
-const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification } = require('./inboundEmail');
+const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText } = require('./inboundEmail');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -69,6 +69,37 @@ const v2 = extractGmailVerification({
 check('gmail code from subject', v2 && v2.code === '987654321');
 check('gmail link from href (entity decoded)', v2 && v2.link.includes('vf-') && v2.link.includes('&foo=bar') && !v2.link.includes('&amp;'));
 check('gmail extractor null when absent', extractGmailVerification({ subject: 'hi', text: 'nothing here', html: '' }) === null);
+
+// --- digest email splitting (spec 3.6) ---
+// A single alert (even with a balance line) stays one segment — never over-split.
+const single = 'Debit Alert\nAmount: NGN5,000.00\nBalance: NGN12,000.00\nDate: 03/09/2026';
+check('single alert -> 1 segment', splitEmailAlerts(single).length === 1);
+const singleInline = 'You paid NGN5,000 to SHOPRITE on 03-Sep-2026. Bal: NGN12,000.';
+check('single inline alert -> 1 segment', splitEmailAlerts(singleInline).length === 1);
+
+// A table digest -> one segment per transaction row.
+const table = [
+  'Your transactions for today:',
+  '03/09/2026 POS SHOPRITE NGN5,000.00 DR',
+  '03/09/2026 TRANSFER FROM JOHN NGN20,000.00 CR',
+  '03/09/2026 ATM WITHDRAWAL NGN10,000.00 DR',
+].join('\n');
+const tableSegs = splitEmailAlerts(table);
+check('table digest -> 3 rows', tableSegs.length === 3);
+check('table header excluded', !tableSegs.some((s) => /transactions for today/i.test(s)));
+check('table row keeps its amount', tableSegs[0].includes('5,000.00'));
+
+// A paragraph digest (blank-line blocks) -> one segment per block.
+const paras = [
+  'Debit: NGN5,000.00 to SHOPRITE on 03/09/2026.',
+  '',
+  'Credit: NGN20,000.00 from JOHN on 03/09/2026.',
+].join('\n');
+check('paragraph digest -> 2 blocks', splitEmailAlerts(paras).length === 2);
+check('empty body -> 0 segments', splitEmailAlerts('').length === 0);
+
+// emailBodyText excludes the subject (unlike emailToText).
+check('emailBodyText no subject', emailBodyText({ text: 'plain body' }) === 'plain body');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

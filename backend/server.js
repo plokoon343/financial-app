@@ -234,6 +234,11 @@ const userSchema = new mongoose.Schema({
   inboundEmailToken: { type: String, index: true, sparse: true },
   inboundEmailLastAt: { type: Date },
   inboundEmailCount:  { type: Number, default: 0 },
+  // Gmail forwarding confirmation captured from Google's noreply mail (spec 3.4), so
+  // the onboarding screen can show the code/link instead of the user hunting for it.
+  gmailVerifyCode: { type: String, default: '' },
+  gmailVerifyLink: { type: String, default: '' },
+  gmailVerifyAt:   { type: Date },
   onboarded:     { type: Boolean, default: false },
   lastLogin:     { type: Date },
   // Email-based 2-step verification (#21/#22).
@@ -3351,7 +3356,7 @@ const inboundActive = () => !!process.env.INBOUND_EMAIL_SECRET;
 // we've started receiving mail for them.
 app.get('/api/inbound-email/address', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('inboundEmailToken inboundEmailLastAt inboundEmailCount');
+    const user = await User.findById(req.user._id).select('inboundEmailToken inboundEmailLastAt inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
     if (!user.inboundEmailToken) {
       // Generate a unique token (retry on the rare index collision).
       for (let i = 0; i < 5; i++) {
@@ -3367,15 +3372,33 @@ app.get('/api/inbound-email/address', auth, async (req, res) => {
       receiving: !!user.inboundEmailLastAt,
       lastAt: user.inboundEmailLastAt || null,
       count: user.inboundEmailCount || 0,
+      gmailVerification: gmailVerificationPayload(user),
     });
   } catch (e) { console.error('[inbound-email/address]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Poll for the "we're receiving your alerts ✓" state (drives the test-email step).
+// The pending Gmail forwarding confirmation (spec 3.4), or null. Surfaced so the
+// onboarding screen shows the code + verify link the moment Google's mail lands.
+function gmailVerificationPayload(u) {
+  if (!u || (!u.gmailVerifyCode && !u.gmailVerifyLink)) return null;
+  return { code: u.gmailVerifyCode || '', link: u.gmailVerifyLink || '', at: u.gmailVerifyAt || null };
+}
+
+// Poll for the "we're receiving your alerts ✓" state (drives the test-email step),
+// and for a freshly-arrived Gmail confirmation.
 app.get('/api/inbound-email/status', auth, async (req, res) => {
   try {
-    const u = await User.findById(req.user._id).select('inboundEmailLastAt inboundEmailCount');
-    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0 });
+    const u = await User.findById(req.user._id).select('inboundEmailLastAt inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
+    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0, gmailVerification: gmailVerificationPayload(u) });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Dismiss the captured Gmail confirmation once the user has clicked through / no
+// longer needs it shown.
+app.post('/api/inbound-email/gmail-verification/clear', auth, async (req, res) => {
+  try {
+    await User.updateOne({ _id: req.user._id }, { $set: { gmailVerifyCode: '', gmailVerifyLink: '', gmailVerifyAt: null } });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -3397,8 +3420,23 @@ app.post('/api/inbound-email/webhook', async (req, res) => {
 
     const token = inboundEmail.extractToken(recipient, INBOUND_DOMAIN);
     if (!token) return res.json({ ok: true, skipped: 'no-token' });
-    const user = await User.findOne({ inboundEmailToken: token }).select('_id name inboundEmailCount');
+    const user = await User.findOne({ inboundEmailToken: token }).select('_id name inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
     if (!user) return res.json({ ok: true, skipped: 'unknown-recipient' });
+
+    // Gmail forwarding confirmation (spec 3.4): Google's one-time verify mail isn't a
+    // bank, so it would be dropped below — capture its code/link first and surface it
+    // to the onboarding screen so the user can finish enabling forwarding.
+    if (inboundEmail.isGmailForwardingVerification(from)) {
+      const v = inboundEmail.extractGmailVerification({ subject, text, html });
+      if (v) {
+        user.gmailVerifyCode = v.code || '';
+        user.gmailVerifyLink = v.link || '';
+        user.gmailVerifyAt = new Date();
+        await user.save();
+      }
+      return res.json({ ok: true, gmailVerification: !!v });
+    }
+
     // Sender allowlist — silently drop anything that isn't a known bank (spec B1).
     if (!inboundEmail.isAllowedSender(from, inboundExtraDomains)) return res.json({ ok: true, skipped: 'sender-not-allowed' });
 

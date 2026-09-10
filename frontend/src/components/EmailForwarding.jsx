@@ -19,6 +19,7 @@ export default function EmailForwarding() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const pollRef = useRef(null);
   const headers = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };
 
@@ -34,13 +35,14 @@ export default function EmailForwarding() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Poll status until the first alert lands, then flip to "receiving ✓".
+  // Poll status until the first alert lands, then flip to "receiving ✓" — and pick up
+  // Gmail's forwarding confirmation the moment it arrives during setup (spec 3.4).
   useEffect(() => {
     if (!data || data.receiving) return;
     pollRef.current = setInterval(async () => {
       try {
         const { data: s } = await axios.get(`${API_URL}/api/inbound-email/status`, headers);
-        if (s.receiving) setData((d) => ({ ...d, ...s }));
+        if (s.receiving || (s.gmailVerification?.code && !data.gmailVerification?.code)) setData((d) => ({ ...d, ...s }));
       } catch { /* keep polling */ }
     }, 6000);
     return () => clearInterval(pollRef.current);
@@ -50,6 +52,17 @@ export default function EmailForwarding() {
   const copy = async () => {
     if (!data) return;
     try { await navigator.clipboard.writeText(data.address); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ }
+  };
+
+  const copyCode = async () => {
+    const code = data?.gmailVerification?.code;
+    if (!code) return;
+    try { await navigator.clipboard.writeText(code); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 1500); } catch { /* ignore */ }
+  };
+
+  const dismissVerification = async () => {
+    setData((d) => ({ ...d, gmailVerification: null }));
+    try { await axios.post(`${API_URL}/api/inbound-email/gmail-verification/clear`, {}, headers); } catch { /* best-effort */ }
   };
 
   return (
@@ -68,6 +81,25 @@ export default function EmailForwarding() {
             </div>
             <button className="ef-copy" onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</button>
           </div>
+
+          {(data.gmailVerification?.code || data.gmailVerification?.link) && (
+            <div className="ef-verify">
+              <div className="ef-verify-head"><i className="fas fa-shield-halved"></i> Gmail sent a confirmation</div>
+              <p className="ef-verify-body">Finish turning on forwarding — confirm the request Gmail just sent.</p>
+              {data.gmailVerification.code && (
+                <button className="ef-code" onClick={copyCode}>
+                  <span className="ef-code-label">CONFIRMATION CODE</span>
+                  <span className="ef-code-val">{data.gmailVerification.code} <i className="fas fa-copy"></i>{codeCopied ? ' Copied' : ''}</span>
+                </button>
+              )}
+              {data.gmailVerification.link && (
+                <a className="ef-verify-btn" href={data.gmailVerification.link} target="_blank" rel="noreferrer">
+                  <i className="fas fa-external-link-alt"></i> Confirm forwarding
+                </a>
+              )}
+              <button className="ef-verify-dismiss" onClick={dismissVerification}>I’ve done this — dismiss</button>
+            </div>
+          )}
 
           {data.receiving ? (
             <div className="ef-status ef-ok"><i className="fas fa-circle-check"></i> Receiving your alerts{data.count ? ` — ${data.count} imported so far` : ''}.</div>
@@ -103,6 +135,15 @@ export default function EmailForwarding() {
         .ef-label { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.6px; color: var(--accent-primary); }
         .ef-addr { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); word-break: break-all; margin-top: 3px; }
         .ef-copy { background: var(--gradient-primary, var(--accent-primary)); color: #fff; border: none; border-radius: var(--radius-full); padding: 9px 18px; font-weight: 700; cursor: pointer; }
+        .ef-verify { background: rgba(56,161,105,0.08); border: 2px solid #38a169; border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px; }
+        .ef-verify-head { display: flex; align-items: center; gap: 8px; font-weight: 800; color: var(--text-primary); font-size: 1.02rem; }
+        .ef-verify-body { color: var(--text-secondary); font-size: 0.9rem; margin: 8px 0 12px; }
+        .ef-code { display: block; width: 100%; text-align: left; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px; cursor: pointer; margin-bottom: 12px; }
+        .ef-code-label { display: block; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.6px; color: var(--text-secondary); margin-bottom: 4px; }
+        .ef-code-val { font-size: 1.4rem; font-weight: 800; letter-spacing: 2px; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+        .ef-code-val i { font-size: 0.9rem; color: var(--accent-primary); }
+        .ef-verify-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--gradient-primary, var(--accent-primary)); color: #fff; border-radius: var(--radius-full); padding: 10px 20px; font-weight: 800; text-decoration: none; }
+        .ef-verify-dismiss { display: block; margin: 12px auto 0; background: none; border: none; color: var(--text-secondary); font-weight: 600; cursor: pointer; }
         .ef-status { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-radius: var(--radius-md); margin-bottom: 14px; font-weight: 600; }
         .ef-ok { background: rgba(56,161,105,0.1); border: 1px solid #38a169; color: var(--text-primary); }
         .ef-wait { background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary); }

@@ -110,7 +110,44 @@ function emailToText({ subject = '', text = '', html = '' } = {}) {
   return [subject.trim(), clean].filter(Boolean).join('\n').trim();
 }
 
+// ── Gmail forwarding confirmation (spec 3.4) ──
+// When a user points Gmail's "Forward a copy" at their inbound address, Gmail sends a
+// one-time confirmation from forwarding-noreply@google.com with a code + a verify
+// link. That mail isn't from a bank, so the allowlist would drop it — instead we
+// detect it and surface the code/link so the user can finish setup without hunting.
+
+// Is this the Gmail forwarding confirmation email?
+function isGmailForwardingVerification(from) {
+  return emailAddress(from) === 'forwarding-noreply@google.com';
+}
+
+// Pull the confirmation code + verify link out of the Gmail confirmation email.
+// The code appears in the subject as "(#123456789)" and in the body as
+// "Confirmation code: 123456789"; the link is a google.com verification URL. Returns
+// { code, link } (either may be '') or null when neither is present.
+function extractGmailVerification({ subject = '', text = '', html = '' } = {}) {
+  const plain = htmlToText(html);
+  const hay = [subject, text, plain].filter(Boolean).join('\n');
+  let code = '';
+  const cm = hay.match(/confirmation code[:\s#]*\s*(\d{6,12})/i)
+    || subject.match(/\(#\s*(\d{6,12})\)/)
+    || hay.match(/\(#\s*(\d{6,12})\)/)
+    || hay.match(/\b(\d{9})\b/); // Gmail codes are 9 digits
+  if (cm) code = cm[1];
+  // Link: search the raw HTML (hrefs) and text for a google.com verification URL.
+  const pool = `${html || ''} ${text || ''} ${plain}`;
+  const links = pool.match(/https?:\/\/[^\s"'<>)]*google\.com\/[^\s"'<>)]*/gi) || [];
+  const link = (
+    links.find((u) => /(vf-|verify|anti-abuse|forwarding|vfe=)/i.test(u))
+    || links.find((u) => /mail-settings\.google\.com|mail\.google\.com\/mail\//i.test(u))
+    || ''
+  ).replace(/&amp;/gi, '&');
+  if (!code && !link) return null;
+  return { code, link };
+}
+
 module.exports = {
   genToken, BANK_EMAIL_DOMAINS, isAllowedSender, senderDomain, emailAddress,
   extractToken, htmlToText, stripQuotedReply, emailToText,
+  isGmailForwardingVerification, extractGmailVerification,
 };

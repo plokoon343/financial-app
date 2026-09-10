@@ -3,8 +3,20 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { kindMeta, isExcludedKind } from '../utils/txnKind';
+import { avatarFor } from '../utils/merchantAvatar';
 import { FeatureTip, InfoTip } from './FeatureTip';
 import { fmtNaira } from '../utils/format';
+
+// A small round leading avatar for a transaction row (Addendum C): a bundled merchant
+// logo, a person's initial, or the category icon — never a fetched favicon.
+function TxnAvatar({ category, description }) {
+  const a = avatarFor(category, description);
+  return (
+    <span className="txn-avatar" style={{ background: a.color }} aria-hidden="true">
+      {a.kind === 'initial' ? a.letter : <i className={a.icon}></i>}
+    </span>
+  );
+}
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 const money = (n) => fmtNaira(Math.abs(Number(n)));
@@ -363,7 +375,9 @@ const Transactions = () => {
               <tr key={t._id} className={selected.has(t._id) ? 'sel' : ''}>
                 <td><input type="checkbox" checked={selected.has(t._id)} onChange={() => toggleSel(t._id)} /></td>
                 <td className="nowrap">{new Date(t.date).toLocaleDateString()}</td>
-                <td className="desc" title={t.description}>{t.description}</td>
+                <td className="desc" title={t.description}>
+                  <span className="desc-cell"><TxnAvatar category={t.category} description={t.description} />{t.description}</span>
+                </td>
                 <td className={`nowrap ${km ? '' : t.type === 'income' ? 'pos' : 'neg'}`}>{km ? `${km.symbol} ` : t.type === 'income' ? '+' : '−'}{money(t.amount)}</td>
                 <td className="nowrap">{shortKind}</td>
                 <td>
@@ -464,6 +478,9 @@ const Transactions = () => {
         th .arrow { color: var(--accent-primary, var(--accent-primary)); font-size: 0.8em; }
         td { font-weight: 500; }
         td.desc { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .desc-cell { display: inline-flex; align-items: center; gap: 9px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+        .txn-avatar { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 0.72rem; font-weight: 800; line-height: 1; }
+        .txn-avatar i { font-size: 0.72rem; }
         td.nowrap { white-space: nowrap; }
         tr.sel { background: rgba(99,102,241,0.12); }
         tr.editing td { background: rgba(99,102,241,0.05); }

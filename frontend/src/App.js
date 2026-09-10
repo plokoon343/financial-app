@@ -36,6 +36,7 @@ const AutoSavings = lazy(() => import('./components/AutoSavings'));
 const ConnectBank = lazy(() => import('./components/ConnectBank'));
 const EmailForwarding = lazy(() => import('./components/EmailForwarding'));
 const Accounts = lazy(() => import('./components/Accounts'));
+const SmartCategorize = lazy(() => import('./components/SmartCategorize'));
 const Transactions = lazy(() => import('./components/Transactions'));
 const AiAssistant = lazy(() => import('./components/AiAssistant'));
 const Profile = lazy(() => import('./components/Profile'));
@@ -125,6 +126,7 @@ function AppContent() {
           <Route path="connect-bank" element={<ConnectBank />} />
           <Route path="email-forwarding" element={<EmailForwarding />} />
           <Route path="accounts" element={<Accounts />} />
+          <Route path="smart-categorize" element={<SmartCategorize />} />
           <Route path="support" element={<Support />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />

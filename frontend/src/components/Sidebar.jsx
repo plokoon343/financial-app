@@ -59,6 +59,7 @@ const Sidebar = () => {
     { title: 'Money', items: [
       { path: '/', label: 'Dashboard', icon: 'dashboard' },
       { path: '/assistant', label: 'AI Assistant', icon: 'smart_toy' },
+      { path: '/smart-categorize', label: 'Smart Categorise', icon: 'sell' },
       { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
       { path: '/insights', label: 'Insights', icon: 'pie_chart' },
       { path: '/cashflow', label: 'Cashflow', icon: 'monitoring' },

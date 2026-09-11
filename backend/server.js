@@ -26,6 +26,8 @@ const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHT
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
 const purposeInf = require('./lib/purposeInference');
+const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
+const { purposeProviderConfig, purposeLLMActive, inferOpenAICompat } = require('./lib/llmPurpose');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -6030,49 +6032,101 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
 
 // The generic-transfer groups worth asking about — deterministic, no model call, so
 // the UI can show the work up front. `available` says whether inference is live.
+// Tier-1 hint: the category the user has already taught for a counterparty (their
+// own LearnedCategory rules). Returned as candidate.key -> category. Global consensus
+// isn't consulted here — it already stamps categories at import time, so those rows
+// aren't generic candidates any more.
+async function purposeHints(userId, candidates) {
+  const hints = new Map();
+  const rules = await LearnedCategory.find({ userId }).lean();
+  if (!rules.length) return hints;
+  const learned = new Map(rules.map((r) => [r.key, r.category]));
+  for (const c of candidates) {
+    const k = deriveCategoryKey(c.counterparty);
+    if (k && learned.has(k)) hints.set(c.key, learned.get(k));
+  }
+  return hints;
+}
+
+// Tier-2: send the residual (ambiguous) candidates to the configured LLM provider and
+// return validated proposals tagged source:'ai'. Groq/Gemini via OpenAI-compatible
+// fetch; Anthropic via the existing SDK client + forced tool. Never throws — a failure
+// just means Tier-1's results stand.
+async function tier2Propose(residual, cfg) {
+  const prompt = purposeInf.buildInferencePrompt(residual, naira);
+  let raw = [];
+  if (cfg.kind === 'anthropic') {
+    if (!anthropic) return [];
+    const tool = purposeInf.proposalToolSchema();
+    const completion = await anthropic.messages.create({
+      model: cfg.model, max_tokens: 1024,
+      system: 'You label the purpose of a user\'s uncategorised bank transfers. You only ever choose from the provided list and you must call the propose_purposes tool. Be conservative: prefer "other" over a wrong guess.',
+      tools: [tool], tool_choice: { type: 'tool', name: tool.name },
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const call = (completion.content || []).find((b) => b.type === 'tool_use' && b.name === tool.name);
+    raw = call && Array.isArray(call.input?.proposals) ? call.input.proposals : [];
+  } else {
+    raw = await inferOpenAICompat(prompt, cfg);
+  }
+  return purposeInf.validateProposals(raw, residual).map((p) => ({ ...p, source: 'ai' }));
+}
+
+// The generic-transfer groups worth asking about — deterministic, no model call. The
+// feature ALWAYS works (Tier-1 is free/on-box); `booster` names the LLM tail provider
+// when one is configured, else null.
 app.get('/api/ai/purpose/candidates', auth, async (req, res) => {
   try {
     if (!isPro(req.user)) return res.status(402).json(upgradeRequired('ai-purpose'));
     const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
       .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
     const candidates = purposeInf.buildCandidates(txns);
+    const cfg = purposeProviderConfig();
     res.json({
-      available: aiConfigured(),
+      available: true,                                   // Tier-1 always available
+      booster: purposeLLMActive() ? cfg.name : null,     // LLM tail, if configured
       candidates: candidates.map((c) => ({ counterparty: c.counterparty, count: c.count, avgAmount: c.avgAmount, totalAmount: c.totalAmount, direction: c.direction, cadence: c.cadence, txnIds: c.txnIds })),
     });
   } catch (e) { console.error('[ai/purpose/candidates]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Ask the model to propose a purpose per counterparty. Returns validated, user-
-// confirmable proposals (never applied here). 503 keys-pending; nothing leaves the
-// server but redacted names, amounts and cadence (no account numbers — spec 6.1).
+// Hybrid inference (spec 6.1). Tier-1: free/on-box deterministic classifier (learned-
+// category hints + keyword rules + cadence/amount heuristics). Tier-2 (optional): only
+// the ambiguous tail Tier-1 couldn't label goes to the configured LLM provider. Both
+// tiers are validated against the closed allow-list; the user still confirms. Only
+// redacted names/amounts/cadence ever leave the server (no account numbers).
 app.post('/api/ai/purpose/infer', auth, async (req, res) => {
   try {
     if (!isPro(req.user)) return res.status(402).json(upgradeRequired('ai-purpose'));
-    if (!aiConfigured()) return res.status(503).json({ available: false, proposals: [], message: 'Smart categorisation is coming soon.' });
-
     const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
       .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
     const candidates = purposeInf.buildCandidates(txns);
-    if (!candidates.length) return res.json({ available: true, proposals: [] });
+    if (!candidates.length) return res.json({ available: true, proposals: [], tiers: { rules: 0, ai: 0 } });
 
-    const prompt = purposeInf.buildInferencePrompt(candidates, naira);
-    const tool = purposeInf.proposalToolSchema();
-    const completion = await anthropic.messages.create({
-      model: process.env.AI_PURPOSE_MODEL || 'claude-haiku-4-5', // cheap bulk classifier; override via env
-      max_tokens: 1024,
-      system: 'You label the purpose of a user\'s uncategorised bank transfers. You only ever choose from the provided list and you must call the propose_purposes tool. Be conservative: prefer "other" over a wrong guess.',
-      tools: [tool],
-      tool_choice: { type: 'tool', name: tool.name },
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const call = (completion.content || []).find((b) => b.type === 'tool_use' && b.name === tool.name);
-    const raw = call && call.input && Array.isArray(call.input.proposals) ? call.input.proposals : [];
-    const proposals = purposeInf.validateProposals(raw, candidates);
-    res.json({ available: true, proposals });
+    // Tier-1 — deterministic, free.
+    const hints = await purposeHints(req.user._id, candidates);
+    const proposals = [];
+    const residual = [];
+    for (const c of candidates) {
+      const p = proposalFrom(c, classifyPurpose(c, hints.get(c.key) || null));
+      if (p) proposals.push(p); else residual.push(c);
+    }
+    const rulesCount = proposals.length;
+
+    // Tier-2 — the ambiguous tail only, if an LLM provider is configured + keyed.
+    let aiCount = 0;
+    const cfg = purposeProviderConfig();
+    if (residual.length && cfg && cfg.apiKey) {
+      try {
+        const aiProps = await tier2Propose(residual, cfg);
+        aiCount = aiProps.length;
+        proposals.push(...aiProps);
+      } catch (e) { console.error('[ai/purpose/tier2]', e.status || '', e.message); } // Tier-1 stands
+    }
+
+    res.json({ available: true, proposals, tiers: { rules: rulesCount, ai: aiCount } });
   } catch (e) {
-    console.error('[ai/purpose/infer]', e.status || '', e.message);
-    if (e.status === 429) return res.status(429).json({ message: 'Busy right now — try again in a moment.' });
+    console.error('[ai/purpose/infer]', e.message);
     res.status(500).json({ message: 'Could not analyse those transactions.' });
   }
 });

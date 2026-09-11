@@ -32,3 +32,5 @@ jobs:
       - run: node lib/cancelGuides.test.js
       - run: node lib/bankRegistry.test.js
       - run: node lib/purposeInference.test.js
+      - run: node lib/purposeClassifier.test.js
+      - run: node lib/llmPurpose.test.js

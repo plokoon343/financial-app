@@ -3461,7 +3461,16 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     if (key !== process.env.INBOUND_EMAIL_SECRET) return res.status(401).json({ message: 'Bad webhook key' });
 
     const b = req.body || {};
-    const recipient = b.recipient || b.To || b.to || (Array.isArray(b.ToFull) && b.ToFull[0]?.Email) || '';
+    // Collect EVERY possible recipient field into one string for extractToken to
+    // scan. Critical for forwarded mail: Gmail auto-forward keeps the user's own
+    // address in the To header and puts our <token>@in.automonie.com address only in
+    // the envelope recipient — Postmark surfaces that as `OriginalRecipient` (Mailgun:
+    // `recipient`). Without it, every forwarded alert is dropped as "no-token".
+    const recipient = [
+      b.OriginalRecipient, b.recipient, b.To, b.to,
+      Array.isArray(b.ToFull) ? b.ToFull.map((x) => x && x.Email).filter(Boolean).join(',') : '',
+      b.Cc, b.cc,
+    ].filter(Boolean).join(',');
     const from = b.sender || b.From || b.from || b.FromFull?.Email || '';
     const subject = b.subject || b.Subject || '';
     const text = b['body-plain'] || b['stripped-text'] || b.TextBody || b.text || b.plain || '';

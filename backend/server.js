@@ -25,6 +25,7 @@ const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
+const { detectDirection, parseLabeledAlert } = require('./lib/alertParse');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
 const { purposeProviderConfig, purposeLLMActive, inferOpenAICompat } = require('./lib/llmPurpose');
@@ -3252,35 +3253,9 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
 // precedes a digit, so the 'n' in "on"/"in" isn't mistaken for naira) / a bare 2dp
 // figure. Groups 1|2|3 hold the number.
 const SMS_MONEY_RE = /(?:ngn|naira|₦)\s*([\d,]+(?:\.\d{1,2})?)|\bn(\d[\d,]*(?:\.\d{1,2})?)|\b([\d,]+\.\d{2})\b/gi;
-// Direction detection is tiered because a full email body is noisy — a genuine
-// CREDIT alert routinely contains debit-ish words in disclaimers/footers/marketing
-// ("dispute this debit", "debit card", "salary payment"), so we must NOT let any weak
-// debit word veto an explicit "credited". Strong signals (how banks actually label
-// the direction) decide first; the weak generics only break a tie when no strong
-// signal exists.
-// Use the VERB forms + the "Credit/Debit Alert" labels, not the bare nouns — the noun
-// "debit"/"credit" shows up in noise ("debit card", "unauthorized debit", "credit
-// limit") and would misclassify.
-const CREDIT_STRONG = /\bcredited\b|credit\s+alert|money\s+in|\binflow\b|\bdeposit(ed)?\b|\breceived\b|\breversal\b|\brefund(ed)?\b/i;
-const DEBIT_STRONG  = /\bdebited\b|debit\s+alert|money\s+out|\bwithdraw(n|al)\b|\bpurchase\b/i;
-const CREDIT_WEAK   = /\b(sent to you|paid you|received from)\b/i;
-const DEBIT_WEAK    = /\b(withdrawn|payment|paid|pos|transfer to|sent|charged)\b/i;
-
-// Returns { type: 'income'|'expense', conf }. Strong tier wins; then standalone
-// Cr/Dr markers; then weak generics; else default expense (most alerts are spends)
-// but flagged low so the review gate surfaces it.
-function detectDirection(raw) {
-  const cs = CREDIT_STRONG.test(raw), ds = DEBIT_STRONG.test(raw);
-  if (cs && !ds) return { type: 'income', conf: 'high' };
-  if (ds && !cs) return { type: 'expense', conf: 'high' };
-  const cr = /\bcr\b/i.test(raw), dr = /\bdr\b/i.test(raw);
-  if (cr && !dr) return { type: 'income', conf: 'high' };
-  if (dr && !cr) return { type: 'expense', conf: 'high' };
-  const cw = CREDIT_WEAK.test(raw), dw = DEBIT_WEAK.test(raw);
-  if (cw && !dw) return { type: 'income', conf: 'medium' };
-  if (dw && !cw) return { type: 'expense', conf: 'medium' };
-  return { type: 'expense', conf: 'low' }; // ambiguous → default spend, flag for review
-}
+// detectDirection (tiered credit/debit inference) + parseLabeledAlert (structured
+// "Label : Value" alerts like GTBank GeNS) live in lib/alertParse — pure + corpus-
+// tested against real bank emails.
 const SMS_DATE_RE = /\b(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/i;
 
 // Stage 1.3 — "is this even a transaction?" Drop OTP/promo/login/balance-enquiry/
@@ -3309,25 +3284,35 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
   const raw = msg.trim();
   if (!raw) return null;
   if (alertIgnoreReason(raw)) return null; // Stage 1.3: not a transaction → drop
-  // Amount: first money-looking token, normalised (handles NGN2,5OO OCR etc.).
-  const monies = [];
-  let m;
-  SMS_MONEY_RE.lastIndex = 0;
-  while ((m = SMS_MONEY_RE.exec(raw)) !== null) monies.push(m[1] || m[2] || m[3]);
+
+  // Fast path: structured "Label : Value" alerts (GTBank GeNS et al.) state the
+  // amount + direction explicitly, so parse the fields directly — far more reliable
+  // than inferring from free text. Falls through to the generic path when it's not
+  // a labelled alert.
+  const labeled = parseLabeledAlert(raw);
+
+  // Amount: labelled field if present, else first money-looking token (normalised).
   let amount = null, amtConf = 'low';
-  for (const tok of monies) {
-    const norm = normalizeAmount(tok);
-    if (norm.value != null) { amount = norm.value; amtConf = norm.confidence; break; }
+  if (labeled) { amount = labeled.amount; amtConf = 'high'; }
+  else {
+    const monies = [];
+    let m;
+    SMS_MONEY_RE.lastIndex = 0;
+    while ((m = SMS_MONEY_RE.exec(raw)) !== null) monies.push(m[1] || m[2] || m[3]);
+    for (const tok of monies) {
+      const norm = normalizeAmount(tok);
+      if (norm.value != null) { amount = norm.value; amtConf = norm.confidence; break; }
+    }
   }
-  // Direction: tiered detection so noisy email footers can't flip a real credit.
-  const dir = detectDirection(raw);
-  const type = dir.type;
-  const dirConf = dir.conf;
-  // Date: first date-looking token, else today.
+  // Direction: labelled field is authoritative; else tiered inference.
+  const type = labeled ? labeled.type : detectDirection(raw).type;
+  const dirConf = labeled ? 'high' : detectDirection(raw).conf;
+  // Date: labelled Value Date, else first date-looking token, else today.
   const dm = raw.match(SMS_DATE_RE);
-  const date = (dm && normalizeAnyDate(dm[1])) || new Date().toISOString().slice(0, 10);
-  // Description: strip money, dates, long refs.
-  const description = (raw
+  const date = (labeled && labeled.date && normalizeAnyDate(labeled.date))
+    || (dm && normalizeAnyDate(dm[1])) || new Date().toISOString().slice(0, 10);
+  // Description: labelled field, else strip money/dates/long refs from the body.
+  const description = (labeled && labeled.description) || (raw
     .replace(SMS_MONEY_RE, ' ')
     .replace(SMS_DATE_RE, ' ')
     .replace(/\b(?:ref|txn|transaction id|receipt)[:#\s]*[A-Za-z0-9]+/gi, ' ')

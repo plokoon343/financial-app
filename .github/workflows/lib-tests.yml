@@ -31,6 +31,7 @@ jobs:
       - run: node lib/incomeReport.test.js
       - run: node lib/cancelGuides.test.js
       - run: node lib/bankRegistry.test.js
+      - run: node lib/alertParse.test.js
       - run: node lib/purposeInference.test.js
       - run: node lib/purposeClassifier.test.js
       - run: node lib/llmPurpose.test.js

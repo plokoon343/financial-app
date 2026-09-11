@@ -3709,7 +3709,10 @@ app.get('/api/banks', auth, (req, res) => {
 app.get('/api/senders/unknown', auth, async (req, res) => {
   try {
     const rows = await Transaction.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(req.user._id), senderKey: { $ne: '' } } },
+      // Must be a NON-EMPTY STRING — `$ne: ''` alone also matches null/missing
+      // senderKey (older rows predating the field), which collapse into a phantom
+      // untaggable "unknown sender". Require an actual sender id.
+      { $match: { userId: new mongoose.Types.ObjectId(req.user._id), senderKey: { $type: 'string', $ne: '' } } },
       { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' }, lastSeen: { $max: '$date' } } },
       { $sort: { count: -1 } },
       { $limit: 50 },

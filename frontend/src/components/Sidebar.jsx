@@ -55,6 +55,7 @@ const Sidebar = () => {
     { title: 'Banking', items: [
       { path: '/connect-bank', label: 'Connect Bank', icon: 'account_balance' },
       { path: '/accounts', label: 'My Accounts', icon: 'credit_card' },
+      { path: '/email-forwarding', label: 'Email Forwarding', icon: 'forward_to_inbox' },
     ]},
     { title: 'Money', items: [
       { path: '/', label: 'Dashboard', icon: 'dashboard' },

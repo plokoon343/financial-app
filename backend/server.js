@@ -3258,8 +3258,11 @@ const SMS_MONEY_RE = /(?:ngn|naira|₦)\s*([\d,]+(?:\.\d{1,2})?)|\bn(\d[\d,]*(?:
 // debit word veto an explicit "credited". Strong signals (how banks actually label
 // the direction) decide first; the weak generics only break a tie when no strong
 // signal exists.
-const CREDIT_STRONG = /\bcredit(ed)?\b|credit\s+alert|money\s+in|\binflow\b|\bdeposit(ed)?\b|\breceived\b|\breversal\b|\brefund(ed)?\b/i;
-const DEBIT_STRONG  = /\bdebit(ed)?\b|debit\s+alert|money\s+out|\bwithdraw(n|al)\b|\bpurchase\b/i;
+// Use the VERB forms + the "Credit/Debit Alert" labels, not the bare nouns — the noun
+// "debit"/"credit" shows up in noise ("debit card", "unauthorized debit", "credit
+// limit") and would misclassify.
+const CREDIT_STRONG = /\bcredited\b|credit\s+alert|money\s+in|\binflow\b|\bdeposit(ed)?\b|\breceived\b|\breversal\b|\brefund(ed)?\b/i;
+const DEBIT_STRONG  = /\bdebited\b|debit\s+alert|money\s+out|\bwithdraw(n|al)\b|\bpurchase\b/i;
 const CREDIT_WEAK   = /\b(sent to you|paid you|received from)\b/i;
 const DEBIT_WEAK    = /\b(withdrawn|payment|paid|pos|transfer to|sent|charged)\b/i;
 

@@ -3438,10 +3438,23 @@ async function ingestEmailAlert(user, parsed) {
   return 1;
 }
 
-// Provider webhook. Provider-agnostic: normalises Mailgun / Postmark / SES field
-// names. Always answers 200 for accepted-but-ignored mail so the provider doesn't
-// retry; 503 until activated, 401 on a bad secret.
-app.post('/api/inbound-email/webhook', async (req, res) => {
+// Inbound providers (SendGrid Inbound Parse, Mailgun routes) POST the email as
+// multipart/form-data, which express.json/urlencoded don't parse — so we run a
+// dedicated multer pass on the webhook to populate req.body with the text fields.
+// Attachments are accepted into memory and ignored; a parse error never fails the
+// webhook (we'd rather 200/ignore than make the provider retry-storm).
+const inboundUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 25 } });
+const parseInboundBody = (req, res, next) => {
+  inboundUpload.any()(req, res, (err) => {
+    if (err) console.error('[inbound-email/parse]', err.message);
+    next();
+  });
+};
+
+// Provider webhook. Provider-agnostic: normalises SendGrid / Mailgun / Postmark / SES
+// field names. Always answers 200 for accepted-but-ignored mail so the provider
+// doesn't retry; 503 until activated, 401 on a bad secret.
+app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
   try {
     if (!inboundActive()) return res.status(503).json({ message: 'Email forwarding is not enabled yet.' });
     const key = req.get('x-inbound-key') || req.query.key || req.body?.key || '';

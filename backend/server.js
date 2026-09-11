@@ -3252,8 +3252,32 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
 // precedes a digit, so the 'n' in "on"/"in" isn't mistaken for naira) / a bare 2dp
 // figure. Groups 1|2|3 hold the number.
 const SMS_MONEY_RE = /(?:ngn|naira|₦)\s*([\d,]+(?:\.\d{1,2})?)|\bn(\d[\d,]*(?:\.\d{1,2})?)|\b([\d,]+\.\d{2})\b/gi;
-const CREDIT_HINTS = /\b(cr|credit(ed)?|received|inflow|deposit|reversal|refund)\b/i;
-const DEBIT_HINTS = /\b(dr|debit(ed)?|withdrawn|withdrawal|purchase|payment|paid|pos|transfer to|sent)\b/i;
+// Direction detection is tiered because a full email body is noisy — a genuine
+// CREDIT alert routinely contains debit-ish words in disclaimers/footers/marketing
+// ("dispute this debit", "debit card", "salary payment"), so we must NOT let any weak
+// debit word veto an explicit "credited". Strong signals (how banks actually label
+// the direction) decide first; the weak generics only break a tie when no strong
+// signal exists.
+const CREDIT_STRONG = /\bcredit(ed)?\b|credit\s+alert|money\s+in|\binflow\b|\bdeposit(ed)?\b|\breceived\b|\breversal\b|\brefund(ed)?\b/i;
+const DEBIT_STRONG  = /\bdebit(ed)?\b|debit\s+alert|money\s+out|\bwithdraw(n|al)\b|\bpurchase\b/i;
+const CREDIT_WEAK   = /\b(sent to you|paid you|received from)\b/i;
+const DEBIT_WEAK    = /\b(withdrawn|payment|paid|pos|transfer to|sent|charged)\b/i;
+
+// Returns { type: 'income'|'expense', conf }. Strong tier wins; then standalone
+// Cr/Dr markers; then weak generics; else default expense (most alerts are spends)
+// but flagged low so the review gate surfaces it.
+function detectDirection(raw) {
+  const cs = CREDIT_STRONG.test(raw), ds = DEBIT_STRONG.test(raw);
+  if (cs && !ds) return { type: 'income', conf: 'high' };
+  if (ds && !cs) return { type: 'expense', conf: 'high' };
+  const cr = /\bcr\b/i.test(raw), dr = /\bdr\b/i.test(raw);
+  if (cr && !dr) return { type: 'income', conf: 'high' };
+  if (dr && !cr) return { type: 'expense', conf: 'high' };
+  const cw = CREDIT_WEAK.test(raw), dw = DEBIT_WEAK.test(raw);
+  if (cw && !dw) return { type: 'income', conf: 'medium' };
+  if (dw && !cw) return { type: 'expense', conf: 'medium' };
+  return { type: 'expense', conf: 'low' }; // ambiguous → default spend, flag for review
+}
 const SMS_DATE_RE = /\b(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/i;
 
 // Stage 1.3 — "is this even a transaction?" Drop OTP/promo/login/balance-enquiry/
@@ -3292,10 +3316,10 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
     const norm = normalizeAmount(tok);
     if (norm.value != null) { amount = norm.value; amtConf = norm.confidence; break; }
   }
-  // Direction: credit vs debit keywords (debit wins ties — most alerts are spends).
-  const isCredit = CREDIT_HINTS.test(raw) && !DEBIT_HINTS.test(raw);
-  const type = isCredit ? 'income' : 'expense';
-  const dirConf = (CREDIT_HINTS.test(raw) || DEBIT_HINTS.test(raw)) ? 'high' : 'low';
+  // Direction: tiered detection so noisy email footers can't flip a real credit.
+  const dir = detectDirection(raw);
+  const type = dir.type;
+  const dirConf = dir.conf;
   // Date: first date-looking token, else today.
   const dm = raw.match(SMS_DATE_RE);
   const date = (dm && normalizeAnyDate(dm[1])) || new Date().toISOString().slice(0, 10);

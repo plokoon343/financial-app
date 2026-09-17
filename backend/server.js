@@ -783,7 +783,15 @@ const subscriptionSchema = new mongoose.Schema({
   accountNumber: { type: String, default: '' },
   accountName: { type: String, default: '' },
   recipient: { type: String, default: '' },
+  // Auto-linking: when a transaction is recognised as a subscription (import, email,
+  // SMS, or manual recategorise) we upsert a Subscription keyed by sourceKey so it
+  // shows on the Subscriptions page immediately. autoDetected ones are kept current
+  // from the ledger; a user edit takes over.
+  sourceKey:    { type: String, default: '' },
+  autoDetected: { type: Boolean, default: false },
+  lastCharge:   { type: Date },
 }, { timestamps: true });
+subscriptionSchema.index({ userId: 1, sourceKey: 1 });
 const Subscription = mongoose.model('Subscription', subscriptionSchema);
 
 // UPDATED: Added bank fields (debt)
@@ -1569,6 +1577,35 @@ const deriveCategoryKey = (description) => {
     .filter(w => w.length >= 3 && !CATEGORY_KEY_STOPWORDS.has(w));
   return tokens.slice(0, 3).join(' ');
 };
+
+// Auto-link a recognised subscription so it shows on the Subscriptions page no matter
+// how it entered — import, email forwarding, SMS scan, or a manual recategorise.
+// Triggered when a transaction's category is 'Subscriptions': upsert a Subscription
+// keyed by the merchant signature. Never clobbers a user's edits — only auto-detected
+// rows are kept current from the ledger. Fire-and-forget safe.
+async function maybeLinkSubscription(userId, { description, amount, category, date, bankName, bankCode }) {
+  if ((category || '').toString().trim().toLowerCase() !== 'subscriptions') return;
+  const cost = Math.abs(Number(amount) || 0);
+  if (!(cost > 0)) return;
+  const key = deriveCategoryKey(description || '');
+  if (!key) return;
+  const when = date ? new Date(date) : new Date();
+  try {
+    const existing = await Subscription.findOne({ userId, sourceKey: key });
+    if (existing) {
+      const patch = { lastCharge: when };
+      if (existing.autoDetected) patch.cost = Math.round(cost); // keep auto ones current; respect edits
+      await Subscription.updateOne({ _id: existing._id }, { $set: patch });
+      return;
+    }
+    const name = ((description || '').toString().replace(/\s{2,}/g, ' ').trim().slice(0, 40)) || 'Subscription';
+    await new Subscription({
+      userId, name, cost: Math.round(cost), frequency: 'monthly', category: 'Subscriptions',
+      status: 'active', autoDetected: true, sourceKey: key, lastCharge: when,
+      bankName: bankName || '', bankCode: bankCode || '',
+    }).save();
+  } catch (e) { if (e && e.code !== 11000) console.error('[maybeLinkSubscription]', e.message); }
+}
 
 // Override categories using what this user has taught the app previously.
 const applyLearnedCategories = async (userId, transactions) => {
@@ -2496,7 +2533,11 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
       txn.amount = newType === 'expense' ? -a : a;
     }
     await txn.save();
-    if (categoryChanged) await learnCategories(req.user._id, [{ description: txn.description, category: txn.category }]);
+    if (categoryChanged) {
+      await learnCategories(req.user._id, [{ description: txn.description, category: txn.category }]);
+      // "or any other way" — a manual recategorise to Subscriptions also surfaces it.
+      await maybeLinkSubscription(req.user._id, { description: txn.description, amount: txn.amount, category: txn.category, date: txn.date, bankName: txn.bank });
+    }
     res.json(txn);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -3447,6 +3488,7 @@ async function ingestEmailAlert(user, parsed) {
     bankCode: eCode, accountMask: eMask, senderKey: eSender,
   }).save();
   await touchUserAccount(user._id, { bankCode: eCode, bankName: eBank, accountMask: eMask }, when);
+  await maybeLinkSubscription(user._id, { description: parsed.description, amount: parsed.amount, category: parsed.category, date: when, bankName: eBank });
   return 1;
 }
 
@@ -3646,6 +3688,12 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     // Learn description -> category from what the user chose to import (incl. any
     // edits they made on the review screen), so future imports auto-apply them.
     await learnCategories(req.user._id, fresh);
+    // Surface any recognised subscriptions on the Subscriptions page immediately.
+    for (const t of fresh) {
+      if ((t.category || '').toLowerCase() === 'subscriptions') {
+        await maybeLinkSubscription(req.user._id, { description: t.description, amount: t.amount, category: t.category, date: t.date, bankName: t.bank });
+      }
+    }
     // Detect internal transfers created/exposed by this import (both sides may now
     // be present). Never let a reconcile error fail the import.
     let transfersFound = 0;

@@ -3308,8 +3308,9 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
     }
   }
   // Direction: labelled field is authoritative; else tiered inference.
-  const type = labeled ? labeled.type : detectDirection(raw).type;
-  const dirConf = labeled ? 'high' : detectDirection(raw).conf;
+  const dir = labeled ? { type: labeled.type, conf: 'high' } : detectDirection(raw);
+  const type = dir.type;
+  const dirConf = dir.conf;
   // Date: labelled Value Date, else first date-looking token, else today.
   const dm = raw.match(SMS_DATE_RE);
   const date = (labeled && labeled.date && normalizeAnyDate(labeled.date))
@@ -3349,7 +3350,9 @@ app.post('/api/parse-sms', auth, async (req, res) => {
     // Split into individual alerts on blank lines; fall back to the whole block.
     const blocks = text.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
     const source = blocks.length ? blocks : [text];
-    let rows = source.map(parseOneAlert).filter((r) => r && (r.amount > 0 || r.needsReview));
+    // NB: pass a lambda, not parseOneAlert directly — Array.map would feed it the
+    // index as `source` and the whole array as `sender`, minting bogus sender keys.
+    let rows = source.map((b) => parseOneAlert(b, 'sms')).filter((r) => r && (r.amount > 0 || r.needsReview));
     if (!rows.length) return res.status(422).json({ message: "Couldn't read a transaction from that. Check you pasted the full alert.", transactions: [] });
     // Apply the user's learned categories, then the shared consensus.
     rows = await applyLearnedCategories(req.user._id, rows);

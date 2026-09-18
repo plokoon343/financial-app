@@ -38,6 +38,7 @@ const EmailForwarding = lazy(() => import('./components/EmailForwarding'));
 const Accounts = lazy(() => import('./components/Accounts'));
 const SmartCategorize = lazy(() => import('./components/SmartCategorize'));
 const CashTracking = lazy(() => import('./components/CashTracking'));
+const MoneyWrapped = lazy(() => import('./components/MoneyWrapped'));
 const Transactions = lazy(() => import('./components/Transactions'));
 const AiAssistant = lazy(() => import('./components/AiAssistant'));
 const Profile = lazy(() => import('./components/Profile'));
@@ -129,6 +130,7 @@ function AppContent() {
           <Route path="accounts" element={<Accounts />} />
           <Route path="smart-categorize" element={<SmartCategorize />} />
           <Route path="cash" element={<CashTracking />} />
+          <Route path="wrapped" element={<MoneyWrapped />} />
           <Route path="support" element={<Support />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />

@@ -63,6 +63,7 @@ const Sidebar = () => {
       { path: '/smart-categorize', label: 'Smart Categorise', icon: 'sell' },
       { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
       { path: '/insights', label: 'Insights', icon: 'pie_chart' },
+      { path: '/wrapped', label: 'Money Wrapped', icon: 'celebration' },
       { path: '/cashflow', label: 'Cashflow', icon: 'monitoring' },
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
       { path: '/cash', label: 'Track Cash', icon: 'payments' },

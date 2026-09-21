@@ -46,18 +46,28 @@ export default function QuickLog() {
     setError('');
     try {
       const r = new SpeechRecognition();
-      r.lang = 'en-NG';
+      // 'en-US' is universally supported; 'en-NG' throws 'language-not-supported' in
+      // most browsers (the likely reason the mic "did nothing").
+      r.lang = 'en-US';
       r.interimResults = true;
       r.continuous = false;
+      r.maxAlternatives = 1;
       r.onresult = (e) => {
         const said = Array.from(e.results).map((x) => x[0].transcript).join(' ');
         setText(said);
       };
-      r.onerror = () => { setListening(false); setError('Could not hear that — try again, or just type it.'); };
+      r.onerror = (e) => {
+        setListening(false);
+        const kind = e && e.error;
+        if (kind === 'not-allowed' || kind === 'service-not-allowed') setError('Microphone access is blocked. Allow the mic for this site (address-bar icon), then try again.');
+        else if (kind === 'no-speech') setError("Didn't catch that — tap the mic and speak, or just type it.");
+        else if (kind === 'audio-capture') setError('No microphone found. Type it instead.');
+        else setError('Voice had a hiccup — try again, or just type it.');
+      };
       r.onend = () => setListening(false);
       recogRef.current = r;
-      r.start();
       setText('');
+      r.start();
       setListening(true);
     } catch {
       setError('Voice input is not available in this browser — type it instead.');

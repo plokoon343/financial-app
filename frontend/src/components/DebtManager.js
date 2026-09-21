@@ -3,6 +3,7 @@ import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import { FEATURES } from '../config/features';
 const DebtManager = () => {
   //const { darkMode } = useAuth();
   const [debts, setDebts] = useState([]);
@@ -187,7 +188,7 @@ const DebtManager = () => {
           <div className="debt-table-wrap">
             <table className="debt-table">
               <thead>
-                <tr><th>Debt</th><th className="num">Balance</th><th>Interest</th><th className="num">Min / mo</th><th>Priority</th><th>Reminder</th></tr>
+                <tr><th>Debt</th><th className="num">Balance</th><th>Interest</th><th className="num">Min / mo</th><th>Priority</th>{FEATURES.autopay && <th>Autopay</th>}</tr>
               </thead>
               <tbody>
                 {debts.sort((a, b) => b.interest - a.interest).map((debt) => (
@@ -197,7 +198,7 @@ const DebtManager = () => {
                     <td><span className="interest-badge">{debt.interest}%</span></td>
                     <td className="num">{fmtNaira(debt.minPayment)}</td>
                     <td><span className={`priority ${priorityOf(debt.interest)}`}>{priorityOf(debt.interest) === 'high' ? 'High' : priorityOf(debt.interest) === 'medium' ? 'Medium' : 'Low'}</span></td>
-                    <td><span className={`dt-autopay ${debt.scheduledPayment?.enabled ? 'on' : 'off'}`}><i className={`fas ${debt.scheduledPayment?.enabled ? 'fa-check-circle' : 'fa-circle'}`}></i> {debt.scheduledPayment?.enabled ? 'On' : 'Off'}</span></td>
+                    {FEATURES.autopay && <td><span className={`dt-autopay ${debt.scheduledPayment?.enabled ? 'on' : 'off'}`}><i className={`fas ${debt.scheduledPayment?.enabled ? 'fa-check-circle' : 'fa-circle'}`}></i> {debt.scheduledPayment?.enabled ? 'On' : 'Off'}</span></td>}
                   </tr>
                 ))}
               </tbody>
@@ -221,6 +222,7 @@ const DebtManager = () => {
               <div><span>Priority</span><strong className={`priority ${priorityOf(activeDebt.interest)}`} style={{ padding: '2px 10px' }}>{priorityOf(activeDebt.interest)}</strong></div>
             </div>
 
+            {FEATURES.autopay && (
             <div className="scheduled-payment-toggle" style={{ borderTop: 'none', marginTop: 0 }}>
               <label className="schedule-checkbox">
                 <input
@@ -245,6 +247,7 @@ const DebtManager = () => {
                 </div>
               )}
             </div>
+            )}
 
             <button className="debt-modal-delete" onClick={() => { removeDebt(activeDebt._id); setSelectedDebtId(null); }}>
               <i className="fas fa-trash"></i> Delete debt
@@ -278,7 +281,8 @@ const DebtManager = () => {
               <div className="input-with-symbol"><span className="symbol">₦</span><input type="number" value={newDebt.minPayment} onChange={(e) => setNewDebt({...newDebt, minPayment: e.target.value})} className="glass-input" min="0" step="100" placeholder="0.00" /><span className="symbol suffix">/month</span></div>
             </div>
           </div>
-          {/* Scheduled payment options in add form */}
+          {/* Scheduled payment options in add form — gated to the wallet launch */}
+          {FEATURES.autopay && (
           <div className="scheduled-payment-option">
             <label className="schedule-checkbox">
               <input type="checkbox" checked={newDebt.scheduledPayment.enabled} onChange={(e) => setNewDebt({...newDebt, scheduledPayment: { ...newDebt.scheduledPayment, enabled: e.target.checked }})} />
@@ -291,6 +295,7 @@ const DebtManager = () => {
               </div>
             )}
           </div>
+          )}
           <div className="form-actions">
             <button className="cancel-btn" onClick={() => setIsAdding(false)}>Cancel</button>
             <button className="submit-btn" onClick={addDebt} disabled={!newDebt.name || !newDebt.balance || !newDebt.minPayment}><i className="fas fa-check"></i> Add Debt</button>

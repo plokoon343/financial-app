@@ -498,6 +498,7 @@ const goalSchema = new mongoose.Schema({
     enabled:    { type: Boolean, default: false },
     amount:     { type: Number, default: 0 },
     dayOfMonth: { type: Number, min: 1, max: 31, default: 1 },
+    lastChargedPeriod: { type: String, default: '' }, // 'YYYY-MM' guard — never charge a period twice
   },
   // Savings plan: a locked goal can't be withdrawn before its deadline without
   // a 3% early-break fee. `locked` is the commitment; `deadline` is maturity.
@@ -794,6 +795,7 @@ const subscriptionSchema = new mongoose.Schema({
   scheduledPayment: {
     enabled:    { type: Boolean, default: false },
     dayOfMonth: { type: Number, min: 1, max: 31, default: 1 },
+    lastChargedPeriod: { type: String, default: '' }, // 'YYYY-MM'/'YYYY' guard — never charge a period twice
   },
   bankName: { type: String, default: '' },
   bankCode: { type: String, default: '' },
@@ -836,6 +838,7 @@ const debtSchema = new mongoose.Schema({
     enabled:    { type: Boolean, default: false },
     amount:     { type: Number, default: 0 },
     dayOfMonth: { type: Number, min: 1, max: 31, default: 1 },
+    lastChargedPeriod: { type: String, default: '' }, // 'YYYY-MM' guard — never charge a period twice
   },
   bankName: { type: String, default: '' },
   bankCode: { type: String, default: '' },
@@ -3314,6 +3317,100 @@ async function sweepSubscriptionReminders() {
 setInterval(sweepSubscriptionReminders, 24 * 60 * 60 * 1000);
 setTimeout(sweepSubscriptionReminders, 45 * 1000);
 
+// ── Scheduled auto-payments (built, DORMANT until the wallet launches) ───────────
+// Gated OFF by SCHEDULED_PAYMENTS_ENABLED. When on, the daily cron pulls each user's
+// enabled debt/goal/subscription scheduled payment from their WALLET on/after its day.
+// Idempotent: a 'YYYY-MM' (yearly: 'YYYY') period guard means one charge per period even
+// across overlapping runs. Atomic: debitWallet can't overspend or lose a race. Graceful:
+// low balance skips + one deduped nudge, and retries daily until the period ends. Runs
+// ONLY from /api/cron/daily (money movement stays off the flaky in-process interval).
+const scheduledPaymentsEnabled = () => process.env.SCHEDULED_PAYMENTS_ENABLED === 'true' || process.env.SCHEDULED_PAYMENTS_ENABLED === '1';
+
+// A dayOfMonth schedule is due from its day onward (so a low-funds miss retries daily
+// until month end), clamped to the month length so day-31 still fires in short months.
+function scheduleDue(dayOfMonth, now = new Date()) {
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const due = Math.min(Math.max(1, dayOfMonth || 1), daysInMonth);
+  return now.getDate() >= due;
+}
+
+async function runScheduledPayments(now = new Date()) {
+  if (!scheduledPaymentsEnabled()) return { skipped: 'disabled' };
+  const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const yearPeriod = String(now.getFullYear());
+  let paid = 0, short = 0, failed = 0;
+
+  const nudge = async (userId, name, amount) => {
+    const link = `sched_fail_${userId}_${name}_${period}`.slice(0, 120);
+    if (!(await Notification.findOne({ userId, link }))) {
+      await createNotification(userId, { type: 'danger', title: 'Scheduled payment skipped', message: `Couldn't move ₦${Math.round(amount).toLocaleString()} for ${name} — your wallet is low. Top up and we'll retry.`, link }).catch(() => {});
+    }
+  };
+
+  // Debts
+  try {
+    for (const d of await Debt.find({ 'scheduledPayment.enabled': true, balance: { $gt: 0 } })) {
+      const sp = d.scheduledPayment;
+      if (!sp?.enabled || sp.lastChargedPeriod === period || !scheduleDue(sp.dayOfMonth, now)) continue;
+      const amount = Math.min(Math.abs(sp.amount || 0), d.balance);
+      if (!(amount > 0)) continue;
+      if (!(await debitWallet(d.userId, amount))) { short += 1; await nudge(d.userId, d.name, amount); continue; }
+      try {
+        d.balance = Math.max(0, d.balance - amount); d.scheduledPayment.lastChargedPeriod = period; await d.save();
+        await new WalletTransaction({ userId: d.userId, type: 'withdrawal', amount, description: `Scheduled debt payment: ${d.name}`, status: 'completed' }).save();
+        await new Transaction({ userId: d.userId, date: now, description: `Debt payment: ${d.name}`, amount: -Math.abs(amount), category: 'Debt Repayment', type: 'expense' }).save();
+        if (d.balance <= 0) { await Debt.deleteOne({ _id: d._id }); await createNotification(d.userId, { type: 'success', title: 'Debt cleared 🎉', message: `${d.name} is fully paid off.` }).catch(() => {}); }
+        else await createNotification(d.userId, { type: 'success', title: 'Debt payment', message: `₦${Math.round(amount).toLocaleString()} paid toward ${d.name}.` }).catch(() => {});
+        paid += 1;
+      } catch (e) { await creditWallet(d.userId, amount); failed += 1; console.error('[scheduled/debt]', String(d._id), e.message); }
+    }
+  } catch (e) { console.error('[scheduled/debts]', e.message); }
+
+  // Goals
+  try {
+    for (const g of await Goal.find({ 'scheduledPayment.enabled': true })) {
+      const sp = g.scheduledPayment;
+      if (!sp?.enabled || sp.lastChargedPeriod === period || g.current >= g.target || !scheduleDue(sp.dayOfMonth, now)) continue;
+      const amount = Math.min(Math.abs(sp.amount || 0), Math.max(0, g.target - g.current));
+      if (!(amount > 0)) continue;
+      if (!(await debitWallet(g.userId, amount))) { short += 1; await nudge(g.userId, g.name, amount); continue; }
+      try {
+        g.current = Math.min(g.current + amount, g.target); g.scheduledPayment.lastChargedPeriod = period; await g.save();
+        await new WalletTransaction({ userId: g.userId, type: 'withdrawal', amount, description: `Scheduled goal payment: ${g.name}`, status: 'completed' }).save();
+        if (g.current >= g.target) await createNotification(g.userId, { type: 'success', title: 'Goal reached 🎉', message: `${g.name} is fully funded.` }).catch(() => {});
+        paid += 1;
+      } catch (e) { await creditWallet(g.userId, amount); failed += 1; console.error('[scheduled/goal]', String(g._id), e.message); }
+    }
+  } catch (e) { console.error('[scheduled/goals]', e.message); }
+
+  // Subscriptions (monthly → dayOfMonth; yearly → its nextPayment date)
+  try {
+    for (const s of await Subscription.find({ status: 'active', 'scheduledPayment.enabled': true })) {
+      const sp = s.scheduledPayment;
+      if (!sp?.enabled) continue;
+      const monthly = s.frequency !== 'yearly';
+      const pkey = monthly ? period : yearPeriod;
+      if (sp.lastChargedPeriod === pkey) continue;
+      const due = monthly ? scheduleDue(sp.dayOfMonth, now) : (s.nextPayment && now >= new Date(s.nextPayment));
+      if (!due) continue;
+      const amount = Math.abs(s.cost || 0);
+      if (!(amount > 0)) continue;
+      if (!(await debitWallet(s.userId, amount))) { short += 1; await nudge(s.userId, s.name, amount); continue; }
+      try {
+        s.scheduledPayment.lastChargedPeriod = pkey; s.lastCharge = now;
+        s.nextPayment = new Date(now.getFullYear(), now.getMonth() + (monthly ? 1 : 12), sp.dayOfMonth);
+        await s.save();
+        await new WalletTransaction({ userId: s.userId, type: 'withdrawal', amount, description: `Subscription: ${s.name}`, status: 'completed' }).save();
+        await new Transaction({ userId: s.userId, date: now, description: `${s.name} subscription`, amount: -Math.abs(amount), category: s.category || 'Subscriptions', type: 'expense' }).save();
+        paid += 1;
+      } catch (e) { await creditWallet(s.userId, amount); failed += 1; console.error('[scheduled/sub]', String(s._id), e.message); }
+    }
+  } catch (e) { console.error('[scheduled/subs]', e.message); }
+
+  if (paid || short || failed) console.log(`[scheduled-payments] paid ${paid}, low-balance ${short}, failed ${failed}`);
+  return { paid, short, failed };
+}
+
 // External scheduler trigger (Render free tier sleeps; the interval alone can miss a
 // day). Guarded by CRON_SECRET like the other crons.
 app.post('/api/cron/subscription-reminders', async (req, res) => {
@@ -3334,10 +3431,11 @@ app.post('/api/cron/daily', (req, res) => {
   // past a 30s HTTP timeout as the user base grows, and a timed-out request would look
   // like a failure. The jobs run in the background, each isolated so one can't block
   // the other. Errors surface in the server logs, not the HTTP response.
-  res.status(202).json({ ok: true, started: ['bills', 'subscription-reminders'] });
+  res.status(202).json({ ok: true, started: ['bills', 'subscription-reminders', 'scheduled-payments'] });
   (async () => {
     try { await sweepAllDueBills(); } catch (e) { console.error('[cron/daily] bills', e.message); }
     try { await sweepSubscriptionReminders(); } catch (e) { console.error('[cron/daily] subs', e.message); }
+    try { await runScheduledPayments(); } catch (e) { console.error('[cron/daily] scheduled-payments', e.message); } // no-op unless SCHEDULED_PAYMENTS_ENABLED
   })();
 });
 
@@ -4467,171 +4565,6 @@ app.patch('/api/goals/:id/scheduled-payment', auth, async (req, res) => {
     await goal.save();
     res.json(goal);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
-});
-
-// Process all scheduled payments (existing)
-app.post('/api/process-scheduled-payments', auth, async (req, res) => {
-  const userId = req.user._id;
-  const today = new Date();
-  const todayDay = today.getDate();
-  const results = { goals: [], subscriptions: [], debts: [], errors: [] };
-
-  try {
-    const debts = await Debt.find({ userId, 'scheduledPayment.enabled': true });
-    for (const debt of debts) {
-      if (debt.balance <= 0) continue;
-      if (debt.scheduledPayment.dayOfMonth !== todayDay) continue;
-      const amount = debt.scheduledPayment.amount;
-      if (!amount || amount <= 0) continue;
-      try {
-        const wallet = await getOrCreateWallet(userId);
-        if (wallet.balance < amount) {
-          results.errors.push({ type: 'debt', name: debt.name, reason: 'Insufficient wallet balance' });
-          continue;
-        }
-        wallet.balance -= amount;
-        await wallet.save();
-        debt.balance = Math.max(0, debt.balance - amount);
-        await debt.save();
-        await new WalletTransaction({ userId, type: 'withdrawal', amount,
-          description: `Scheduled debt payment: ${debt.name}`, status: 'completed' }).save();
-        results.debts.push({ name: debt.name, amount, newBalance: debt.balance });
-      } catch (err) { results.errors.push({ type: 'debt', name: debt.name, reason: err.message }); }
-    }
-
-    const goals = await Goal.find({ userId, 'scheduledPayment.enabled': true });
-    for (const goal of goals) {
-      if (goal.current >= goal.target) continue;
-      if (goal.scheduledPayment.dayOfMonth !== todayDay) continue;
-      const amount = goal.scheduledPayment.amount;
-      if (!amount || amount <= 0) continue;
-      try {
-        const wallet = await getOrCreateWallet(userId);
-        if (wallet.balance < amount) {
-          results.errors.push({ type: 'goal', name: goal.name, reason: 'Insufficient wallet balance' });
-          continue;
-        }
-        wallet.balance -= amount;
-        await wallet.save();
-        goal.current = Math.min(goal.current + amount, goal.target);
-        await goal.save();
-        await new WalletTransaction({ userId, type: 'withdrawal', amount,
-          description: `Scheduled goal payment: ${goal.name}`, status: 'completed' }).save();
-        results.goals.push({ name: goal.name, amount, newProgress: goal.current });
-      } catch (err) { results.errors.push({ type: 'goal', name: goal.name, reason: err.message }); }
-    }
-
-    const subs = await Subscription.find({ userId, status: 'active', 'scheduledPayment.enabled': true });
-    for (const sub of subs) {
-      if (sub.scheduledPayment.dayOfMonth !== todayDay) continue;
-      try {
-        const wallet = await getOrCreateWallet(userId);
-        if (wallet.balance < sub.cost) {
-          results.errors.push({ type: 'subscription', name: sub.name, reason: 'Insufficient wallet balance' });
-          continue;
-        }
-        wallet.balance -= sub.cost;
-        await wallet.save();
-        const next = new Date(today.getFullYear(), today.getMonth() + (sub.frequency === 'monthly' ? 1 : 12), sub.scheduledPayment.dayOfMonth);
-        sub.nextPayment = next;
-        await sub.save();
-        await new WalletTransaction({ userId, type: 'withdrawal', amount: sub.cost,
-          description: `Subscription: ${sub.name}`, status: 'completed' }).save();
-        await new Transaction({ userId, date: today, description: `${sub.name} subscription`,
-          amount: -Math.abs(sub.cost), category: sub.category, type: 'expense' }).save();
-        results.subscriptions.push({ name: sub.name, amount: sub.cost });
-      } catch (err) { results.errors.push({ type: 'subscription', name: sub.name, reason: err.message }); }
-    }
-
-    res.json({ message: `Processed ${results.debts.length} debt(s), ${results.goals.length} goal(s) and ${results.subscriptions.length} subscription(s)`, results });
-  } catch (e) {
-    console.error('Scheduled payments error:', e);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// NEW: Pay All Due (debts, subscriptions, bills) - the “Refresh to pay all” button
-app.post('/api/payments/pay-all-due', auth, async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const wallet = await getOrCreateWallet(userId);
-    const today = new Date();
-    const todayDay = today.getDate();
-    let totalPaid = 0;
-    const errors = [];
-
-    // 1. Debts with enabled scheduledPayment and due today
-    const debts = await Debt.find({ userId, 'scheduledPayment.enabled': true });
-    for (const debt of debts) {
-      if (debt.balance <= 0 || debt.scheduledPayment.dayOfMonth !== todayDay) continue;
-      const amount = debt.scheduledPayment.amount || debt.minPayment;
-      if (wallet.balance < amount) {
-        errors.push(`Insufficient funds for debt: ${debt.name}`);
-        continue;
-      }
-      wallet.balance -= amount;
-      debt.balance = Math.max(0, debt.balance - amount);
-      await debt.save();
-      totalPaid += amount;
-      await new WalletTransaction({ userId, type: 'withdrawal', amount,
-        description: `Scheduled debt payment: ${debt.name}`, status: 'completed' }).save();
-    }
-
-    // 2. Subscriptions (only those with scheduledPayment enabled and day matches)
-    const subs = await Subscription.find({ userId, status: 'active', 'scheduledPayment.enabled': true });
-    for (const sub of subs) {
-      if (sub.scheduledPayment.dayOfMonth !== todayDay) continue;
-      const amount = sub.cost;
-      if (wallet.balance < amount) {
-        errors.push(`Insufficient funds for subscription: ${sub.name}`);
-        continue;
-      }
-      wallet.balance -= amount;
-      // Advance next payment date
-      const next = new Date(today.getFullYear(), today.getMonth() + (sub.frequency === 'monthly' ? 1 : 12), sub.scheduledPayment.dayOfMonth);
-      sub.nextPayment = next;
-      await sub.save();
-      totalPaid += amount;
-      await new WalletTransaction({ userId, type: 'withdrawal', amount,
-        description: `Subscription: ${sub.name}`, status: 'completed' }).save();
-      // Also record a transaction (optional)
-      await new Transaction({ userId, date: today, description: `${sub.name} subscription`,
-        amount: -Math.abs(amount), category: sub.category, type: 'expense' }).save();
-    }
-
-    // 3. Recurring Bills (due today based on dueDate day of month)
-    const bills = await RecurringBill.find({ userId, status: 'active' });
-    for (const bill of bills) {
-      if (bill.dueDate !== todayDay) continue;
-      const amount = bill.amount;
-      if (wallet.balance < amount) {
-        errors.push(`Insufficient funds for bill: ${bill.name}`);
-        continue;
-      }
-      wallet.balance -= amount;
-      // Advance next due
-      if (bill.frequency === 'monthly') {
-        bill.nextDue = new Date(bill.nextDue.getFullYear(), bill.nextDue.getMonth() + 1, bill.dueDate);
-      } else {
-        bill.nextDue = new Date(bill.nextDue.getFullYear() + 1, bill.nextDue.getMonth(), bill.dueDate);
-      }
-      await bill.save();
-      totalPaid += amount;
-      await new WalletTransaction({ userId, type: 'withdrawal', amount,
-        description: `Bill payment: ${bill.name}`, status: 'completed' }).save();
-    }
-
-    await wallet.save();
-
-    res.json({
-      message: `Paid ₦${totalPaid.toLocaleString()} in total. ${errors.length > 0 ? 'Some items failed: ' + errors.join('; ') : ''}`,
-      totalPaid,
-      errors
-    });
-  } catch (err) {
-    console.error('Pay all due error:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
 });
 
 // Pay a user-selected set of bills/debts from the wallet (Bills page checkboxes).

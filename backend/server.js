@@ -6453,6 +6453,39 @@ app.post('/api/ai/purpose/infer', auth, async (req, res) => {
   }
 });
 
+// Superadmin diagnostic: one-shot LIVE ping of the configured Tier-2 LLM provider, so
+// you can confirm the key actually works (not just that it's set). Not on any hot path.
+app.get('/api/admin/ai/ping', auth, superAdminAuth, async (req, res) => {
+  const cfg = purposeProviderConfig();
+  if (!cfg) return res.json({ configured: false, provider: null, message: 'No AI_PURPOSE_PROVIDER set — running deterministic-only.' });
+  if (!cfg.apiKey) return res.json({ configured: true, provider: cfg.name, ok: false, error: `Provider is "${cfg.name}" but its API-key env is empty.` });
+  const started = Date.now();
+  try {
+    let r, parse;
+    if (cfg.kind === 'openai') {
+      r = await fetch(`${cfg.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: cfg.model, max_tokens: 5, temperature: 0, messages: [{ role: 'user', content: 'Reply with the single word: OK' }] }),
+      });
+      parse = (j) => j?.choices?.[0]?.message?.content || '';
+    } else {
+      r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: cfg.model, max_tokens: 5, messages: [{ role: 'user', content: 'Reply with the single word: OK' }] }),
+      });
+      parse = (j) => j?.content?.[0]?.text || '';
+    }
+    const body = await r.text();
+    if (!r.ok) return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: false, status: r.status, error: body.slice(0, 300) });
+    let sample = ''; try { sample = parse(JSON.parse(body)); } catch { /* noop */ }
+    return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: true, ms: Date.now() - started, sample: (sample || '').slice(0, 60) });
+  } catch (e) {
+    return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: false, error: e.message });
+  }
+});
+
 // Apply a confirmed proposal: set the category on the named transactions and LEARN it
 // so future transfers from the same counterparty auto-apply. Validates the category
 // is one the allow-list produces (a user can't push arbitrary categories through).

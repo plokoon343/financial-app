@@ -12,6 +12,7 @@ import Sidebar from './components/Sidebar';
 import SuperAdminRoute from './components/SuperAdminRoute';
 import NewsletterRoute from './components/NewsletterRoute';
 import NotificationBell from './components/NotificationBell';
+import GlobalBanner from './components/GlobalBanner';
 import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
 import InstallPrompt from './components/InstallPrompt';
@@ -168,6 +169,7 @@ const ProtectedLayout = ({ ...props }) => {
       <NotificationBell />
       <Sidebar />
       <main className="main-content">
+        <GlobalBanner />
         <div className="container">
           <Suspense fallback={<PageLoader />}>
             <Outlet context={props} />

@@ -15,7 +15,7 @@ function purposeProviderConfig(env = process.env) {
     case 'groq':
       return { kind: 'openai', baseURL: 'https://api.groq.com/openai/v1', apiKey: env.GROQ_API_KEY || '', model: env.AI_PURPOSE_MODEL || 'llama-3.3-70b-versatile', name: 'groq' };
     case 'gemini':
-      return { kind: 'openai', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '', model: env.AI_PURPOSE_MODEL || 'gemini-2.0-flash', name: 'gemini' };
+      return { kind: 'openai', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '', model: env.AI_PURPOSE_MODEL || 'gemini-3.6-flash', name: 'gemini' };
     case 'anthropic':
       return { kind: 'anthropic', apiKey: env.ANTHROPIC_API_KEY || '', model: env.AI_PURPOSE_MODEL || 'claude-haiku-4-5', name: 'anthropic' };
     default:

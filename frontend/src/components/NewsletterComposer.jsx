@@ -12,6 +12,7 @@ export default function NewsletterComposer({ embedded = false }) {
   const [audience, setAudience] = useState(null);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);
+  const [review, setReview] = useState(false);
 
   const headers = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg(null), 3500); };
@@ -36,11 +37,25 @@ export default function NewsletterComposer({ embedded = false }) {
     finally { setBusy(''); }
   };
 
-  const send = async () => {
+  // Upload a graphic and return its public URL for the editor to insert.
+  const uploadImage = async (file) => {
+    const fd = new FormData(); fd.append('image', file);
+    try {
+      const { data } = await axios.post(`${API_URL}/api/admin/newsletter/image`, fd, { headers: { Authorization: headers.headers.Authorization } });
+      return data.url;
+    } catch (e) { flash(e.response?.data?.message || 'Image upload failed.', 'error'); throw e; }
+  };
+
+  // Review gate: 'Send' opens a preview of the exact email; the actual send happens
+  // only after the reviewer confirms.
+  const openReview = () => {
     if (!ready) { flash('Add a subject and some content first.', 'error'); return; }
-    const n = audience?.active || 0;
-    if (!window.confirm(`Send "${subject}" to ${n} subscriber${n === 1 ? '' : 's'}? This can't be undone.`)) return;
-    setBusy('send');
+    if (!(audience?.active > 0)) { flash('No subscribers to send to yet.', 'error'); return; }
+    setReview(true);
+  };
+
+  const send = async () => {
+    setReview(false); setBusy('send');
     try {
       const { data } = await axios.post(`${API_URL}/api/admin/newsletter/send`, { subject, html: body }, headers);
       flash(`Sent to ${data.sent}${data.failed ? `, ${data.failed} failed` : ''}.`);
@@ -70,15 +85,15 @@ export default function NewsletterComposer({ embedded = false }) {
       <input className="nl-subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Automonie is almost here 🎉" disabled={!!busy} />
 
       <label className="nl-label">Message</label>
-      <RichTextEditor value={body} onChange={setBody} disabled={!!busy} />
-      <div className="nl-hint">Tip: fancy fonts don&apos;t always show in Gmail/Outlook — the toolbar fonts are the ones that reliably do. Every email includes an unsubscribe link automatically.</div>
+      <RichTextEditor value={body} onChange={setBody} disabled={!!busy} uploadImage={uploadImage} />
+      <div className="nl-hint">Tip: use the image button to add graphics. Some fonts (like Poppins) fall back to a standard font in Gmail/Outlook — that&apos;s normal for email. Every email includes an unsubscribe link automatically.</div>
 
       <div className="nl-actions">
         <button className="nl-test" onClick={sendTest} disabled={!!busy || !ready}>
           {busy === 'test' ? 'Sending…' : 'Send test to me'}
         </button>
-        <button className="nl-send" onClick={send} disabled={!!busy || !ready || !(audience?.active > 0)}>
-          {busy === 'send' ? 'Sending…' : `Send to ${audience?.active ?? 0} subscriber${(audience?.active ?? 0) === 1 ? '' : 's'}`}
+        <button className="nl-send" onClick={openReview} disabled={!!busy || !ready || !(audience?.active > 0)}>
+          Review &amp; send to {audience?.active ?? 0} subscriber{(audience?.active ?? 0) === 1 ? '' : 's'}
         </button>
       </div>
 
@@ -97,8 +112,40 @@ export default function NewsletterComposer({ embedded = false }) {
         </div>
       )}
 
+      {review && (
+        <div className="nl-overlay" onClick={() => setReview(false)}>
+          <div className="nl-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nl-modal-head">
+              <strong>Review before sending</strong>
+              <button className="nl-x" onClick={() => setReview(false)}><i className="fas fa-times"></i></button>
+            </div>
+            <div className="nl-modal-sub">Going to <b>{audience?.active}</b> subscriber{audience?.active === 1 ? '' : 's'} · Subject: <b>{subject}</b></div>
+            <div className="nl-preview">
+              <div className="nl-pv-brand">automonie</div>
+              <div className="nl-pv-card" dangerouslySetInnerHTML={{ __html: body }} />
+              <div className="nl-pv-foot">You&apos;re getting this because you joined the Automonie waitlist. <u>Unsubscribe</u>.</div>
+            </div>
+            <div className="nl-modal-actions">
+              <button className="nl-test" onClick={() => setReview(false)}>Back to edit</button>
+              <button className="nl-send" onClick={send} disabled={busy === 'send'}>{busy === 'send' ? 'Sending…' : `Confirm & send to ${audience?.active}`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx="true">{`
         .nl-wrap { max-width: 760px; margin: 0 auto; padding: 20px; }
+        .nl-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+        .nl-modal { background: var(--bg-card, #fff); border: 1px solid var(--border-color); border-radius: 14px; width: 100%; max-width: 620px; max-height: 88vh; overflow-y: auto; padding: 18px; }
+        .nl-modal-head { display: flex; justify-content: space-between; align-items: center; color: var(--text-primary); font-size: 1.05rem; }
+        .nl-x { background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1rem; }
+        .nl-modal-sub { color: var(--text-secondary); font-size: 0.85rem; margin: 6px 0 12px; }
+        .nl-preview { background: #f6f8fa; border-radius: 12px; padding: 16px; }
+        .nl-pv-brand { font-weight: 800; font-size: 20px; color: #0f6e56; margin-bottom: 10px; }
+        .nl-pv-card { background: #fff; border: 1px solid #e7ebf1; border-radius: 12px; padding: 18px; color: #0b1326; line-height: 1.6; }
+        .nl-pv-card img { max-width: 100%; height: auto; }
+        .nl-pv-foot { color: #8a97a8; font-size: 12px; padding: 12px 4px 0; }
+        .nl-modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 14px; }
         .nl-embedded { padding: 0; max-width: none; }
         .nl-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); margin: 0 0 6px; }
         .nl-head p { color: var(--text-secondary); margin: 0 0 18px; line-height: 1.5; }

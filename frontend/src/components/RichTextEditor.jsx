@@ -7,16 +7,30 @@ import React, { useRef, useEffect, useCallback } from 'react';
 
 const FONTS = [
   { label: 'Default', value: '' },
+  { label: 'Poppins', value: "'Poppins', Arial, sans-serif" },
+  { label: 'Josefin Sans', value: "'Josefin Sans', Arial, sans-serif" },
+  { label: 'Tahoma', value: 'Tahoma, Geneva, sans-serif' },
   { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
   { label: 'Georgia', value: 'Georgia, serif' },
   { label: 'Times', value: "'Times New Roman', Times, serif" },
   { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
   { label: 'Courier', value: "'Courier New', Courier, monospace" },
 ];
-const COLORS = ['#0b1326', '#0f6e56', '#139DA0', '#d97706', '#dc2626', '#6d28d9', '#6b7280'];
+// Named colours only — no black / white / automatic (per request).
+const COLORS = [
+  { name: 'Teal', value: '#139DA0' },
+  { name: 'Green', value: '#0f6e56' },
+  { name: 'Blue', value: '#185FA5' },
+  { name: 'Purple', value: '#6d28d9' },
+  { name: 'Pink', value: '#d4537e' },
+  { name: 'Orange', value: '#d97706' },
+  { name: 'Red', value: '#dc2626' },
+  { name: 'Gray', value: '#6b7280' },
+];
 
-export default function RichTextEditor({ value, onChange, disabled }) {
+export default function RichTextEditor({ value, onChange, disabled, uploadImage }) {
   const ref = useRef(null);
+  const fileRef = useRef(null);
   const lastHtml = useRef(value || '');
 
   // Seed the editor once, and reflect external resets (e.g. after send) without
@@ -49,6 +63,15 @@ export default function RichTextEditor({ value, onChange, disabled }) {
     const url = window.prompt('Link URL (include https://)');
     if (url) cmd('createLink', /^https?:\/\//i.test(url) ? url : `https://${url}`);
   };
+  const pickImage = () => { if (!disabled) fileRef.current?.click(); };
+  const onImagePicked = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file || !uploadImage) return;
+    try {
+      const url = await uploadImage(file);
+      if (url) { ref.current?.focus(); document.execCommand('insertImage', false, url); emit(); }
+    } catch { /* the composer surfaces the error */ }
+  };
 
   const Btn = ({ title, onClick, children }) => (
     <button type="button" className="rte-btn" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick} disabled={disabled}>{children}</button>
@@ -68,6 +91,7 @@ export default function RichTextEditor({ value, onChange, disabled }) {
         <Btn title="Bulleted list" onClick={() => cmd('insertUnorderedList')}>• List</Btn>
         <Btn title="Numbered list" onClick={() => cmd('insertOrderedList')}>1. List</Btn>
         <Btn title="Add link" onClick={link}><i className="fas fa-link"></i></Btn>
+        {uploadImage && <Btn title="Insert image" onClick={pickImage}><i className="fas fa-image"></i></Btn>}
         <span className="rte-sep" />
         <select className="rte-select" title="Font" disabled={disabled} onChange={(e) => { if (e.target.value) cmd('fontName', e.target.value); e.target.selectedIndex = 0; }} defaultValue="">
           {FONTS.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
@@ -79,12 +103,12 @@ export default function RichTextEditor({ value, onChange, disabled }) {
           <option value="5">Large</option>
           <option value="6">Huge</option>
         </select>
-        <span className="rte-colors">
-          {COLORS.map((c) => (
-            <button key={c} type="button" className="rte-color" title={`Text colour ${c}`} style={{ background: c }} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd('foreColor', c)} disabled={disabled} />
-          ))}
-        </span>
+        <select className="rte-select" title="Text colour" disabled={disabled} onChange={(e) => { if (e.target.value) cmd('foreColor', e.target.value); e.target.selectedIndex = 0; }} defaultValue="">
+          <option value="">Colour</option>
+          {COLORS.map((c) => <option key={c.name} value={c.value}>{c.name}</option>)}
+        </select>
       </div>
+      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onImagePicked} />
       <div
         ref={ref}
         className="rte-area"
@@ -110,6 +134,7 @@ export default function RichTextEditor({ value, onChange, disabled }) {
         .rte-area h2 { font-size: 1.4rem; margin: 0.6em 0 0.3em; }
         .rte-area h3 { font-size: 1.15rem; margin: 0.6em 0 0.3em; }
         .rte-area a { color: var(--accent-primary, #139DA0); }
+        .rte-area img { max-width: 100%; height: auto; border-radius: 6px; }
         .rte-area ul, .rte-area ol { padding-left: 1.4em; }
         .rte-disabled { opacity: 0.7; }
       `}</style>

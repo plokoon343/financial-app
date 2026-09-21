@@ -85,6 +85,7 @@ const Sidebar = () => {
     { title: 'Help', items: [
       { path: '/support', label: 'Support & FAQ', icon: 'help' },
       { path: '/settings', label: 'Settings', icon: 'settings' },
+      ...((user?.role === 'superadmin' || user?.newsletterEditor) ? [{ path: '/newsletter', label: 'Newsletter', icon: 'campaign' }] : []),
       ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'shield' }] : []),
     ]},
   ]

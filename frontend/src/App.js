@@ -10,6 +10,7 @@ import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import Sidebar from './components/Sidebar';
 import SuperAdminRoute from './components/SuperAdminRoute';
+import NewsletterRoute from './components/NewsletterRoute';
 import NotificationBell from './components/NotificationBell';
 import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
@@ -42,6 +43,7 @@ const MoneyWrapped = lazy(() => import('./components/MoneyWrapped'));
 const QuickLog = lazy(() => import('./components/QuickLog'));
 const Recap = lazy(() => import('./components/Recap'));
 const SharedExpenses = lazy(() => import('./components/SharedExpenses'));
+const NewsletterComposer = lazy(() => import('./components/NewsletterComposer'));
 const Transactions = lazy(() => import('./components/Transactions'));
 const AiAssistant = lazy(() => import('./components/AiAssistant'));
 const Profile = lazy(() => import('./components/Profile'));
@@ -144,6 +146,11 @@ function AppContent() {
             <SuperAdminRoute>
               <AdminDashboard />
             </SuperAdminRoute>
+          } />
+          <Route path="newsletter" element={
+            <NewsletterRoute>
+              <NewsletterComposer />
+            </NewsletterRoute>
           } />
         </Route>
       </Routes>

@@ -215,6 +215,8 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true, select: false },
   googleId: { type: String },   // set when the account is linked to Google sign-in
   role: { type: String, enum: ['user', 'superadmin'], default: 'user' },
+  // Scoped access: can use the Newsletter composer only (not the rest of admin).
+  newsletterEditor: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true },
   // Subscription tier. 'pro' unlocks the AI assistant + advanced features (Paystack
   // billing wires `plan`/`planExpiry` later; for now the AI assistant is open to all).
@@ -1980,6 +1982,15 @@ const superAdminAuth = async (req, res, next) => {
   } catch (error) { res.status(403).json({ message: 'Access denied' }); }
 };
 
+// Newsletter composer access: superadmins, or a user flagged newsletterEditor. Lets you
+// hand the newsletter to someone without giving them the whole admin panel.
+const newsletterAuth = async (req, res, next) => {
+  try {
+    if (req.user.role === 'superadmin' || req.user.newsletterEditor) return next();
+    return res.status(403).json({ message: 'Access denied. Newsletter access only.' });
+  } catch (error) { res.status(403).json({ message: 'Access denied' }); }
+};
+
 // --------------------------
 // Multer configuration
 // --------------------------
@@ -2063,7 +2074,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
     const user = new User({ name, email: cleanEmail, password: hashedPassword, phone: cleanPhone.slice(0, 20), emailVerified: true });
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
+    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 app.post('/api/login', authLimiter, async (req, res) => {
@@ -2097,7 +2108,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -2121,7 +2132,7 @@ app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
       user.lastLogin = new Date();
       await user.save();
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-      return res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
+      return res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, onboarded: user.onboarded } });
     }
 
     // No account yet → this code confirms a sign-up. Promote the pending record
@@ -2209,7 +2220,7 @@ app.post('/api/auth/google', authLimiter, async (req, res) => {
 
     // Google itself is the strong factor, so we skip our email OTP here.
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, onboarded: user.onboarded } });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, onboarded: user.onboarded } });
   } catch (error) {
     console.error('[google-auth]', error.message);
     res.status(500).json({ message: 'Server error' });
@@ -2221,6 +2232,7 @@ app.get('/api/me', auth, async (req, res) => {
   const u = req.user;
   res.json({
     id: u._id, name: u.name, email: u.email, role: u.role,
+    newsletterEditor: !!u.newsletterEditor,
     plan: u.plan || 'free',
     phone: u.phone || '', monthlyIncome: u.monthlyIncome || 0,
     primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
@@ -2724,6 +2736,17 @@ app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {
 // ── Newsletter (to the waitlist) ────────────────────────────────────────────────
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL || 'https://api.automonie.com';
 
+// Strip anything unsafe/unwanted from the visual editor's HTML before it goes out:
+// scripts, styles, iframes, event handlers and javascript: URLs. Keeps ordinary
+// formatting tags (b/i/u/h/p/ul/a/img/font/span with inline styles).
+function sanitizeNewsletterBody(html) {
+  return (html || '')
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)[^>]*>/gi, '')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')  // onclick=, onerror=, …
+    .replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*(\2)/gi, '$1=$2#$3');
+}
+
 // Wrap the admin's body in a simple branded shell + a one-click unsubscribe footer.
 function newsletterHtml(bodyHtml, unsubUrl) {
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#0b1326">
@@ -2741,7 +2764,7 @@ function newsletterText(bodyHtml, unsubUrl) {
 }
 
 // How many subscribers a send would reach right now.
-app.get('/api/admin/newsletter/audience', auth, superAdminAuth, async (req, res) => {
+app.get('/api/admin/newsletter/audience', auth, newsletterAuth, async (req, res) => {
   try {
     const [active, total, recent] = await Promise.all([
       Waitlist.countDocuments({ unsubscribed: { $ne: true } }),
@@ -2753,11 +2776,11 @@ app.get('/api/admin/newsletter/audience', auth, superAdminAuth, async (req, res)
 });
 
 // Send a test to the admin's own address (no real audience touched).
-app.post('/api/admin/newsletter/test', auth, superAdminAuth, async (req, res) => {
+app.post('/api/admin/newsletter/test', auth, newsletterAuth, async (req, res) => {
   try {
     if (!emailConfigured()) return res.status(503).json({ message: 'Email is not configured (set BREVO_API_KEY).' });
     const subject = (req.body?.subject || '').toString().trim();
-    const body = (req.body?.html || '').toString().trim();
+    const body = sanitizeNewsletterBody((req.body?.html || '').toString().trim());
     if (!subject || !body) return res.status(400).json({ message: 'Subject and body are required.' });
     const to = req.body?.to || req.user.email;
     const unsubUrl = `${PUBLIC_API_URL}/unsubscribe?token=preview`;
@@ -2768,11 +2791,11 @@ app.post('/api/admin/newsletter/test', auth, superAdminAuth, async (req, res) =>
 
 // Send the newsletter to every non-unsubscribed subscriber. Sequential, per-recipient
 // (each gets their own unsubscribe link; no addresses are shared). Records the send.
-app.post('/api/admin/newsletter/send', auth, superAdminAuth, async (req, res) => {
+app.post('/api/admin/newsletter/send', auth, newsletterAuth, async (req, res) => {
   try {
     if (!emailConfigured()) return res.status(503).json({ message: 'Email is not configured (set BREVO_API_KEY).' });
     const subject = (req.body?.subject || '').toString().trim();
-    const body = (req.body?.html || '').toString().trim();
+    const body = sanitizeNewsletterBody((req.body?.html || '').toString().trim());
     if (!subject || !body) return res.status(400).json({ message: 'Subject and body are required.' });
     // Safety cap per run (Brevo free tier ~300/day). Override with ?limit=.
     const cap = Math.max(1, Math.min(5000, parseInt(req.body?.limit, 10) || 5000));
@@ -4649,6 +4672,15 @@ app.patch('/api/admin/users/:id/role', auth, superAdminAuth, async (req, res) =>
     const user = await User.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json({ message: 'Role updated', user });
+  } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+// Grant / revoke scoped newsletter access (composer only, not the rest of admin).
+app.patch('/api/admin/users/:id/newsletter-editor', auth, superAdminAuth, async (req, res) => {
+  try {
+    const enabled = !!req.body.enabled;
+    const user = await User.findByIdAndUpdate(req.params.id, { newsletterEditor: enabled }, { new: true }).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json({ message: enabled ? 'Newsletter access granted' : 'Newsletter access revoked', user: { id: user._id, email: user.email, newsletterEditor: user.newsletterEditor } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 // Grant / revoke Pro for a user (until Paystack subscription billing is live, this is

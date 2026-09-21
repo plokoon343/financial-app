@@ -3305,13 +3305,18 @@ app.post('/api/cron/subscription-reminders', async (req, res) => {
 // the subscription renewal reminders back-to-back. Each job is isolated so one failing
 // never blocks the other. Guarded by CRON_SECRET. The per-job endpoints above still
 // exist if you'd rather schedule them separately.
-app.post('/api/cron/daily', async (req, res) => {
+app.post('/api/cron/daily', (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
-  const ran = [], failedJobs = [];
-  try { await sweepAllDueBills(); ran.push('bills'); } catch (e) { failedJobs.push('bills'); console.error('[cron/daily] bills', e.message); }
-  try { await sweepSubscriptionReminders(); ran.push('subscription-reminders'); } catch (e) { failedJobs.push('subscription-reminders'); console.error('[cron/daily] subs', e.message); }
-  res.json({ ok: failedJobs.length === 0, ran, failed: failedJobs });
+  // Respond immediately (202) so the scheduler never waits on the sweep — it can grow
+  // past a 30s HTTP timeout as the user base grows, and a timed-out request would look
+  // like a failure. The jobs run in the background, each isolated so one can't block
+  // the other. Errors surface in the server logs, not the HTTP response.
+  res.status(202).json({ ok: true, started: ['bills', 'subscription-reminders'] });
+  (async () => {
+    try { await sweepAllDueBills(); } catch (e) { console.error('[cron/daily] bills', e.message); }
+    try { await sweepSubscriptionReminders(); } catch (e) { console.error('[cron/daily] subs', e.message); }
+  })();
 });
 
 // Alerts

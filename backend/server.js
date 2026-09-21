@@ -708,6 +708,15 @@ const newsletterSchema = new mongoose.Schema({
 }, { timestamps: true });
 const Newsletter = mongoose.model('Newsletter', newsletterSchema);
 
+// Images uploaded for a newsletter, served from a public URL so email clients can load
+// them. Kept small; stored in the DB to avoid needing an external host.
+const newsletterAssetSchema = new mongoose.Schema({
+  data:        { type: Buffer, required: true },
+  contentType: { type: String, required: true },
+  createdBy:   { type: String, default: '' },
+}, { timestamps: true });
+const NewsletterAsset = mongoose.model('NewsletterAsset', newsletterAssetSchema);
+
 // Recap release control - a single global doc. Each window is 'auto' (client's
 // schedule rule decides), 'on' (force-dropped to everyone, Spotify-style) or
 // 'off' (held). Lets an admin drop the yearly Wrapped exactly when they want.
@@ -2735,6 +2744,34 @@ app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {
 
 // ── Newsletter (to the waitlist) ────────────────────────────────────────────────
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL || 'https://api.automonie.com';
+
+// Newsletter image upload (graphics). Stores the image and returns a public URL to drop
+// into the email. Images only, 5 MB cap.
+const newsletterImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+});
+app.post('/api/admin/newsletter/image', auth, newsletterAuth, (req, res) => {
+  newsletterImageUpload.single('image')(req, res, async (err) => {
+    if (err) return res.status(400).json({ message: err.message || 'Upload failed' });
+    if (!req.file) return res.status(400).json({ message: 'Please choose an image (max 5 MB).' });
+    try {
+      const asset = await NewsletterAsset.create({ data: req.file.buffer, contentType: req.file.mimetype, createdBy: req.user.email });
+      res.json({ url: `${PUBLIC_API_URL}/api/newsletter/asset/${asset._id}` });
+    } catch (e) { console.error('[newsletter/image]', e.message); res.status(500).json({ message: 'Could not save the image.' }); }
+  });
+});
+// Public: serve a newsletter image so email clients (and the composer preview) can load it.
+app.get('/api/newsletter/asset/:id', async (req, res) => {
+  try {
+    const a = await NewsletterAsset.findById(req.params.id);
+    if (!a) return res.status(404).end();
+    res.set('Content-Type', a.contentType);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(a.data);
+  } catch { res.status(404).end(); }
+});
 
 // Strip anything unsafe/unwanted from the visual editor's HTML before it goes out:
 // scripts, styles, iframes, event handlers and javascript: URLs. Keeps ordinary

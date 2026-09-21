@@ -666,6 +666,19 @@ const createNotification = async (userId, { type = 'info', title, message = '', 
   catch (e) { console.error('[createNotification]', e.message); }
 };
 
+// Site-wide dismissible banner. A new doc is created each time it's set (so editing
+// re-shows it to everyone); GET returns the latest active one. Per-user dismissal is
+// tracked client-side by banner _id.
+const globalBannerSchema = new mongoose.Schema({
+  message:  { type: String, default: '' },
+  type:     { type: String, default: 'info' }, // 'info' | 'warning' | 'success'
+  link:     { type: String, default: '' },
+  linkText: { type: String, default: '' },
+  active:   { type: Boolean, default: false },
+  createdBy:{ type: String, default: '' },
+}, { timestamps: true });
+const GlobalBanner = mongoose.model('GlobalBanner', globalBannerSchema);
+
 // Activity log - a durable history of milestone actions in the app (goal
 // reached, debt cleared, bill auto-paid, wallet funded…), distinct from the
 // bank/transaction ledger. Surfaced on the History screen.
@@ -2499,6 +2512,48 @@ app.get('/api/notifications', auth, async (req, res) => {
     const unread = await Notification.countDocuments({ userId: req.user._id, read: false });
     res.json({ items, unread });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// The current site-wide banner (or null). Any signed-in user; dismissal is client-side.
+app.get('/api/global-banner', auth, async (req, res) => {
+  try {
+    const b = await GlobalBanner.findOne({ active: true }).sort({ createdAt: -1 }).lean();
+    if (!b) return res.json({ banner: null });
+    res.json({ banner: { id: String(b._id), message: b.message, type: b.type, link: b.link, linkText: b.linkText } });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Admin: broadcast an in-app notification to every active user's bell (fan-out).
+app.post('/api/admin/notify-all', auth, superAdminAuth, async (req, res) => {
+  try {
+    const title = (req.body?.title || '').toString().trim();
+    if (!title) return res.status(400).json({ message: 'A title is required.' });
+    const type = ['info', 'success', 'warning', 'danger'].includes(req.body?.type) ? req.body.type : 'info';
+    const message = (req.body?.message || '').toString().slice(0, 500);
+    const link = (req.body?.link || '').toString().slice(0, 300);
+    const users = await User.find({ isActive: { $ne: false } }, { _id: 1 }).lean();
+    const docs = users.map((u) => ({ userId: u._id, title, message, type, link }));
+    if (docs.length) await Notification.insertMany(docs, { ordered: false });
+    res.json({ sent: docs.length });
+  } catch (e) { console.error('[notify-all]', e.message); res.status(500).json({ message: 'Broadcast failed.' }); }
+});
+
+// Admin: set or clear the site-wide banner. active:false (or empty message) clears it.
+app.post('/api/admin/global-banner', auth, superAdminAuth, async (req, res) => {
+  try {
+    const message = (req.body?.message || '').toString().trim().slice(0, 300);
+    const active = !!req.body?.active && !!message;
+    await GlobalBanner.updateMany({ active: true }, { $set: { active: false } }); // retire any current one
+    if (!active) return res.json({ banner: null });
+    const type = ['info', 'warning', 'success'].includes(req.body?.type) ? req.body.type : 'info';
+    const b = await GlobalBanner.create({
+      message, type, active: true,
+      link: (req.body?.link || '').toString().slice(0, 300),
+      linkText: (req.body?.linkText || '').toString().slice(0, 60),
+      createdBy: req.user.email,
+    });
+    res.json({ banner: { id: String(b._id), message: b.message, type: b.type, link: b.link, linkText: b.linkText } });
+  } catch (e) { console.error('[global-banner]', e.message); res.status(500).json({ message: 'Could not update the banner.' }); }
 });
 app.patch('/api/notifications/:id/read', auth, async (req, res) => {
   try {

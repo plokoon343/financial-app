@@ -858,6 +858,28 @@ const getOrCreateWallet = async (userId) => {
   return wallet;
 };
 
+// Atomic wallet debit: decrements the balance ONLY while it still covers the amount,
+// in a single DB op. Prevents the read-modify-write lost-update (two concurrent charges
+// for one user racing on a stale in-memory balance) and any overspend below zero.
+// Returns the updated wallet, or null when funds are insufficient.
+const debitWallet = async (userId, amount) => {
+  const amt = Math.abs(Number(amount) || 0);
+  if (!(amt > 0)) return null;
+  await getOrCreateWallet(userId); // ensure the doc exists
+  return Wallet.findOneAndUpdate(
+    { userId, balance: { $gte: amt } },
+    { $inc: { balance: -amt } },
+    { new: true },
+  );
+};
+// Atomic credit (refund / deposit). Always succeeds; creates the wallet if missing.
+const creditWallet = async (userId, amount) => {
+  const amt = Math.abs(Number(amount) || 0);
+  if (!(amt > 0)) return getOrCreateWallet(userId);
+  await getOrCreateWallet(userId);
+  return Wallet.findOneAndUpdate({ userId }, { $inc: { balance: amt } }, { new: true, upsert: true });
+};
+
 const applySavingsRule = async (userId, transactionAmount, transactionType) => {
   try {
     const rule = await SavingsRule.findOne({ userId, active: true });
@@ -3158,25 +3180,25 @@ async function processDueBill(bill) {
   );
 
   if (bill.autoPay) {
-    const wallet = await getOrCreateWallet(userId);
-    if (wallet.balance >= bill.amount) {
-      if (!(await claim())) return { bill: bill.name, status: 'skipped', amount: bill.amount };
-      // We own this cycle - debit and record.
-      wallet.balance -= bill.amount;
-      await wallet.save();
-      await new WalletTransaction({ userId, type: 'withdrawal', amount: bill.amount, description: `Auto-pay: ${bill.name}`, status: 'completed' }).save();
-      await new Transaction({ userId, date: new Date(), description: `Auto-pay: ${bill.name}`, amount: -Math.abs(bill.amount), category: bill.category || 'Bills', type: 'expense' }).save();
-      await createNotification(userId, { type: 'success', title: 'Bill paid', message: `₦${bill.amount.toLocaleString()} paid for ${bill.name}.` });
-      await logActivity(userId, { type: 'bill_paid', title: 'Bill auto-paid', message: bill.name, amount: bill.amount });
-      return { bill: bill.name, status: 'paid', amount: bill.amount };
+    // Atomic debit FIRST — guarantees funds and can't lose a concurrent update or
+    // overspend below zero. On insufficient funds nothing is claimed, so nextDue is
+    // untouched and it retries next sweep.
+    const debited = await debitWallet(userId, bill.amount);
+    if (!debited) {
+      const link = `autopay_fail_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
+      if (!(await Notification.findOne({ userId, link }))) {
+        await createNotification(userId, { type: 'danger', title: 'Autopay failed', message: `Couldn't pay ${bill.name} (₦${bill.amount.toLocaleString()}) - your wallet is low. Top up to pay it.`, link });
+      }
+      return { bill: bill.name, status: 'insufficient_funds', amount: bill.amount };
     }
-    // Not enough funds - notify (deduped per bill per day) and retry next sweep by
-    // leaving nextDue untouched (no claim).
-    const link = `autopay_fail_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
-    if (!(await Notification.findOne({ userId, link }))) {
-      await createNotification(userId, { type: 'danger', title: 'Autopay failed', message: `Couldn't pay ${bill.name} (₦${bill.amount.toLocaleString()}) - your wallet is low. Top up to pay it.`, link });
-    }
-    return { bill: bill.name, status: 'insufficient_funds', amount: bill.amount };
+    // We took the money — now claim the cycle. If another sweep already advanced it,
+    // refund and skip so the bill is never paid twice for one cycle.
+    if (!(await claim())) { await creditWallet(userId, bill.amount); return { bill: bill.name, status: 'skipped', amount: bill.amount }; }
+    await new WalletTransaction({ userId, type: 'withdrawal', amount: bill.amount, description: `Auto-pay: ${bill.name}`, status: 'completed' }).save();
+    await new Transaction({ userId, date: new Date(), description: `Auto-pay: ${bill.name}`, amount: -Math.abs(bill.amount), category: bill.category || 'Bills', type: 'expense' }).save();
+    await createNotification(userId, { type: 'success', title: 'Bill paid', message: `₦${bill.amount.toLocaleString()} paid for ${bill.name}.` });
+    await logActivity(userId, { type: 'bill_paid', title: 'Bill auto-paid', message: bill.name, amount: bill.amount });
+    return { bill: bill.name, status: 'paid', amount: bill.amount };
   }
   // Reminder-only bill: claim atomically so overlapping sweeps don't double-remind.
   if (!(await claim())) return { bill: bill.name, status: 'skipped', amount: bill.amount };
@@ -4622,41 +4644,50 @@ app.post('/api/payments/pay-selected', auth, async (req, res) => {
     if (billIds.length === 0 && debtIds.length === 0) {
       return res.status(400).json({ message: 'Select at least one item to pay' });
     }
-    const wallet = await getOrCreateWallet(userId);
     let totalPaid = 0;
     const errors = [];
     const today = new Date();
 
+    // Each item debits the wallet ATOMICALLY (funds guaranteed, no lost-update, no
+    // overspend) and is recorded immediately — so a failure partway through can't leave
+    // items "paid" while the wallet debit vanishes. If recording fails after the debit,
+    // the amount is refunded.
     for (const id of debtIds) {
       const debt = await Debt.findOne({ _id: id, userId });
       if (!debt || debt.balance <= 0) continue;
       const amount = Math.min(debt.scheduledPayment?.amount || debt.minPayment, debt.balance);
-      if (wallet.balance < amount) { errors.push(`Insufficient funds for debt: ${debt.name}`); continue; }
-      wallet.balance -= amount;
-      debt.balance = Math.max(0, debt.balance - amount);
-      await debt.save();
-      totalPaid += amount;
-      await new WalletTransaction({ userId, type: 'withdrawal', amount, description: `Debt payment: ${debt.name}`, status: 'completed' }).save();
+      if (!(amount > 0)) continue;
+      const w = await debitWallet(userId, amount);
+      if (!w) { errors.push(`Insufficient funds for debt: ${debt.name}`); continue; }
+      try {
+        debt.balance = Math.max(0, debt.balance - amount);
+        await debt.save();
+        await new WalletTransaction({ userId, type: 'withdrawal', amount, description: `Debt payment: ${debt.name}`, status: 'completed' }).save();
+        totalPaid += amount;
+      } catch (e) { await creditWallet(userId, amount); errors.push(`Could not record debt payment: ${debt.name}`); }
     }
 
     for (const id of billIds) {
       const bill = await RecurringBill.findOne({ _id: id, userId });
       if (!bill) continue;
       const amount = bill.amount;
-      if (wallet.balance < amount) { errors.push(`Insufficient funds for bill: ${bill.name}`); continue; }
-      wallet.balance -= amount;
-      if (bill.frequency === 'yearly') bill.nextDue = new Date(bill.nextDue.getFullYear() + 1, bill.nextDue.getMonth(), bill.dueDate);
-      else bill.nextDue = new Date(bill.nextDue.getFullYear(), bill.nextDue.getMonth() + 1, bill.dueDate);
-      await bill.save();
-      totalPaid += amount;
-      await new WalletTransaction({ userId, type: 'withdrawal', amount, description: `Bill payment: ${bill.name}`, status: 'completed' }).save();
-      await new Transaction({ userId, date: today, description: bill.name, amount: -Math.abs(amount), category: bill.category || 'Bills', type: 'expense' }).save();
+      if (!(amount > 0)) continue;
+      const w = await debitWallet(userId, amount);
+      if (!w) { errors.push(`Insufficient funds for bill: ${bill.name}`); continue; }
+      try {
+        if (bill.frequency === 'yearly') bill.nextDue = new Date(bill.nextDue.getFullYear() + 1, bill.nextDue.getMonth(), bill.dueDate);
+        else bill.nextDue = new Date(bill.nextDue.getFullYear(), bill.nextDue.getMonth() + 1, bill.dueDate);
+        await bill.save();
+        await new WalletTransaction({ userId, type: 'withdrawal', amount, description: `Bill payment: ${bill.name}`, status: 'completed' }).save();
+        await new Transaction({ userId, date: today, description: bill.name, amount: -Math.abs(amount), category: bill.category || 'Bills', type: 'expense' }).save();
+        totalPaid += amount;
+      } catch (e) { await creditWallet(userId, amount); errors.push(`Could not record bill payment: ${bill.name}`); }
     }
 
-    await wallet.save();
+    const balance = (await getOrCreateWallet(userId)).balance;
     res.json({
       message: errors.length ? `Paid ${totalPaid} - some failed: ${errors.join('; ')}` : `Paid ${totalPaid} from wallet.`,
-      totalPaid, errors, balance: wallet.balance,
+      totalPaid, errors, balance,
     });
   } catch (err) {
     console.error('Pay selected error:', err);
@@ -5747,6 +5778,14 @@ const vtpassRequestId = () => {
   return `AM${stamp}${Math.random().toString(36).slice(2, 10)}`;
 };
 
+// Requery a transaction by request_id — the authoritative way to resolve an ambiguous
+// timeout (the /pay call can drop AFTER VTpass delivered). Returns the parsed data or
+// throws.
+const vtpassRequery = async (requestId) => {
+  const r = await axios.post(`${VTPASS_BASE()}/requery`, { request_id: requestId }, { headers: vtpassPostHeaders(), timeout: 20000 });
+  return r.data || null;
+};
+
 // Supported providers per bill type, with their VTpass serviceIDs. Shown in the
 // UI even before keys are set so the page is browsable.
 const BILL_PROVIDERS = {
@@ -5855,20 +5894,31 @@ app.post('/api/bills/pay', auth, async (req, res) => {
     return res.status(400).json({ message: billType === 'tv' ? 'Smartcard number is required' : 'Meter number is required' });
   }
 
-  const wallet = await getOrCreateWallet(req.user._id);
-  if (wallet.balance < amt) return res.status(400).json({ message: 'Insufficient wallet balance' });
-
+  const userId = req.user._id;
   const providerName = (BILL_PROVIDERS[billType].find((p) => p.id === serviceID) || {}).name || serviceID;
   const requestId = vtpassRequestId();
+  const label = billType === 'airtime' ? `${providerName} Airtime`
+    : billType === 'data' ? `${providerName} Data`
+    : billType === 'tv' ? `${providerName} subscription`
+    : `${providerName} (meter ${billersCode})`;
+  const descr = `${label} - ${recipient}`;
 
-  // Reserve funds up-front; the catch/decline paths refund.
-  wallet.balance -= amt;
-  await wallet.save();
+  // Reserve funds ATOMICALLY (no lost-update / overspend). null → not enough balance.
+  const reserved = await debitWallet(userId, amt);
+  if (!reserved) return res.status(400).json({ message: 'Insufficient wallet balance' });
+
+  // Record the successful (or pending) purchase on the ledger. Called once we know the
+  // money actually bought something.
+  const finalizeSuccess = async (isPending) => {
+    await new WalletTransaction({ userId, type: 'withdrawal', amount: amt, description: descr, reference: requestId, status: isPending ? 'pending' : 'completed' }).save().catch(() => {});
+    await new Transaction({ userId, date: new Date(), description: descr, amount: -Math.abs(amt), category: BILL_CATEGORY[billType], type: 'expense', source: 'manual' }).save().catch(() => {});
+    await createNotification(userId, { type: 'success', title: 'Bill paid', message: `${descr} • ₦${amt.toLocaleString()}` }).catch(() => {});
+  };
 
   let record;
   try {
     record = await BillPayment.create({
-      userId: req.user._id, billType, serviceID, provider: providerName,
+      userId, billType, serviceID, provider: providerName,
       amount: amt, phone: recipient, billersCode: billersCode || '', variationCode: variationCode || '',
       requestId, status: 'pending',
     });
@@ -5885,7 +5935,7 @@ app.post('/api/bills/pay', auth, async (req, res) => {
     const pending = data.code === '099' || txn.status === 'pending' || txn.status === 'initiated';
 
     if (!ok && !pending) {
-      wallet.balance += amt; await wallet.save();
+      await creditWallet(userId, amt); // clean decline → refund the reservation
       record.status = 'failed'; record.message = data.response_description || 'Payment declined'; await record.save();
       return res.status(502).json({ message: 'Payment failed. You were not charged.' });
     }
@@ -5896,25 +5946,39 @@ app.post('/api/bills/pay', auth, async (req, res) => {
     record.token = token || '';
     record.message = data.response_description || (pending ? 'Pending confirmation' : 'Successful');
     await record.save();
+    await finalizeSuccess(record.status === 'pending');
 
-    const label = billType === 'airtime' ? `${providerName} Airtime`
-      : billType === 'data' ? `${providerName} Data`
-      : billType === 'tv' ? `${providerName} subscription`
-      : `${providerName} (meter ${billersCode})`;
-    const descr = `${label} - ${recipient}`;
-    await new WalletTransaction({ userId: req.user._id, type: 'withdrawal', amount: amt, description: descr, reference: requestId, status: record.status === 'pending' ? 'pending' : 'completed' }).save();
-    await new Transaction({ userId: req.user._id, date: new Date(), description: descr, amount: -Math.abs(amt), category: BILL_CATEGORY[billType], type: 'expense', source: 'manual' }).save();
-    await createNotification(req.user._id, { type: 'success', title: 'Bill paid', message: `${descr} • ₦${amt.toLocaleString()}` });
-
-    res.json({
-      status: record.status, message: record.message, amount: amt, balance: wallet.balance,
-      token: record.token || undefined, reference: requestId, description: descr,
-    });
+    const balance = (await getOrCreateWallet(userId)).balance;
+    res.json({ status: record.status, message: record.message, amount: amt, balance, token: record.token || undefined, reference: requestId, description: descr });
   } catch (err) {
     console.error('[bills/pay]', err.response?.data || err.message);
-    wallet.balance += amt; await wallet.save();
-    if (record) { record.status = 'failed'; record.message = 'Network error'; await record.save().catch(() => {}); }
-    res.status(502).json({ message: 'Could not complete payment. You were not charged.' });
+    // AMBIGUOUS: the /pay request errored/timed out, but VTpass may have already
+    // delivered. Requery by request_id before deciding — a blind refund here would hand
+    // out free airtime/data on any timeout-after-delivery.
+    let q = null;
+    try { q = await vtpassRequery(requestId); } catch (e) { console.error('[bills/pay requery]', e.response?.data || e.message); }
+    const qtxn = q?.content?.transactions || {};
+    const delivered = q?.code === '000' || qtxn.status === 'delivered';
+    const qpending = q?.code === '099' || qtxn.status === 'pending' || qtxn.status === 'initiated';
+
+    if (delivered) {
+      if (record) { record.status = 'completed'; record.providerRef = qtxn.transactionId || ''; record.token = qtxn.token || ''; record.message = 'Confirmed via requery'; await record.save().catch(() => {}); }
+      await finalizeSuccess(false);
+      const balance = (await getOrCreateWallet(userId)).balance;
+      return res.json({ status: 'completed', message: 'Delivered', amount: amt, balance, reference: requestId, description: descr });
+    }
+    if (qpending || q === null) {
+      // Unknown or still pending → do NOT refund (money may be spent). Keep it reserved
+      // and mark pending for later reconciliation.
+      if (record) { record.status = 'pending'; record.message = q === null ? 'Awaiting confirmation (network error)' : 'Pending confirmation'; await record.save().catch(() => {}); }
+      await finalizeSuccess(true);
+      const balance = (await getOrCreateWallet(userId)).balance;
+      return res.status(202).json({ status: 'pending', message: "Payment is processing — your wallet was charged and we'll confirm shortly.", amount: amt, balance, reference: requestId, description: descr });
+    }
+    // Requery confirms it failed → safe to refund.
+    await creditWallet(userId, amt);
+    if (record) { record.status = 'failed'; record.message = 'Failed (confirmed via requery)'; await record.save().catch(() => {}); }
+    res.status(502).json({ message: 'Payment failed. You were not charged.' });
   }
 });
 

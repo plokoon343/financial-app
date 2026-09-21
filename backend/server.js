@@ -686,8 +686,23 @@ const waitlistSchema = new mongoose.Schema({
   name:   { type: String, default: '' },
   phone:  { type: String, default: '' },   // WhatsApp number, for the community group
   source: { type: String, default: 'website' },
+  // Newsletter: one-click unsubscribe (compliance). Token minted lazily at send time.
+  unsubscribed: { type: Boolean, default: false },
+  unsubToken:   { type: String, default: '' },
 }, { timestamps: true });
 const Waitlist = mongoose.model('Waitlist', waitlistSchema);
+
+// A sent newsletter, kept for history/audit. We never store recipient emails here,
+// only counts — the audience is always the current waitlist at send time.
+const newsletterSchema = new mongoose.Schema({
+  subject:   { type: String, required: true },
+  html:      { type: String, default: '' },
+  sent:      { type: Number, default: 0 },
+  failed:    { type: Number, default: 0 },
+  audience:  { type: Number, default: 0 },
+  sentBy:    { type: String, default: '' },
+}, { timestamps: true });
+const Newsletter = mongoose.model('Newsletter', newsletterSchema);
 
 // Recap release control - a single global doc. Each window is 'auto' (client's
 // schedule rule decides), 'on' (force-dropped to everyone, Spotify-style) or
@@ -2678,6 +2693,93 @@ app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {
     ]);
     res.json({ count, items });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// ── Newsletter (to the waitlist) ────────────────────────────────────────────────
+const PUBLIC_API_URL = process.env.PUBLIC_API_URL || 'https://api.automonie.com';
+
+// Wrap the admin's body in a simple branded shell + a one-click unsubscribe footer.
+function newsletterHtml(bodyHtml, unsubUrl) {
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#0b1326">
+    <div style="padding:20px 4px;font-weight:800;font-size:20px;color:#0f6e56">automonie</div>
+    <div style="background:#fff;border:1px solid #e7ebf1;border-radius:14px;padding:22px 22px 8px;line-height:1.6;font-size:16px">${bodyHtml}</div>
+    <p style="color:#8a97a8;font-size:12px;line-height:1.6;padding:16px 6px">
+      You're getting this because you joined the Automonie waitlist.
+      <a href="${unsubUrl}" style="color:#8a97a8">Unsubscribe</a>.
+    </p>
+  </div>`;
+}
+function newsletterText(bodyHtml, unsubUrl) {
+  const plain = bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return `${plain}\n\nYou joined the Automonie waitlist. Unsubscribe: ${unsubUrl}`;
+}
+
+// How many subscribers a send would reach right now.
+app.get('/api/admin/newsletter/audience', auth, superAdminAuth, async (req, res) => {
+  try {
+    const [active, total, recent] = await Promise.all([
+      Waitlist.countDocuments({ unsubscribed: { $ne: true } }),
+      Waitlist.countDocuments(),
+      Newsletter.find().sort({ createdAt: -1 }).limit(10).lean(),
+    ]);
+    res.json({ active, total, unsubscribed: total - active, history: recent });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Send a test to the admin's own address (no real audience touched).
+app.post('/api/admin/newsletter/test', auth, superAdminAuth, async (req, res) => {
+  try {
+    if (!emailConfigured()) return res.status(503).json({ message: 'Email is not configured (set BREVO_API_KEY).' });
+    const subject = (req.body?.subject || '').toString().trim();
+    const body = (req.body?.html || '').toString().trim();
+    if (!subject || !body) return res.status(400).json({ message: 'Subject and body are required.' });
+    const to = req.body?.to || req.user.email;
+    const unsubUrl = `${PUBLIC_API_URL}/unsubscribe?token=preview`;
+    await sendEmail({ to, subject: `[TEST] ${subject}`, html: newsletterHtml(body, unsubUrl), text: newsletterText(body, unsubUrl) });
+    res.json({ ok: true, to });
+  } catch (e) { console.error('[newsletter/test]', e.response?.data || e.message); res.status(502).json({ message: 'Test send failed. Check the email config.' }); }
+});
+
+// Send the newsletter to every non-unsubscribed subscriber. Sequential, per-recipient
+// (each gets their own unsubscribe link; no addresses are shared). Records the send.
+app.post('/api/admin/newsletter/send', auth, superAdminAuth, async (req, res) => {
+  try {
+    if (!emailConfigured()) return res.status(503).json({ message: 'Email is not configured (set BREVO_API_KEY).' });
+    const subject = (req.body?.subject || '').toString().trim();
+    const body = (req.body?.html || '').toString().trim();
+    if (!subject || !body) return res.status(400).json({ message: 'Subject and body are required.' });
+    // Safety cap per run (Brevo free tier ~300/day). Override with ?limit=.
+    const cap = Math.max(1, Math.min(5000, parseInt(req.body?.limit, 10) || 5000));
+
+    const subs = await Waitlist.find({ unsubscribed: { $ne: true } }).select('email unsubToken').limit(cap).lean();
+    let sent = 0, failed = 0;
+    for (const s of subs) {
+      try {
+        let token = s.unsubToken;
+        if (!token) { token = crypto.randomBytes(16).toString('hex'); await Waitlist.updateOne({ _id: s._id }, { $set: { unsubToken: token } }); }
+        const unsubUrl = `${PUBLIC_API_URL}/unsubscribe?token=${token}`;
+        await sendEmail({ to: s.email, subject, html: newsletterHtml(body, unsubUrl), text: newsletterText(body, unsubUrl) });
+        sent += 1;
+      } catch (err) { failed += 1; console.error('[newsletter] to', s.email, err.response?.data?.message || err.message); }
+      await new Promise((r) => setTimeout(r, 120)); // gentle pacing for the provider
+    }
+    await Newsletter.create({ subject, html: body, sent, failed, audience: subs.length, sentBy: req.user.email });
+    res.json({ sent, failed, audience: subs.length });
+  } catch (e) { console.error('[newsletter/send]', e.message); res.status(500).json({ message: 'Send failed.' }); }
+});
+
+// Public one-click unsubscribe (from the email footer). No auth; token identifies the
+// subscriber. Returns a tiny confirmation page.
+app.get('/unsubscribe', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const page = (msg) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Automonie</title><body style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f6f8fa;margin:0"><div style="max-width:440px;margin:12vh auto;background:#fff;border:1px solid #e7ebf1;border-radius:16px;padding:28px;text-align:center"><div style="font-weight:800;font-size:20px;color:#0f6e56;margin-bottom:12px">automonie</div><p style="color:#0b1326;line-height:1.6;font-size:16px">${msg}</p></div></body>`;
+  try {
+    if (token && token !== 'preview') {
+      const r = await Waitlist.updateOne({ unsubToken: token }, { $set: { unsubscribed: true } });
+      if (r.matchedCount) return res.send(page("You're unsubscribed. You won't get any more Automonie emails. Change your mind? Just rejoin the waitlist."));
+    }
+    res.send(page('This unsubscribe link is invalid or has already been used.'));
+  } catch (e) { res.status(500).send(page('Something went wrong. Please try again later.')); }
 });
 
 // Correction rate by bank, source and parser version. Tells us which parsers are

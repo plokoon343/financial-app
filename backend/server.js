@@ -3301,6 +3301,19 @@ app.post('/api/cron/subscription-reminders', async (req, res) => {
   catch (e) { console.error('[cron/subscription-reminders]', e.message); res.status(500).json({ message: 'Sweep failed' }); }
 });
 
+// ONE daily maintenance ping to schedule instead of many: runs the due-bill sweep and
+// the subscription renewal reminders back-to-back. Each job is isolated so one failing
+// never blocks the other. Guarded by CRON_SECRET. The per-job endpoints above still
+// exist if you'd rather schedule them separately.
+app.post('/api/cron/daily', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  const ran = [], failedJobs = [];
+  try { await sweepAllDueBills(); ran.push('bills'); } catch (e) { failedJobs.push('bills'); console.error('[cron/daily] bills', e.message); }
+  try { await sweepSubscriptionReminders(); ran.push('subscription-reminders'); } catch (e) { failedJobs.push('subscription-reminders'); console.error('[cron/daily] subs', e.message); }
+  res.json({ ok: failedJobs.length === 0, ran, failed: failedJobs });
+});
+
 // Alerts
 app.get('/api/alerts', auth, async (req, res) => {
   try {

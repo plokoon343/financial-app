@@ -87,6 +87,7 @@ export default function MoneyWrapped() {
   };
 
   const loading = all === null;
+  const isDecember = new Date().getMonth() === 11; // Money Wrapped only unlocks in December
   const s = slides[idx];
 
   return (
@@ -94,6 +95,12 @@ export default function MoneyWrapped() {
       {toast && <div className="wr-toast">{toast}</div>}
       {loading ? (
         <div className="wr-stage" style={{ background: 'linear-gradient(135deg,#0e9f6e,#075f4d)' }}><div className="wr-eyebrow">Loading your year…</div></div>
+      ) : !isDecember ? (
+        <div className="wr-stage wr-empty">
+          <i className="fas fa-calendar-day" style={{ fontSize: '2.4rem', opacity: 0.75 }}></i>
+          <div className="wr-empty-title">Money Wrapped drops in December</div>
+          <div className="wr-empty-sub">Your full year-in-review unlocks at the end of the year. Check back in December to see your {year} money era. In the meantime, your weekly and monthly recaps are on the Recaps page.</div>
+        </div>
       ) : slides.length === 0 ? (
         <div className="wr-stage wr-empty">
           <i className="fas fa-film" style={{ fontSize: '2.4rem', opacity: 0.7 }}></i>

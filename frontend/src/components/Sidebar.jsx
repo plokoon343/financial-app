@@ -59,11 +59,13 @@ const Sidebar = () => {
     ]},
     { title: 'Money', items: [
       { path: '/', label: 'Dashboard', icon: 'dashboard' },
+      { path: '/quick-log', label: 'Quick Log', icon: 'bolt' },
       { path: '/assistant', label: 'AI Assistant', icon: 'smart_toy' },
       { path: '/smart-categorize', label: 'Smart Categorise', icon: 'sell' },
       { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
       { path: '/insights', label: 'Insights', icon: 'pie_chart' },
       { path: '/wrapped', label: 'Money Wrapped', icon: 'celebration' },
+      { path: '/recap', label: 'Recaps', icon: 'movie' },
       { path: '/cashflow', label: 'Cashflow', icon: 'monitoring' },
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
       { path: '/cash', label: 'Track Cash', icon: 'payments' },

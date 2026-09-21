@@ -791,9 +791,23 @@ const subscriptionSchema = new mongoose.Schema({
   sourceKey:    { type: String, default: '' },
   autoDetected: { type: Boolean, default: false },
   lastCharge:   { type: Date },
+  // Renewal reminders: the day of the month it bills (inferred from the last charge
+  // when tracked from a detection, or set by the user), and how many days ahead to
+  // nudge. No money moves — this only powers a "renews soon" notification.
+  renewalDay:       { type: Number, min: 1, max: 31 },
+  remindDaysBefore: { type: Number, default: 3, min: 0, max: 30 },
 }, { timestamps: true });
 subscriptionSchema.index({ userId: 1, sourceKey: 1 });
 const Subscription = mongoose.model('Subscription', subscriptionSchema);
+
+// Detections the user dismissed as "not a subscription", so /detect stops resurfacing
+// them. Keyed by the same merchant signature the detector groups on.
+const dismissedDetectionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  key:    { type: String, required: true },
+}, { timestamps: true });
+dismissedDetectionSchema.index({ userId: 1, key: 1 }, { unique: true });
+const DismissedDetection = mongoose.model('DismissedDetection', dismissedDetectionSchema);
 
 // UPDATED: Added bank fields (debt)
 const debtSchema = new mongoose.Schema({
@@ -3122,6 +3136,68 @@ app.post('/api/cron/process-bills', async (req, res) => {
   }
 });
 
+// ── Subscription renewal reminders ─────────────────────────────────────────────
+// The next date a subscription bills, computed (never charged) from its renewalDay
+// (or the day implied by lastCharge/nextPayment) advanced to the next future date.
+function computeNextRenewal(sub, from = new Date()) {
+  const start = new Date(from); start.setHours(0, 0, 0, 0);
+  const day = sub.renewalDay
+    || (sub.nextPayment ? new Date(sub.nextPayment).getDate() : null)
+    || (sub.lastCharge ? new Date(sub.lastCharge).getDate() : null);
+  if (!day) return sub.nextPayment ? new Date(sub.nextPayment) : null;
+  if (sub.frequency === 'yearly') {
+    const anchor = sub.lastCharge ? new Date(sub.lastCharge) : (sub.nextPayment ? new Date(sub.nextPayment) : start);
+    let next = new Date(start.getFullYear(), anchor.getMonth(), day);
+    while (next < start) next = new Date(next.getFullYear() + 1, anchor.getMonth(), day);
+    return next;
+  }
+  let next = new Date(start.getFullYear(), start.getMonth(), day);
+  while (next < start) next = new Date(next.getFullYear(), next.getMonth() + 1, day);
+  return next;
+}
+
+// Notify a user before each active subscription renews. Idempotent per renewal date
+// via the notification `link`, so overlapping sweeps (cron + interval) can't double-
+// remind. Also keeps sub.nextPayment current. Never moves money.
+async function sweepSubscriptionReminders() {
+  try {
+    const subs = await Subscription.find({ status: 'active' });
+    const now = new Date();
+    for (const sub of subs) {
+      try {
+        const next = computeNextRenewal(sub, now);
+        if (!next) continue;
+        // Keep the stored renewal date fresh for the UI.
+        if (!sub.nextPayment || new Date(sub.nextPayment).getTime() !== next.getTime()) {
+          sub.nextPayment = next; await sub.save();
+        }
+        const days = Math.ceil((next.getTime() - now.getTime()) / 86400000);
+        const window = sub.remindDaysBefore ?? 3;
+        if (days < 0 || days > window) continue;
+        const link = `sub_renewal_${sub._id}_${next.toISOString().slice(0, 10)}`;
+        if (await Notification.findOne({ userId: sub.userId, link })) continue;
+        const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+        await createNotification(sub.userId, {
+          type: 'info', title: 'Subscription renews soon',
+          message: `${sub.name} renews ${when}${sub.cost ? ` (about ₦${Math.round(sub.cost).toLocaleString()})` : ''}. Cancel it now if you don't want to be charged.`,
+          link,
+        });
+      } catch (e) { console.error('[sub reminders] sub', String(sub._id), e.message); }
+    }
+  } catch (e) { console.error('[sub reminders]', e.message); }
+}
+setInterval(sweepSubscriptionReminders, 24 * 60 * 60 * 1000);
+setTimeout(sweepSubscriptionReminders, 45 * 1000);
+
+// External scheduler trigger (Render free tier sleeps; the interval alone can miss a
+// day). Guarded by CRON_SECRET like the other crons.
+app.post('/api/cron/subscription-reminders', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  try { await sweepSubscriptionReminders(); res.json({ ok: true }); }
+  catch (e) { console.error('[cron/subscription-reminders]', e.message); res.status(500).json({ message: 'Sweep failed' }); }
+});
+
 // Alerts
 app.get('/api/alerts', auth, async (req, res) => {
   try {
@@ -3977,7 +4053,9 @@ app.get('/api/subscriptions', auth, async (req, res) => {
         cancelCheck = verifyCancellation({ requestedAt: s.cancelRequestedAt, frequency: s.frequency, chargedAfter });
         if (cancelCheck.state === 'confirmed') promote.push(s._id);
       }
-      return { ...s, guide, cancelCheck };
+      // Ready-computed next renewal date so clients don't re-implement the date math.
+      const nextRenewal = s.status === 'active' ? computeNextRenewal(s) : null;
+      return { ...s, guide, cancelCheck, nextRenewal };
     });
     // Persist confirmed cancellations so we stop re-checking them.
     if (promote.length) {
@@ -4003,7 +4081,11 @@ app.get('/api/subscriptions/detect', auth, async (req, res) => {
       Transaction.find({ userId, type: 'expense' }, { description: 1, amount: 1, date: 1, category: 1 }).lean(),
       Subscription.find({ userId }, { name: 1 }).lean(),
     ]);
-    const existingKeys = new Set(existing.map(s => deriveCategoryKey(s.name)).filter(Boolean));
+    const dismissed = await DismissedDetection.find({ userId }, { key: 1 }).lean();
+    const existingKeys = new Set([
+      ...existing.map(s => deriveCategoryKey(s.name)),
+      ...dismissed.map(d => d.key),
+    ].filter(Boolean));
 
     // Group transactions by merchant signature.
     const groups = new Map();
@@ -4048,11 +4130,20 @@ app.get('/api/subscriptions/detect', auth, async (req, res) => {
 });
 app.post('/api/subscriptions', auth, async (req, res) => {
   try {
-    const { name, cost, frequency, category, scheduledPayment } = req.body;
+    const { name, cost, frequency, category, scheduledPayment, remindDaysBefore } = req.body;
     if (!name || !cost) return res.status(400).json({ message: 'Name and cost required' });
     const now = new Date();
+    const freq = frequency || 'monthly';
+    // Renewal day: explicit, else inferred from a supplied last-charge date (tracking a
+    // detected charge), so reminders have a real date to work from.
+    const lastCharge = req.body.lastCharge ? new Date(req.body.lastCharge) : null;
+    let renewalDay = Number(req.body.renewalDay) || null;
+    if (!renewalDay && lastCharge && !isNaN(lastCharge)) renewalDay = lastCharge.getDate();
+    if (renewalDay && (renewalDay < 1 || renewalDay > 31)) renewalDay = null;
     let nextPayment;
-    if (scheduledPayment?.enabled && scheduledPayment?.dayOfMonth) {
+    if (renewalDay) {
+      nextPayment = computeNextRenewal({ renewalDay, frequency: freq, lastCharge }, now);
+    } else if (scheduledPayment?.enabled && scheduledPayment?.dayOfMonth) {
       nextPayment = new Date(now.getFullYear(), now.getMonth(), scheduledPayment.dayOfMonth);
       if (nextPayment <= now) nextPayment = new Date(now.getFullYear(), now.getMonth() + 1, scheduledPayment.dayOfMonth);
     } else {
@@ -4060,8 +4151,11 @@ app.post('/api/subscriptions', auth, async (req, res) => {
     }
     const sub = new Subscription({
       userId: req.user._id, name, cost: parseFloat(cost),
-      frequency: frequency || 'monthly', category: category || 'Entertainment',
+      frequency: freq, category: category || 'Entertainment',
       status: 'active', nextPayment,
+      renewalDay: renewalDay || undefined,
+      remindDaysBefore: remindDaysBefore != null ? Math.max(0, Math.min(30, Number(remindDaysBefore))) : 3,
+      lastCharge: lastCharge && !isNaN(lastCharge) ? lastCharge : undefined,
       scheduledPayment: { enabled: scheduledPayment?.enabled || false, dayOfMonth: scheduledPayment?.dayOfMonth || 1 },
     });
     await sub.save();
@@ -4072,12 +4166,18 @@ app.put('/api/subscriptions/:id', auth, async (req, res) => {
   try {
     const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
     if (!sub) return res.status(404).json({ message: 'Not found' });
-    const { name, cost, frequency, category, status, scheduledPayment, recipient, bankName, bankCode, accountNumber, accountName } = req.body;
+    const { name, cost, frequency, category, status, scheduledPayment, recipient, bankName, bankCode, accountNumber, accountName, renewalDay, remindDaysBefore } = req.body;
     if (name !== undefined) sub.name = name;
     if (cost !== undefined) sub.cost = parseFloat(cost);
     if (frequency !== undefined) sub.frequency = frequency;
     if (category !== undefined) sub.category = category;
     if (status !== undefined) sub.status = status;
+    if (remindDaysBefore !== undefined) sub.remindDaysBefore = Math.max(0, Math.min(30, Number(remindDaysBefore) || 0));
+    if (renewalDay !== undefined) {
+      const rd = Number(renewalDay);
+      sub.renewalDay = rd >= 1 && rd <= 31 ? rd : undefined;
+      if (sub.renewalDay) sub.nextPayment = computeNextRenewal(sub);
+    }
     if (recipient !== undefined) sub.recipient = recipient;
     if (bankName !== undefined) sub.bankName = bankName;
     if (bankCode !== undefined) sub.bankCode = bankCode;
@@ -4102,6 +4202,24 @@ app.delete('/api/subscriptions/:id', auth, async (req, res) => {
     await Subscription.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     res.json({ message: 'Deleted' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Dismiss a detected recurring charge as "not a subscription" so /detect stops
+// resurfacing it. Keyed by the merchant signature the detector groups on.
+app.post('/api/subscriptions/dismiss-detected', auth, async (req, res) => {
+  try {
+    const key = deriveCategoryKey((req.body?.name || '').toString());
+    if (!key) return res.status(400).json({ message: 'Nothing to dismiss.' });
+    await DismissedDetection.updateOne(
+      { userId: req.user._id, key },
+      { $setOnInsert: { userId: req.user._id, key } },
+      { upsert: true },
+    );
+    res.json({ ok: true, key });
+  } catch (e) {
+    if (e && e.code === 11000) return res.json({ ok: true }); // already dismissed
+    console.error('[dismiss-detected]', e.message); res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // C1 — start the assisted cancellation: mark it 'cancelling', stamp the baseline we

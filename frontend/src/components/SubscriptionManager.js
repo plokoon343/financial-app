@@ -18,8 +18,9 @@ const SubscriptionManager = () => {
   const [message, setMessage] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null); // subscription being edited, or null
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: '', cost: '', frequency: 'monthly', category: 'Entertainment' });
+  const [form, setForm] = useState({ name: '', cost: '', frequency: 'monthly', category: 'Entertainment', renewalDay: '' });
   const [cancelSub, setCancelSub] = useState(null); // subscription whose cancel guide is open
   const [cancelBusy, setCancelBusy] = useState(false);
   const [isPro, setIsPro] = useState(true); // optimistic; corrected below
@@ -55,23 +56,47 @@ const SubscriptionManager = () => {
   }, []);
   const openCancel = (s) => { if (isPro) setCancelSub(s); else setPaywall(true); };
 
-  const addSub = async (e) => {
+  const blankForm = { name: '', cost: '', frequency: 'monthly', category: 'Entertainment', renewalDay: '' };
+  const openAdd = () => { setEditing(null); setForm(blankForm); setShowForm(true); };
+  const openEdit = (s) => {
+    setEditing(s);
+    setForm({ name: s.name, cost: String(s.cost), frequency: s.frequency, category: s.category, renewalDay: s.renewalDay ? String(s.renewalDay) : '' });
+    setShowForm(true);
+  };
+
+  const saveSub = async (e) => {
     e.preventDefault();
     if (!form.name.trim() || !form.cost || Number(form.cost) <= 0) { flash('Enter a name and a valid cost.', 'error'); return; }
     setAdding(true);
     try {
-      await axios.post(`${API_URL}/api/subscriptions`, {
-        name: form.name.trim(), cost: Number(form.cost), frequency: form.frequency, category: form.category,
-      }, authHeaders());
-      flash('Subscription added.');
-      setForm({ name: '', cost: '', frequency: 'monthly', category: 'Entertainment' });
-      setShowForm(false);
+      const body = { name: form.name.trim(), cost: Number(form.cost), frequency: form.frequency, category: form.category };
+      const rd = parseInt(form.renewalDay, 10);
+      if (rd >= 1 && rd <= 31) body.renewalDay = rd;
+      if (editing) await axios.put(`${API_URL}/api/subscriptions/${editing._id}`, body, authHeaders());
+      else await axios.post(`${API_URL}/api/subscriptions`, body, authHeaders());
+      flash(editing ? 'Subscription updated.' : 'Subscription added.');
+      setForm(blankForm); setEditing(null); setShowForm(false);
       load();
     } catch (err) {
-      flash(err.response?.data?.message || 'Could not add subscription.', 'error');
+      flash(err.response?.data?.message || 'Could not save subscription.', 'error');
     } finally {
       setAdding(false);
     }
+  };
+
+  // Track a detected charge (pass its last-seen date so the backend can infer the
+  // renewal day for reminders), or dismiss it so detection stops resurfacing it.
+  const trackDetected = async (d) => {
+    try {
+      await axios.post(`${API_URL}/api/subscriptions`, { name: d.name, cost: d.cost, frequency: d.frequency, category: d.category, lastCharge: d.lastSeen }, authHeaders());
+      flash(`Now tracking ${d.name}.`);
+      load();
+    } catch { flash('Could not add that one.', 'error'); }
+  };
+  const dismissDetected = async (d) => {
+    setDetected((prev) => prev.filter((x) => x.name !== d.name));
+    try { await axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { name: d.name }, authHeaders()); }
+    catch { flash('Could not dismiss.', 'error'); load(); }
   };
 
   const deleteSub = async (id) => {
@@ -109,6 +134,14 @@ const SubscriptionManager = () => {
   };
   const methodLabel = (m) => ({ online: 'Cancel on their website', in_app: 'Cancel in the App Store / Play Store', phone: 'Call to cancel', ussd: 'Cancel via USSD', bank: 'Stop the card charge' }[m] || 'Cancel');
 
+  const renewalText = (s) => {
+    if (!s.nextRenewal) return null;
+    const d = new Date(s.nextRenewal);
+    const days = Math.ceil((d.getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000);
+    const rel = days <= 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+    return `Renews ${rel} · ${d.toLocaleDateString()}`;
+  };
+
   const monthlyOf = (s) => (s.frequency === 'yearly' ? s.cost / 12 : s.cost);
   const combined = [...saved, ...detected];
   const monthlyCost = combined.reduce((t, s) => t + monthlyOf(s), 0);
@@ -125,7 +158,7 @@ const SubscriptionManager = () => {
         <h2><i className="fas fa-calendar-alt"></i> Subscriptions</h2>
         <p className="section-subtitle">Add your own subscriptions and see recurring charges detected from your statements.</p>
         <div className="header-actions">
-          <button className="btn-primary" onClick={() => setShowForm((v) => !v)}>
+          <button className="btn-primary" onClick={() => (showForm ? setShowForm(false) : openAdd())}>
             <i className="fas fa-plus"></i> {showForm ? 'Close' : 'Add subscription'}
           </button>
           <button className="btn-ghost" onClick={load} disabled={loading}>
@@ -139,7 +172,7 @@ const SubscriptionManager = () => {
 
       {/* Add form */}
       {showForm && (
-        <form className="add-form" onSubmit={addSub}>
+        <form className="add-form" onSubmit={saveSub}>
           <div className="af-grid">
             <div className="af-field">
               <label>Name</label>
@@ -161,9 +194,13 @@ const SubscriptionManager = () => {
               <input list="sub-cats" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Category" />
               <datalist id="sub-cats">{SUB_CATEGORIES.map((c) => <option key={c} value={c} />)}</datalist>
             </div>
+            <div className="af-field">
+              <label>Renews on day <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
+              <input value={form.renewalDay} onChange={(e) => setForm({ ...form, renewalDay: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) })} placeholder="e.g. 5" inputMode="numeric" />
+            </div>
           </div>
           <button className="btn-primary af-submit" type="submit" disabled={adding}>
-            <i className="fas fa-check"></i> {adding ? 'Adding…' : 'Add subscription'}
+            <i className="fas fa-check"></i> {adding ? 'Saving…' : editing ? 'Save changes' : 'Add subscription'}
           </button>
         </form>
       )}
@@ -204,11 +241,19 @@ const SubscriptionManager = () => {
                   <i className="fas fa-receipt"></i>
                   <span>{s.name}{s.status === 'cancelled' ? ' · cancelled' : s.status === 'cancelling' ? ' · cancelling' : ''}</span>
                 </div>
+                {s.status === 'active' && renewalText(s) && (
+                  <div className="sub-renewal"><i className="fas fa-clock"></i> {renewalText(s)}</div>
+                )}
                 <div className="sub-details">
                   <span className="sub-cost"><i className="fas fa-money-bill"></i>{fmtNaira(s.cost)}/{s.frequency === 'monthly' ? 'mo' : 'yr'}</span>
                   <span className="sub-category" style={{ backgroundColor: `${getCategoryColor(s.category)}20`, color: getCategoryColor(s.category), border: `1px solid ${getCategoryColor(s.category)}` }}>
                     <i className="fas fa-tag"></i>{s.category}
                   </span>
+                  {s.status !== 'cancelling' && (
+                    <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => openEdit(s)}>
+                      <i className="fas fa-pen"></i> Edit
+                    </button>
+                  )}
                   {s.status === 'active' && (
                     <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => openCancel(s)}>
                       <i className={`fas ${isPro ? 'fa-ban' : 'fa-lock'}`}></i> Help me cancel{isPro ? '' : ' · Pro'}
@@ -269,6 +314,12 @@ const SubscriptionManager = () => {
                   <span className="sub-category" style={{ backgroundColor: `${getCategoryColor(s.category)}20`, color: getCategoryColor(s.category), border: `1px solid ${getCategoryColor(s.category)}` }}>
                     <i className="fas fa-tag"></i>{s.category}
                   </span>
+                  <button className="btn-primary" style={{ padding: '5px 14px', fontSize: '0.8rem' }} onClick={() => trackDetected(s)}>
+                    <i className="fas fa-plus"></i> Track it
+                  </button>
+                  <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => dismissDetected(s)}>
+                    Not a subscription
+                  </button>
                 </div>
               </div>
             ))}
@@ -356,6 +407,7 @@ const SubscriptionManager = () => {
         .subscriptions-list { display: flex; flex-direction: column; gap: 12px; }
         .subscription-item { background: var(--glass-bg); border-radius: var(--radius-md); padding: 18px; border-left: 4px solid var(--accent-primary); }
         .sub-name { display: flex; align-items: center; gap: 12px; font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; }
+        .sub-renewal { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--accent-primary); font-weight: 600; margin: -4px 0 10px; }
         .seen-badge { font-size: 0.72rem; padding: 3px 10px; border-radius: var(--radius-full); background: var(--glass-bg); color: var(--text-secondary); font-weight: 600; }
         .sub-details { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
         .sub-details span { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; padding: 7px 14px; background: var(--glass-bg); border-radius: var(--radius-full); color: var(--text-secondary); }

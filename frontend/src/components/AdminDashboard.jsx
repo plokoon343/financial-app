@@ -18,6 +18,11 @@ const AdminDashboard = () => {
   const [actionLoading, setActionLoading] = useState(null);
   const [message, setMessage] = useState(null);
   const [search, setSearch] = useState('');
+  // Newsletter composer
+  const [nlSubject, setNlSubject] = useState('');
+  const [nlBody, setNlBody] = useState('');
+  const [nlAudience, setNlAudience] = useState(null);
+  const [nlBusy, setNlBusy] = useState('');
 
   const cardStyle = {
     background: darkMode ? '#2d3748' : 'white',
@@ -81,6 +86,38 @@ const AdminDashboard = () => {
   const showMessage = (text, type = 'success') => {
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 3000);
+  };
+
+  // Newsletter: load the current audience count when the tab opens.
+  const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+  const loadAudience = async () => {
+    try { const { data } = await axios.get(`${API_URL}/api/admin/newsletter/audience`, authHeaders()); setNlAudience(data); }
+    catch { showMessage('Could not load audience', 'error'); }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === 'newsletter' && !nlAudience) loadAudience(); }, [activeTab]);
+
+  const sendTest = async () => {
+    if (!nlSubject.trim() || !nlBody.trim()) { showMessage('Add a subject and body first', 'error'); return; }
+    setNlBusy('test');
+    try {
+      const { data } = await axios.post(`${API_URL}/api/admin/newsletter/test`, { subject: nlSubject, html: nlBody }, authHeaders());
+      showMessage(`Test sent to ${data.to}`);
+    } catch (e) { showMessage(e.response?.data?.message || 'Test send failed', 'error'); }
+    finally { setNlBusy(''); }
+  };
+
+  const sendNewsletter = async () => {
+    if (!nlSubject.trim() || !nlBody.trim()) { showMessage('Add a subject and body first', 'error'); return; }
+    const n = nlAudience?.active || 0;
+    if (!window.confirm(`Send "${nlSubject}" to ${n} subscriber${n === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    setNlBusy('send');
+    try {
+      const { data } = await axios.post(`${API_URL}/api/admin/newsletter/send`, { subject: nlSubject, html: nlBody }, authHeaders());
+      showMessage(`Sent to ${data.sent}${data.failed ? `, ${data.failed} failed` : ''}`);
+      setNlSubject(''); setNlBody(''); loadAudience();
+    } catch (e) { showMessage(e.response?.data?.message || 'Send failed', 'error'); }
+    finally { setNlBusy(''); }
   };
 
   // Unknown-sender flywheel (Addendum A slice 3): promote a sender to a bank so it
@@ -191,7 +228,7 @@ const AdminDashboard = () => {
         </div>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
-        {['overview', 'accuracy', 'senders', 'users', 'tickets', 'waitlist', 'recaps'].map(tab => {
+        {['overview', 'accuracy', 'senders', 'users', 'tickets', 'waitlist', 'newsletter', 'recaps'].map(tab => {
           const openCount = tab === 'tickets' ? tickets.filter(t => t.status === 'open').length : 0;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? 'var(--gradient-primary)' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>
@@ -421,6 +458,69 @@ const AdminDashboard = () => {
               </div>
             </div>
           )) : <p style={textSecondary}>Loading…</p>}
+        </div>
+      )}
+
+      {activeTab === 'newsletter' && (
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <h3 style={{ ...textPrimary, margin: 0 }}>Newsletter</h3>
+            <span style={{ ...textSecondary, fontSize: '0.85rem' }}>
+              {nlAudience ? `${nlAudience.active} subscriber${nlAudience.active === 1 ? '' : 's'} · ${nlAudience.unsubscribed} unsubscribed` : 'Loading audience…'}
+            </span>
+          </div>
+          <p style={{ ...textSecondary, fontSize: '0.85rem', marginTop: 0 }}>
+            Goes to everyone on the waitlist who hasn&apos;t unsubscribed. Each email gets its own unsubscribe link. Body accepts HTML. Always send a test to yourself first.
+          </p>
+
+          <label style={{ ...textSecondary, fontSize: '0.8rem', fontWeight: 600, display: 'block', margin: '0.5rem 0 0.3rem' }}>Subject</label>
+          <input
+            value={nlSubject}
+            onChange={(e) => setNlSubject(e.target.value)}
+            placeholder="e.g. Automonie is almost here 🎉"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '0.7rem 0.9rem', borderRadius: '8px', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, background: darkMode ? '#1a202c' : '#fff', color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '0.9rem' }}
+          />
+
+          <label style={{ ...textSecondary, fontSize: '0.8rem', fontWeight: 600, display: 'block', margin: '0 0 0.3rem' }}>Body (HTML allowed)</label>
+          <textarea
+            value={nlBody}
+            onChange={(e) => setNlBody(e.target.value)}
+            rows={10}
+            placeholder={'<p>Hi there,</p>\n<p>We just shipped…</p>'}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '0.8rem 0.9rem', borderRadius: '8px', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, background: darkMode ? '#1a202c' : '#fff', color: darkMode ? '#f7fafc' : '#1a365d', fontFamily: 'inherit', fontSize: '0.9rem', resize: 'vertical' }}
+          />
+
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+            <button
+              onClick={sendTest}
+              disabled={!!nlBusy}
+              style={{ padding: '0.65rem 1.4rem', border: `1px solid ${darkMode ? '#4a5568' : '#cbd5e0'}`, borderRadius: '8px', background: 'transparent', color: darkMode ? '#cbd5e0' : '#4a5568', fontWeight: 600, cursor: nlBusy ? 'default' : 'pointer', opacity: nlBusy ? 0.6 : 1 }}
+            >
+              {nlBusy === 'test' ? 'Sending…' : 'Send test to me'}
+            </button>
+            <button
+              onClick={sendNewsletter}
+              disabled={!!nlBusy || !(nlAudience?.active > 0)}
+              style={{ padding: '0.65rem 1.4rem', border: 'none', borderRadius: '8px', background: 'var(--gradient-primary)', color: 'white', fontWeight: 700, cursor: nlBusy ? 'default' : 'pointer', opacity: (nlBusy || !(nlAudience?.active > 0)) ? 0.6 : 1 }}
+            >
+              {nlBusy === 'send' ? 'Sending…' : `Send to ${nlAudience?.active ?? 0} subscriber${(nlAudience?.active ?? 0) === 1 ? '' : 's'}`}
+            </button>
+          </div>
+
+          {nlAudience?.history?.length > 0 && (
+            <div style={{ marginTop: '1.8rem' }}>
+              <h4 style={{ ...textPrimary, margin: '0 0 0.6rem' }}>Recent sends</h4>
+              {nlAudience.history.map((h) => (
+                <div key={h._id} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '0.6rem 0', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#edf2f7'}` }}>
+                  <div style={{ ...textPrimary, fontSize: '0.9rem', minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.subject}</div>
+                    <div style={{ ...textSecondary, fontSize: '0.78rem' }}>{new Date(h.createdAt).toLocaleString()} · by {h.sentBy}</div>
+                  </div>
+                  <div style={{ ...textSecondary, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{h.sent} sent{h.failed ? ` · ${h.failed} failed` : ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
+const mammoth = require('mammoth');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const csv = require('csv-parser');
@@ -2817,6 +2818,22 @@ app.post('/api/admin/newsletter/image', auth, newsletterAuth, (req, res) => {
     } catch (e) { console.error('[newsletter/image]', e.message); res.status(500).json({ message: 'Could not save the image.' }); }
   });
 });
+// Import a Word (.docx) draft: convert to HTML for the editor to review before sending.
+const docxUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+app.post('/api/admin/newsletter/import-docx', auth, newsletterAuth, (req, res) => {
+  docxUpload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ message: err.message || 'Upload failed' });
+    if (!req.file) return res.status(400).json({ message: 'Choose a .docx file.' });
+    if (!/word|officedocument|\.docx$/i.test(req.file.mimetype + req.file.originalname)) {
+      return res.status(400).json({ message: 'That doesn’t look like a .docx Word file.' });
+    }
+    try {
+      const result = await mammoth.convertToHtml({ buffer: req.file.buffer });
+      res.json({ html: sanitizeNewsletterBody(result.value || '') });
+    } catch (e) { console.error('[import-docx]', e.message); res.status(500).json({ message: 'Could not read that document.' }); }
+  });
+});
+
 // Public: serve a newsletter image so email clients (and the composer preview) can load it.
 app.get('/api/newsletter/asset/:id', async (req, res) => {
   try {

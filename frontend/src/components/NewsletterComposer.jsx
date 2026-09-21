@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import RichTextEditor from './RichTextEditor';
@@ -34,6 +34,22 @@ export default function NewsletterComposer({ embedded = false }) {
       const { data } = await axios.post(`${API_URL}/api/admin/newsletter/test`, { subject, html: body }, headers);
       flash(`Test sent to ${data.to} — check your inbox.`);
     } catch (e) { flash(e.response?.data?.message || 'Test send failed.', 'error'); }
+    finally { setBusy(''); }
+  };
+
+  const docxRef = useRef(null);
+  // Import a Word (.docx) draft: converts to HTML into the editor to review + edit
+  // before sending (the review gate is the editor + the preview modal).
+  const importDocx = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file) return;
+    setBusy('docx');
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const { data } = await axios.post(`${API_URL}/api/admin/newsletter/import-docx`, fd, { headers: { Authorization: headers.headers.Authorization } });
+      setBody(data.html || '');
+      flash('Word doc imported — review and tidy it up below, then send.');
+    } catch (e2) { flash(e2.response?.data?.message || 'Could not import that document.', 'error'); }
     finally { setBusy(''); }
   };
 
@@ -84,7 +100,13 @@ export default function NewsletterComposer({ embedded = false }) {
       <label className="nl-label">Subject</label>
       <input className="nl-subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Automonie is almost here 🎉" disabled={!!busy} />
 
-      <label className="nl-label">Message</label>
+      <div className="nl-msg-head">
+        <label className="nl-label">Message</label>
+        <button type="button" className="nl-docx" onClick={() => docxRef.current?.click()} disabled={!!busy}>
+          <i className="fas fa-file-word"></i> {busy === 'docx' ? 'Importing…' : 'Upload Word doc'}
+        </button>
+        <input ref={docxRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: 'none' }} onChange={importDocx} />
+      </div>
       <RichTextEditor value={body} onChange={setBody} disabled={!!busy} uploadImage={uploadImage} />
       <div className="nl-hint">Tip: use the image button to add graphics. Some fonts (like Poppins) fall back to a standard font in Gmail/Outlook — that&apos;s normal for email. Every email includes an unsubscribe link automatically.</div>
 
@@ -156,6 +178,9 @@ export default function NewsletterComposer({ embedded = false }) {
         .nl-msg.success { background: rgba(34,197,94,0.12); color: #22c55e; }
         .nl-msg.error { background: rgba(239,68,68,0.12); color: #ef4444; }
         .nl-label { display: block; color: var(--text-secondary); font-size: 0.8rem; font-weight: 700; margin: 4px 0 6px; }
+        .nl-msg-head { display: flex; align-items: center; justify-content: space-between; }
+        .nl-docx { display: inline-flex; align-items: center; gap: 7px; background: var(--glass-bg); color: var(--accent-primary); border: 1px solid var(--accent-primary); border-radius: var(--radius-full); padding: 6px 14px; font-weight: 700; font-size: 0.8rem; cursor: pointer; }
+        .nl-docx:disabled { opacity: 0.6; cursor: default; }
         .nl-subject { width: 100%; box-sizing: border-box; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 11px 13px; color: var(--text-primary); font-size: 1rem; margin-bottom: 14px; }
         .nl-hint { color: var(--text-secondary); font-size: 0.8rem; margin: 8px 0 0; line-height: 1.5; }
         .nl-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }

@@ -10,6 +10,40 @@ import { prettyMerchant, computeArchetype } from '../lib/insights';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// ── Shareable 9:16 image card (parity with the quiz card) ───────────────────────
+const shade = (hex, amt) => {
+  const n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const f = (v) => Math.max(0, Math.min(255, Math.round(v * (1 + amt))));
+  return `rgb(${f(r)},${f(g)},${f(b)})`;
+};
+const wrapCentre = (ctx, text, cx, y, maxW, lineH) => {
+  const words = text.split(' '); let line = ''; const lines = [];
+  for (const w of words) { const t = line ? `${line} ${w}` : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; }
+  if (line) lines.push(line);
+  lines.forEach((l, i) => ctx.fillText(l, cx, y + i * lineH));
+  return y + lines.length * lineH;
+};
+// Draw the "money era" card for the given archetype (name/tagline/colour) + year.
+async function renderWrappedCard({ name, tagline, color }, year) {
+  if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch { /* noop */ } }
+  const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, color); g.addColorStop(1, shade(color, -0.5));
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.textAlign = 'left'; x.fillStyle = 'rgba(255,255,255,0.96)'; x.font = '700 58px Poppins, Arial, sans-serif'; x.fillText('automonie', 96, 160);
+  // sparkle badge
+  x.beginPath(); x.arc(W / 2, 470, 120, 0, 7); x.fillStyle = 'rgba(255,255,255,0.18)'; x.fill();
+  x.fillStyle = '#fff'; x.font = '700 96px Poppins, Arial, sans-serif'; x.textAlign = 'center'; x.fillText('✨', W / 2, 505);
+  x.fillStyle = 'rgba(255,255,255,0.82)'; x.font = '700 36px Poppins, Arial, sans-serif'; x.fillText(`MY ${year} MONEY ERA`, W / 2, 710);
+  x.fillStyle = '#fff'; x.font = '700 104px Poppins, Arial, sans-serif';
+  const y = wrapCentre(x, name, W / 2, 830, W - 192, 116);
+  x.font = '600 48px Poppins, Arial, sans-serif'; x.fillStyle = 'rgba(255,255,255,0.95)';
+  wrapCentre(x, `“${tagline}”`, W / 2, y + 46, W - 200, 62);
+  x.font = '700 42px Poppins, Arial, sans-serif'; x.fillStyle = 'rgba(255,255,255,0.9)'; x.fillText('Your year in money, wrapped.', W / 2, H - 236);
+  x.font = '700 48px Poppins, Arial, sans-serif'; x.fillStyle = '#fff'; x.fillText('Get yours → automonie.com', W / 2, H - 160);
+  return new Promise((res) => c.toBlob((b) => res(b), 'image/png', 0.95));
+}
+
 export default function MoneyWrapped() {
   const [all, setAll] = useState(null);
   const [idx, setIdx] = useState(0);
@@ -80,6 +114,25 @@ export default function MoneyWrapped() {
     const text = era
       ? `My ${year} money era: ${era.big}.\n"${era.sub}"\n\nGet your own Money Wrapped on Automonie → automonie.com`
       : `My ${year} Money Wrapped on Automonie → automonie.com`;
+    // Share an actual 9:16 image card when we have an era; else fall back to text.
+    if (era) {
+      try {
+        flash('Creating your card…');
+        const blob = await renderWrappedCard({ name: era.big, tagline: era.sub, color: era.colors[0] }, year);
+        const file = new File([blob], `automonie-${year}-money-era.png`, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], text, title: `My ${year} money era` });
+          setToast('');
+          return;
+        }
+        const url = URL.createObjectURL(blob); const a = document.createElement('a');
+        a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        try { await navigator.clipboard.writeText(text); } catch { /* noop */ }
+        flash('Saved your card ✓');
+        return;
+      } catch { /* fall through to text share */ }
+    }
     try {
       if (navigator.share) await navigator.share({ text });
       else { await navigator.clipboard.writeText(text); flash('Copied — paste it anywhere'); }

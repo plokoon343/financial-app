@@ -30,6 +30,7 @@ const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
 const { purposeProviderConfig, purposeLLMActive, inferOpenAICompat } = require('./lib/llmPurpose');
+const { extractAlertOpenAICompat, validateExtract } = require('./lib/llmExtract');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -3521,6 +3522,57 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
   };
 }
 
+// Tier-2 LLM parser rescue (spec 6.1). Only the OpenAI-compatible providers
+// (Gemini / Groq) support extraction here; shares AI_PURPOSE_PROVIDER + its key with
+// the purpose tier, so one env config lights up both. Returns a validated
+// { amount, type, merchant, date } or null (never throws).
+function extractLLMActive(env = process.env) {
+  const cfg = purposeProviderConfig(env);
+  return !!(cfg && cfg.kind === 'openai' && cfg.apiKey);
+}
+async function llmRescueRow(rawText, source = 'sms', sender = '') {
+  try {
+    const cfg = purposeProviderConfig();
+    if (!cfg || cfg.kind !== 'openai' || !cfg.apiKey) return null;
+    const ex = await extractAlertOpenAICompat(rawText, cfg);
+    const v = validateExtract(ex, rawText);
+    if (!v) return null;
+    const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(rawText, sender);
+    const description = v.merchant || 'Bank alert';
+    const category = categorizeTransaction(description, v.type);
+    return {
+      date: v.date || new Date().toISOString().slice(0, 10),
+      description, amount: +Number(v.amount).toFixed(2), type: v.type, category,
+      bank: bankName || detectBank(rawText), bankCode, accountMask, senderKey,
+      reference: null, raw: rawText, needsReview: false, confidence: 'medium',
+      _parse: {
+        rawText, source, bank: bankName, parserVersion: 'llm-extract-v1', parserPath: 'llm',
+        amount: +Number(v.amount).toFixed(2), direction: v.type === 'income' ? 'credit' : 'debit',
+        date: v.date || null, counterparty: description, category, confidence: 'medium',
+      },
+    };
+  } catch (e) { console.error('[llm-rescue]', e.message); return null; }
+}
+
+// Deterministic parse, with an optional LLM rescue for the needs-review tail (unknown
+// banks / odd wording) when a provider is configured. Rescue is capped per call so a
+// paste of many unparseable lines can't fan out into many LLM calls.
+const LLM_RESCUE_MAX = 8;
+async function parseAlertsWithRescue(rawList, source = 'sms', sender = '') {
+  const rows = rawList.map((b) => ({ raw: b, row: parseOneAlert(b, source, sender) }));
+  if (extractLLMActive()) {
+    let used = 0;
+    for (const item of rows) {
+      if (used >= LLM_RESCUE_MAX) break;
+      if (item.row && item.row.amount <= 0 && item.row.needsReview) {
+        const rescued = await llmRescueRow(item.raw, source, sender);
+        if (rescued) { item.row = rescued; used += 1; }
+      }
+    }
+  }
+  return rows.map((r) => r.row);
+}
+
 app.post('/api/parse-sms', auth, async (req, res) => {
   try {
     const text = (req.body?.text || '').toString();
@@ -3528,9 +3580,9 @@ app.post('/api/parse-sms', auth, async (req, res) => {
     // Split into individual alerts on blank lines; fall back to the whole block.
     const blocks = text.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
     const source = blocks.length ? blocks : [text];
-    // NB: pass a lambda, not parseOneAlert directly — Array.map would feed it the
-    // index as `source` and the whole array as `sender`, minting bogus sender keys.
-    let rows = source.map((b) => parseOneAlert(b, 'sms')).filter((r) => r && (r.amount > 0 || r.needsReview));
+    // Deterministic parse + an optional LLM rescue for the needs-review tail (unknown
+    // banks / odd wording) when a Tier-2 provider is configured.
+    let rows = (await parseAlertsWithRescue(source, 'sms')).filter((r) => r && (r.amount > 0 || r.needsReview));
     if (!rows.length) return res.status(422).json({ message: "Couldn't read a transaction from that. Check you pasted the full alert.", transactions: [] });
     // Apply the user's learned categories, then the shared consensus.
     rows = await applyLearnedCategories(req.user._id, rows);
@@ -3706,9 +3758,9 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     const segments = inboundEmail.splitEmailAlerts(bodyOnly);
     let parsedRows;
     if (segments.length > 1) {
-      parsedRows = segments.map((s) => parseOneAlert(s, 'email', from)).filter((r) => r && r.amount > 0);
+      parsedRows = (await parseAlertsWithRescue(segments, 'email', from)).filter((r) => r && r.amount > 0);
     } else {
-      const one = parseOneAlert(inboundEmail.emailToText({ subject, text, html }), 'email', from);
+      const [one] = await parseAlertsWithRescue([inboundEmail.emailToText({ subject, text, html })], 'email', from);
       parsedRows = one && one.amount > 0 ? [one] : [];
     }
     let created = 0;

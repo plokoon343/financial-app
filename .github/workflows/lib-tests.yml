@@ -36,3 +36,4 @@ jobs:
       - run: node lib/purposeInference.test.js
       - run: node lib/purposeClassifier.test.js
       - run: node lib/llmPurpose.test.js
+      - run: node lib/llmExtract.test.js

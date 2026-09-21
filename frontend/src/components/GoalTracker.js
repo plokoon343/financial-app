@@ -3,6 +3,7 @@ import axios from 'axios';
 //import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import { FEATURES } from '../config/features';
 const GoalTracker = () => {
   //const { darkMode } = useAuth();
   const [goals, setGoals] = useState([]);
@@ -215,7 +216,7 @@ const GoalTracker = () => {
             <table className="goals-table">
               <thead>
                 <tr>
-                  <th>Goal</th><th>Category</th><th>Progress</th><th className="num">Target</th><th>Deadline</th><th>Reminder</th>
+                  <th>Goal</th><th>Category</th><th>Progress</th><th className="num">Target</th><th>Deadline</th>{FEATURES.autopay && <th>Autopay</th>}
                 </tr>
               </thead>
               <tbody>
@@ -244,12 +245,14 @@ const GoalTracker = () => {
                         {new Date(goal.deadline).toLocaleDateString()}
                         {goal.locked && <i className="fas fa-lock" style={{ color: 'var(--accent-primary)', marginLeft: 6 }} title="Locked Savings Plan"></i>}
                       </td>
-                      <td>
-                        <span className={`gt-autopay ${goal.scheduledPayment?.enabled ? 'on' : 'off'}`}>
-                          <i className={`fas ${goal.scheduledPayment?.enabled ? 'fa-check-circle' : 'fa-circle'}`}></i>
-                          {goal.scheduledPayment?.enabled ? 'On' : 'Off'}
-                        </span>
-                      </td>
+                      {FEATURES.autopay && (
+                        <td>
+                          <span className={`gt-autopay ${goal.scheduledPayment?.enabled ? 'on' : 'off'}`}>
+                            <i className={`fas ${goal.scheduledPayment?.enabled ? 'fa-check-circle' : 'fa-circle'}`}></i>
+                            {goal.scheduledPayment?.enabled ? 'On' : 'Off'}
+                          </span>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -297,8 +300,8 @@ const GoalTracker = () => {
                 <div className="detail-item"><div className="detail-label"><i className="fas fa-wallet"></i><span>Remaining</span></div><div className="detail-value">{fmtNaira(activeGoal.target - activeGoal.current)}</div></div>
               </div>
 
-              {/* Auto-pay (#31) */}
-              <div className="scheduled-payment-toggle">
+              {/* Auto-pay (#31) — gated to the wallet launch (FEATURES.autopay) */}
+              {FEATURES.autopay && (<div className="scheduled-payment-toggle">
                 <label className="schedule-checkbox">
                   <input
                     type="checkbox"
@@ -322,7 +325,7 @@ const GoalTracker = () => {
                     <small>Reminds you to set money aside for this goal on the chosen day</small>
                   </div>
                 )}
-              </div>
+              </div>)}
 
               {!isCompleted ? (
                 <div className="goal-actions">
@@ -455,7 +458,8 @@ const GoalTracker = () => {
               </div>
             </div>
           </div>
-          {/* Scheduled payment options in add form */}
+          {/* Scheduled payment options in add form — gated to the wallet launch */}
+          {FEATURES.autopay && (
           <div className="scheduled-payment-option">
             <label className="schedule-checkbox">
               <input type="checkbox" checked={newGoal.scheduledPayment.enabled} onChange={(e) => setNewGoal({...newGoal, scheduledPayment: { ...newGoal.scheduledPayment, enabled: e.target.checked }})} />
@@ -468,6 +472,7 @@ const GoalTracker = () => {
               </div>
             )}
           </div>
+          )}
           <div className="form-buttons">
             <button type="submit" className="btn-submit"><i className="fas fa-plus"></i> Create Goal</button>
             <button type="button" onClick={() => setNewGoal({ name: '', target: '', current: '', deadline: '', category: 'General', scheduledPayment: { enabled: false, amount: '', dayOfMonth: 1 } })} className="btn-cancel">

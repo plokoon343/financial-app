@@ -37,3 +37,4 @@ jobs:
       - run: node lib/purposeClassifier.test.js
       - run: node lib/llmPurpose.test.js
       - run: node lib/llmExtract.test.js
+      - run: node lib/opayStatement.test.js

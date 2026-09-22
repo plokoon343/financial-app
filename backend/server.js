@@ -21,6 +21,7 @@ const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfer
 const { classifyKind } = require('./lib/txnKinds');
 const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
+const { parseOpayStatement } = require('./lib/opayStatement');
 const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
@@ -1505,6 +1506,22 @@ const parsePDF = async (filePath, password = '') => {
     return [];
   }
 
+  // Dedicated strategy: OPay / OWealth wallet statements (space+time dates, glued
+  // debit/credit/balance columns). The balance-aware parser can't read these and the
+  // generic fallback used to turn their timestamps into hundreds of garbage rows, so
+  // we detect and parse them explicitly, tagging OWealth churn + own-name transfers
+  // as internal so they don't inflate income/spending.
+  const opayParsed = parseOpayStatement(rawText);
+  if (opayParsed && opayParsed.length > 0) {
+    console.log(`[parsePDF] OPay parser found ${opayParsed.length} transactions (${opayParsed.filter(t => t.internal).length} internal)`);
+    opayParsed.forEach((t) => { if (!t.category) t.category = categorizeTransaction(t.description, t.type === 'income' ? 'income' : 'expense'); });
+    opayParsed.bank = 'OPay';
+    // Balance can't reconcile on OPay (OWealth-funded debits bypass the wallet
+    // balance), but the explicit debit/credit columns are authoritative → trusted.
+    opayParsed.reconciliation = { checked: false, ok: null };
+    return opayParsed;
+  }
+
   // Primary strategy: balance-aware parser for delimiter-less Nigerian bank PDFs.
   const balanceParsed = parseStatementByBalance(rawText);
   if (balanceParsed.length > 0) {
@@ -1640,11 +1657,22 @@ const parsePDF = async (filePath, password = '') => {
   transactions.bank = detectBank(rawText);
   // Even on the generic path, reconcile against any labelled opening/closing balance
   // in the text — it's the check that catches a dropped row on an unfamiliar format.
-  {
-    const { openingBalance, closingBalance } = extractBalances(rawText);
-    transactions.openingBalance = openingBalance;
-    transactions.closingBalance = closingBalance;
-    transactions.reconciliation = reconcile({ transactions, openingBalance, closingBalance });
+  const { openingBalance, closingBalance } = extractBalances(rawText);
+  transactions.openingBalance = openingBalance;
+  transactions.closingBalance = closingBalance;
+  transactions.reconciliation = reconcile({ transactions, openingBalance, closingBalance });
+
+  // SAFETY GATE: the generic strategies are best-effort guesses (they once turned an
+  // OPay statement's timestamps into 500+ bogus rows). If the statement gave us a
+  // real opening AND closing balance and this parse provably does NOT balance, the
+  // ledger is wrong — returning nothing (→ the upload route asks the user to try
+  // pasting alerts) is far safer than importing garbage the user might trust.
+  if (transactions.reconciliation.checked && transactions.reconciliation.ok === false) {
+    console.warn(`[parsePDF] Generic parse rejected — does not reconcile (off by ${transactions.reconciliation.difference}). Refusing ${transactions.length} untrusted rows.`);
+    const rejected = [];
+    rejected.bank = transactions.bank;
+    rejected.rejectedReason = 'unreadable';
+    return rejected;
   }
   return transactions;
 };
@@ -4171,9 +4199,13 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       // so it's excluded from spend/income math while keeping its true amount.
       const amount = t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount);
       const kind = classifyKind({ type: t.type, description: t.description, category: t.category });
+      // A parser-flagged internal move (e.g. OPay OWealth churn / own-account
+      // transfer) becomes an internal_transfer — sign already set above — so it's
+      // excluded from spend/income math without losing the row.
+      const finalType = t.internal ? 'internal_transfer' : (kind || t.type);
       return new Transaction({
         userId: req.user._id, date: new Date(t.date), description: t.description,
-        amount, category: t.category || 'Other', type: kind || t.type,
+        amount, category: t.category || 'Other', type: finalType,
         // Prefer a per-transaction bank (an SMS scan can span several banks),
         // falling back to the batch-level label.
         source: 'import', bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,

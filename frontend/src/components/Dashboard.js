@@ -559,6 +559,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                     <td style={{ padding: '0.5rem 0.7rem', color: darkMode ? '#cbd5e0' : '#4a5568', whiteSpace: 'nowrap' }}>{tx.date}</td>
                     <td title={tx.description} style={{ padding: '0.5rem 0.7rem', color: theme.labelColor, maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tx.description}
+                      {tx.internal && <span title={tx.internalReason || "Won't count as income or spending"} style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(99,102,241,0.15)', color: '#6366f1', padding: '1px 5px', borderRadius: '4px' }}>🔁 Internal</span>}
                       {tx.duplicate && <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>Dup</span>}
                       {!tx.duplicate && (tx.confidenceLevel === 'low' || tx.confidenceLevel === 'medium') && (
                         <span title="We weren't fully sure of this row — please check it" style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>⚠ check</span>

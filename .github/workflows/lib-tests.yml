@@ -38,3 +38,4 @@ jobs:
       - run: node lib/llmPurpose.test.js
       - run: node lib/llmExtract.test.js
       - run: node lib/opayStatement.test.js
+      - run: node lib/merchants.test.js

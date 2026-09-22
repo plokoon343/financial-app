@@ -55,7 +55,8 @@ const Settings = () => {
     (async () => {
       try {
         const res = await axios.get(`${API_URL}/api/banks`, authHeader());
-        const banks = res.data || [];
+        // /api/banks returns { banks: [...] } (tolerate a bare array too).
+        const banks = Array.isArray(res.data) ? res.data : (res.data?.banks || []);
         const m = banks.find(b => /titan/i.test(b.name) && /paystack/i.test(b.name)) || banks.find(b => /titan/i.test(b.name));
         if (m) setTitanBank({ code: m.code, name: m.name });
       } catch {}

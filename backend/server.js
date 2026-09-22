@@ -22,6 +22,7 @@ const { classifyKind } = require('./lib/txnKinds');
 const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
 const { parseOpayStatement } = require('./lib/opayStatement');
+const { extractStatement: llmExtractStatement } = require('./lib/llmStatement');
 const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
@@ -1529,7 +1530,18 @@ const parsePDF = async (filePath, password = '') => {
     balanceParsed.bank = detectBank(rawText);
     return balanceParsed;
   }
-  console.log('[parsePDF] Balance-aware parser found nothing - trying generic strategies…');
+
+  // Hybrid LLM fallback — the sustainability layer. When NO deterministic strategy
+  // recognises the layout (a bank/fintech format we haven't hand-coded), ask the
+  // configured model to extract the rows. It's validated the same way as everything
+  // else: the reconciliation oracle re-checks the ledger, so a hallucinated amount
+  // can't slip in. This is what lets new banks import with zero per-bank code.
+  const llmParsed = await llmParseStatement(rawText);
+  if (llmParsed && llmParsed.length > 0) {
+    console.log(`[parsePDF] LLM parser found ${llmParsed.length} transactions (reconciled=${llmParsed.reconciliation?.ok})`);
+    return llmParsed;
+  }
+  console.log('[parsePDF] Balance-aware + LLM found nothing - trying generic strategies…');
 
   const transactions = [];
   
@@ -3910,6 +3922,43 @@ async function llmRescueRow(rawText, source = 'sms', sender = '') {
       },
     };
   } catch (e) { console.error('[llm-rescue]', e.message); return null; }
+}
+
+// LLM statement fallback (hybrid architecture): extract a WHOLE statement's rows when
+// no deterministic strategy recognised its layout. Validated by the reconciliation
+// oracle — if the statement gave a real opening AND closing balance and the LLM's
+// ledger doesn't balance, we reject it (return null) rather than import a wrong
+// ledger. Returns a parser-shaped array (or null), never throws.
+async function llmParseStatement(rawText) {
+  try {
+    if (!extractLLMActive()) return null;
+    const cfg = purposeProviderConfig();
+    const rows = await llmExtractStatement(rawText, cfg);
+    if (!rows || !rows.length) return null;
+
+    const { openingBalance, closingBalance } = extractBalances(rawText);
+    const recon = reconcile({ transactions: rows, openingBalance, closingBalance });
+    // Same safety gate as every other parser: a provably-wrong ledger is refused.
+    if (recon.checked && recon.ok === false) {
+      console.warn(`[llmParseStatement] rejected — does not reconcile (off by ${recon.difference}).`);
+      return null;
+    }
+    const out = rows.map((r) => ({
+      date: r.date,
+      description: r.description,
+      amount: +Number(r.amount).toFixed(2),
+      type: r.type,
+      category: categorizeTransaction(r.description, r.type),
+      reference: null,
+      // Trust it only as far as the math backs it: balanced → high, unverifiable → medium.
+      confidenceLevel: recon.checked && recon.ok ? 'high' : 'medium',
+    }));
+    out.bank = detectBank(rawText);
+    out.openingBalance = openingBalance;
+    out.closingBalance = closingBalance;
+    out.reconciliation = recon;
+    return out;
+  } catch (e) { console.error('[llmParseStatement]', e.message); return null; }
 }
 
 // Deterministic parse, with an optional LLM rescue for the needs-review tail (unknown

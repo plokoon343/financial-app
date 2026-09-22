@@ -45,6 +45,29 @@ const categoryIcons = {
   Other:         <FaTag           style={{ color: '#718096' }} />,
 };
 
+// Amount cell for the import review table. Shows a thousands-separated value at
+// rest (e.g. "2,000") for readability, and switches to a plain numeric field while
+// focused so decimals stay easy to type. Commas are stripped on change upstream.
+const AmountInput = ({ value, onChange, style, placeholder, title }) => {
+  const [focused, setFocused] = useState(false);
+  const has = value !== '' && value != null;
+  const display = focused
+    ? (has ? String(value) : '')
+    : (has ? Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 }) : '');
+  return (
+    <input
+      type={focused ? 'number' : 'text'} inputMode="decimal" step="0.01" min="0"
+      value={display}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      title={title}
+      style={style}
+    />
+  );
+};
+
 // ─── Import Tab Component (UPDATED with PDF password support) ────────────────
 const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
   const [file,            setFile]            = useState(null);
@@ -534,7 +557,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                   }}>
                     <td style={{ padding: '0.5rem 0.7rem' }}><input type="checkbox" checked={selectedIndices.includes(idx)} onChange={() => toggleOne(idx)} onClick={e => e.stopPropagation()} /></td>
                     <td style={{ padding: '0.5rem 0.7rem', color: darkMode ? '#cbd5e0' : '#4a5568', whiteSpace: 'nowrap' }}>{tx.date}</td>
-                    <td style={{ padding: '0.5rem 0.7rem', color: theme.labelColor, maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td title={tx.description} style={{ padding: '0.5rem 0.7rem', color: theme.labelColor, maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tx.description}
                       {tx.duplicate && <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>Dup</span>}
                       {!tx.duplicate && (tx.confidenceLevel === 'low' || tx.confidenceLevel === 'medium') && (
@@ -542,10 +565,9 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                       )}
                     </td>
                     <td style={{ padding: '0.5rem 0.7rem', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="number" step="0.01" min="0"
-                        value={tx.amount || ''}
-                        onChange={(e) => updateTxAmount(idx, e.target.value)}
+                      <AmountInput
+                        value={tx.amount === 0 ? 0 : (tx.amount || '')}
+                        onChange={(v) => updateTxAmount(idx, v)}
                         placeholder="0.00"
                         title={(tx.needsReview || tx.confidenceLevel === 'low') ? 'We were unsure of this amount — please check it' : 'Edit amount'}
                         style={{

@@ -28,7 +28,7 @@ const Wallet = () => {
       });
       setBalance(res.data.balance);
       setSavingsBalance(res.data.savingsBalance || 0);
-      setTransactions(res.data.transactions);
+      setTransactions(res.data.transactions || []);
     } catch (err) {
       console.error(err);
     }

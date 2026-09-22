@@ -673,14 +673,15 @@ const notificationSchema = new mongoose.Schema({
   type:    { type: String, default: 'info' }, // 'info' | 'success' | 'ticket'
   title:   { type: String, required: true },
   message: { type: String, default: '' },
-  link:    { type: String, default: '' },
+  link:    { type: String, default: '' },       // where tapping the item navigates (a real in-app route)
+  dedupeKey: { type: String, default: '' },     // idempotency key (e.g. reminder:statement:2026-09); NOT a nav target
   read:    { type: Boolean, default: false },
 }, { timestamps: true });
 notificationSchema.index({ userId: 1, createdAt: -1 });
 const Notification = mongoose.model('Notification', notificationSchema);
 
-const createNotification = async (userId, { type = 'info', title, message = '', link = '' }) => {
-  try { await Notification.create({ userId, type, title, message, link }); }
+const createNotification = async (userId, { type = 'info', title, message = '', link = '', dedupeKey = '' }) => {
+  try { await Notification.create({ userId, type, title, message, link, dedupeKey }); }
   catch (e) { console.error('[createNotification]', e.message); }
 };
 
@@ -6778,9 +6779,12 @@ app.get('/api/reminders', auth, async (req, res) => {
       const period = r.id === 'statement' ? monthKey(today)
         : r.id === 'log-txns' ? `w${Math.floor(today.getTime() / 604800000)}`
         : today.toISOString().slice(0, 10);
-      const link = `reminder:${r.id}:${period}`;
-      Notification.findOne({ userId, link })
-        .then((exists) => { if (!exists) createNotification(userId, { type: 'info', title: r.title, message: r.message, link }); })
+      const dedupeKey = `reminder:${r.id}:${period}`;
+      // Tapping the bell item should go to the reminder's real destination, not the
+      // dedup string. Match legacy rows (link === dedupeKey) too so we don't double-post.
+      const navLink = r.action?.route || '/';
+      Notification.findOne({ userId, $or: [{ dedupeKey }, { link: dedupeKey }] })
+        .then((exists) => { if (!exists) createNotification(userId, { type: 'info', title: r.title, message: r.message, link: navLink, dedupeKey }); })
         .catch(() => {});
     }
 

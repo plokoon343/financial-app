@@ -1322,6 +1322,45 @@ const genericToISO = (token) => {
   return null;
 };
 
+// GTBank/GTCO (and similar) statements print an "Originating Branch" column
+// (e.g. "635 AKIN ADESOLA") between the running balance and the free-text
+// "Remarks". Because the balance parser flattens each row, that branch — plus the
+// leading Reference token — gets glued to the front of every description, pushing
+// the meaningful remarks out of view. The branch is IDENTICAL on every row, so we
+// find it as the longest common prefix of each row's "<3-digit code> ..." tail and
+// strip it (and anything before it), leaving the Remarks as the description. Bails
+// safely (leaves descriptions untouched) when a statement isn't this layout.
+const stripBranchPrefix = (transactions) => {
+  const starts = [];
+  const tails = [];
+  for (const t of transactions) {
+    const m = t.description.match(/\b\d{3}\s+[A-Z]/); // branch code + branch name start
+    starts.push(m ? m.index : -1);
+    tails.push(m ? t.description.slice(m.index) : null);
+  }
+  const present = tails.filter(Boolean);
+  // Need the pattern on a real majority of rows before we trust it as the branch.
+  if (present.length < Math.max(3, transactions.length * 0.5)) return;
+  let lcp = present[0];
+  for (const s of present) {
+    let i = 0;
+    while (i < lcp.length && i < s.length && lcp[i] === s[i]) i++;
+    lcp = lcp.slice(0, i);
+    if (!lcp) return; // no shared branch → don't risk mangling descriptions
+  }
+  lcp = lcp.replace(/\s+\S*$/, '').trim();               // drop any trailing partial word
+  if (!/^\d{3}\s+[A-Za-z]/.test(lcp) || lcp.length < 4 || lcp.length > 48) return;
+  for (let i = 0; i < transactions.length; i++) {
+    if (starts[i] === -1) continue;
+    const t = transactions[i];
+    const remarks = t.description.slice(starts[i] + lcp.length).replace(/^[\s:;,'"’.\-]+/, '').trim();
+    if (remarks) {
+      t.description = remarks.slice(0, 140).trim();
+      t.category = categorizeTransaction(t.description, t.type); // re-categorise on the cleaner text
+    }
+  }
+};
+
 // Balance-aware parser for Nigerian bank statement PDFs (Union Bank, GTBank, etc.).
 // These statements have no delimiters between columns, so the debit/credit columns
 // are unreliable. Instead we read the running BALANCE at the end of each record and
@@ -1413,6 +1452,9 @@ const parseStatementByBalance = (rawText) => {
       confidenceLevel,
     });
   }
+  // Reduce each description to the bank's "Remarks" narration where the layout has a
+  // repeated Originating Branch column glued to the front (GTBank/GTCO etc.).
+  stripBranchPrefix(transactions);
   // Reconcile the parsed ledger against the statement's own opening/closing balance.
   // Attached to the array (like .bank) so the upload route can surface it and flag
   // an import that doesn't balance before the user saves anything.

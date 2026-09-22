@@ -5,9 +5,20 @@
 
 'use strict';
 
+const { matchMerchant } = require('./merchants');
+
 const categorizeTransaction = (description, typeOrAmount) => {
   const lower = (description || '').toLowerCase();
   const isExpense = typeof typeOrAmount === 'string' ? typeOrAmount === 'expense' : typeOrAmount < 0;
+
+  // High-precision layer first: a known Nigerian merchant/biller (chowdeck, IKEDC,
+  // MTN, Shoprite…) is a stronger signal than the generic rules below and beats a
+  // rail term like "transfer". Merchants are expense-side, so only apply on expenses.
+  if (isExpense) {
+    const m = matchMerchant(description);
+    if (m) return m.category;
+  }
+
   const rules = [
     // ── Income ──
     { for: 'income',  keywords: ['salary', 'wage', 'payroll', 'monthly pay', 'stipend'], category: 'Salary' },

@@ -71,28 +71,45 @@ const senderName = () => process.env.EMAIL_FROM_NAME || 'Automonie';
 const mailFrom = () => process.env.EMAIL_FROM || `${senderName()} <${senderEmail()}>`;
 
 // Send one email via whichever transport is configured. Brevo wins if its key is set.
-// Returns nothing on success; throws on failure (callers decide how to handle).
-const sendEmail = async ({ to, subject, text, html }) => {
+// Optional: replyTo (string or {email,name}) and from-identity overrides — used by the
+// newsletter to send as a no-reply. Returns nothing on success; throws on failure.
+const sendEmail = async ({ to, subject, text, html, replyTo, fromName, fromEmail }) => {
+  const sName = fromName || senderName();
+  const sEmail = fromEmail || senderEmail();
+  const rt = replyTo ? (typeof replyTo === 'string' ? { email: replyTo } : replyTo) : null;
   if (brevoConfigured()) {
-    await axios.post(
-      'https://api.brevo.com/v3/smtp/email',
-      {
-        sender: { name: senderName(), email: senderEmail() },
-        to: [{ email: to }],
-        subject,
-        textContent: text,
-        htmlContent: html || `<p>${text}</p>`,
-      },
-      {
-        headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
-        timeout: 15000,
-      }
-    );
+    const body = {
+      sender: { name: sName, email: sEmail },
+      to: [{ email: to }],
+      subject,
+      textContent: text,
+      htmlContent: html || `<p>${text}</p>`,
+    };
+    if (rt) body.replyTo = rt;
+    await axios.post('https://api.brevo.com/v3/smtp/email', body, {
+      headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
+      timeout: 15000,
+    });
     return;
   }
   // SMTP fallback
-  await makeTransport().sendMail({ from: mailFrom(), to, subject, text, html });
+  const opts = { from: process.env.EMAIL_FROM || `${sName} <${sEmail}>`, to, subject, text, html };
+  if (rt) opts.replyTo = rt.name ? `${rt.name} <${rt.email}>` : rt.email;
+  await makeTransport().sendMail(opts);
 };
+
+// Newsletter sends as a no-reply. Reply-To goes to a no-reply address (no DNS needed —
+// just a header), so replies don't hit a real inbox. Once automonie.com is authenticated
+// in Brevo, set NEWSLETTER_FROM_ADDRESS=noreply@automonie.com to make the From no-reply too.
+const NEWSLETTER_FROM_NAME = process.env.NEWSLETTER_FROM_NAME || 'Automonie';
+const NEWSLETTER_FROM_ADDRESS = process.env.NEWSLETTER_FROM_ADDRESS || '';
+const NEWSLETTER_REPLY_TO = process.env.NEWSLETTER_REPLY_TO || 'noreply@automonie.com';
+const sendNewsletterEmail = ({ to, subject, text, html }) => sendEmail({
+  to, subject, text, html,
+  fromName: NEWSLETTER_FROM_NAME,
+  fromEmail: NEWSLETTER_FROM_ADDRESS || undefined,
+  replyTo: { email: NEWSLETTER_REPLY_TO, name: 'Automonie (no-reply)' },
+});
 
 // Send a password-reset email if email is configured; otherwise log the link so the
 // owner can still recover an account from the server logs during setup.
@@ -2893,7 +2910,7 @@ app.post('/api/admin/newsletter/test', auth, newsletterAuth, async (req, res) =>
     if (!subject || !body) return res.status(400).json({ message: 'Subject and body are required.' });
     const to = req.body?.to || req.user.email;
     const unsubUrl = `${PUBLIC_API_URL}/unsubscribe?token=preview`;
-    await sendEmail({ to, subject: `[TEST] ${subject}`, html: newsletterHtml(body, unsubUrl), text: newsletterText(body, unsubUrl) });
+    await sendNewsletterEmail({ to, subject: `[TEST] ${subject}`, html: newsletterHtml(body, unsubUrl), text: newsletterText(body, unsubUrl) });
     res.json({ ok: true, to });
   } catch (e) { console.error('[newsletter/test]', e.response?.data || e.message); res.status(502).json({ message: 'Test send failed. Check the email config.' }); }
 });
@@ -2916,7 +2933,7 @@ app.post('/api/admin/newsletter/send', auth, newsletterAuth, async (req, res) =>
         let token = s.unsubToken;
         if (!token) { token = crypto.randomBytes(16).toString('hex'); await Waitlist.updateOne({ _id: s._id }, { $set: { unsubToken: token } }); }
         const unsubUrl = `${PUBLIC_API_URL}/unsubscribe?token=${token}`;
-        await sendEmail({ to: s.email, subject, html: newsletterHtml(body, unsubUrl), text: newsletterText(body, unsubUrl) });
+        await sendNewsletterEmail({ to: s.email, subject, html: newsletterHtml(body, unsubUrl), text: newsletterText(body, unsubUrl) });
         sent += 1;
       } catch (err) { failed += 1; console.error('[newsletter] to', s.email, err.response?.data?.message || err.message); }
       await new Promise((r) => setTimeout(r, 120)); // gentle pacing for the provider

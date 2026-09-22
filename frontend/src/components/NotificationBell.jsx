@@ -48,7 +48,10 @@ const NotificationBell = () => {
       setUnread(u => Math.max(0, u - 1));
     }
     setOpen(false);
-    if (n.link) navigate(n.link);
+    // Only navigate to real in-app routes. Older notifications stored a dedup
+    // string (e.g. "reminder:statement:2026-09") in `link`, which is not a route —
+    // sending it to the router would blank the page. Treat those as no-ops.
+    if (n.link && n.link.startsWith('/')) navigate(n.link);
   };
 
   const markAllRead = async () => {

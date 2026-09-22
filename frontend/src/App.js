@@ -1,5 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import './App.css';
 import './responsive.css';  // at the top with other CSS imports
@@ -18,6 +18,7 @@ import ServerWaker from './components/ServerWaker';
 import InstallPrompt from './components/InstallPrompt';
 import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
+import ErrorBoundary from './components/ErrorBoundary';
 import { Loader } from './components/Logo';
 
 // Lazy: page bodies are loaded on demand to shrink the initial bundle.
@@ -117,6 +118,11 @@ function AppContent() {
           />
         }>
           <Route index element={<Dashboard transactions={transactions} setTransactions={setTransactions} />} />
+          {/* Deep links used by the backend reminders + the notification bell (and
+              mirrored by the mobile app). They open the Dashboard with the import
+              modal already on the right tab, instead of hitting a dead route. */}
+          <Route path="import-statement" element={<Dashboard initialImport="file" />} />
+          <Route path="sms-import" element={<Dashboard initialImport="paste" />} />
           <Route path="transactions" element={<Transactions />} />
           <Route path="assistant" element={<AiAssistant />} />
           <Route path="budget" element={<Budget budgets={budgets} setBudgets={setBudgets} transactions={transactions} />} />
@@ -153,6 +159,9 @@ function AppContent() {
               <NewsletterComposer />
             </NewsletterRoute>
           } />
+          {/* Safety net: any unknown in-app path (stale links, old reminder:* bell
+              targets, mistyped URLs) lands on the dashboard instead of a blank page. */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </div>
@@ -161,6 +170,7 @@ function AppContent() {
 
 const ProtectedLayout = ({ ...props }) => {
   const { user } = useAuth();
+  const location = useLocation();
   if (!user) return <Navigate to="/login" replace />;
   return (
     <div className="app-layout">
@@ -171,9 +181,13 @@ const ProtectedLayout = ({ ...props }) => {
       <main className="main-content">
         <GlobalBanner />
         <div className="container">
-          <Suspense fallback={<PageLoader />}>
-            <Outlet context={props} />
-          </Suspense>
+          {/* resetKey clears the boundary automatically when the user navigates,
+              so one crashed page doesn't wedge the whole app. */}
+          <ErrorBoundary resetKey={location.pathname}>
+            <Suspense fallback={<PageLoader />}>
+              <Outlet context={props} />
+            </Suspense>
+          </ErrorBoundary>
         </div>
       </main>
       <BottomNav />

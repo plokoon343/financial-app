@@ -46,7 +46,7 @@ const categoryIcons = {
 };
 
 // ─── Import Tab Component (UPDATED with PDF password support) ────────────────
-const ImportTab = ({ onImportComplete, darkMode, theme }) => {
+const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
   const [file,            setFile]            = useState(null);
   const [uploading,       setUploading]       = useState(false);
   const [transactions,    setTransactions]    = useState([]);
@@ -55,7 +55,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
   const [step,            setStep]            = useState('upload');
   const [message,         setMessage]         = useState(null);
   const [reviewStartedAt, setReviewStartedAt] = useState(0); // for _parse timeToReviewMs
-  const [importMode,      setImportMode]      = useState('file'); // 'file' | 'paste'
+  const [importMode,      setImportMode]      = useState(initialMode === 'paste' ? 'paste' : 'file'); // 'file' | 'paste'
   const [smsText,         setSmsText]         = useState('');
   const [pdfPassword,     setPdfPassword]     = useState('');  // NEW
   const [bank,            setBank]            = useState('');   // confirmed bank for this statement
@@ -612,7 +612,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme }) => {
 };
 
 // ─── Main Dashboard Component ────────────────────────────────────────────────
-const Dashboard = () => {
+const Dashboard = ({ initialImport } = {}) => {
   const context         = useOutletContext();
   const memoCtx         = useMemo(() => context || {}, [context]);
   const transactions    = useMemo(() => memoCtx.transactions || [], [memoCtx.transactions]);
@@ -646,6 +646,16 @@ const Dashboard = () => {
     if (hideAmounts) return '••••';
     return fmtNaira(value);
   };
+
+  // Deep-link support: /import-statement and /sms-import open the import modal
+  // straight onto the right tab (file upload vs. paste alerts). This is what the
+  // backend reminders + the notification bell point at.
+  useEffect(() => {
+    if (initialImport) {
+      setActiveTab('import');
+      setShowModal(true);
+    }
+  }, [initialImport]);
 
 // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -1029,7 +1039,7 @@ const Dashboard = () => {
                 </form>
               )}
               {/* Import tab */}
-              {activeTab === 'import' && <ImportTab onImportComplete={handleImportComplete} darkMode={darkMode} theme={theme} />}
+              {activeTab === 'import' && <ImportTab onImportComplete={handleImportComplete} darkMode={darkMode} theme={theme} initialMode={initialImport === 'paste' ? 'paste' : 'file'} />}
             </motion.div>
           </motion.div>
         )}

@@ -67,7 +67,9 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
       try {
         const token = localStorage.getItem('token');
         const res = await axios.get(`${API}/api/banks`, { headers: { Authorization: `Bearer ${token}` } });
-        setBanks(res.data || []);
+        // /api/banks returns { banks: [...] }; tolerate a bare array too so a shape
+        // change never turns `banks` into a non-array (which crashed banks.map below).
+        setBanks(Array.isArray(res.data) ? res.data : (res.data?.banks || []));
       } catch (err) { /* non-fatal: detected bank / free text still works */ }
     };
     loadBanks();
@@ -474,7 +476,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                   style={{ padding: '0.4rem 0.6rem', borderRadius: '8px', border: `1px solid ${theme.inputBorder}`, background: theme.inputBg, color: theme.labelColor, fontSize: '0.8rem', minWidth: '140px' }}
                 />
                 <datalist id="bank-options">
-                  {banks.map((b) => <option key={b.code || b.name} value={b.name} />)}
+                  {(Array.isArray(banks) ? banks : []).map((b) => <option key={b.code || b.name} value={b.name} />)}
                 </datalist>
               </label>
               {flaggedCount > 0 && confidentIdx.length > 0 && (

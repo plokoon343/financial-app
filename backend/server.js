@@ -4930,27 +4930,11 @@ app.post('/api/admin/setup', authLimiter, async (req, res) => {
 // --------------------------
 // Bank & Profile routes
 // --------------------------
-// Bank list is effectively static - cache it in memory for 24h to avoid hitting
-// Paystack on every page load.
-let banksCache = { data: null, ts: 0 };
-app.get('/api/banks', auth, async (req, res) => {
-  try {
-    if (banksCache.data && Date.now() - banksCache.ts < 24 * 60 * 60 * 1000) {
-      return res.json(banksCache.data);
-    }
-    const response = await axios.get('https://api.paystack.co/bank', {
-      headers: {
-        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`
-      }
-    });
-    banksCache = { data: response.data.data, ts: Date.now() };
-    res.json(response.data.data);
-  } catch (err) {
-    console.error('Error fetching banks from Paystack:', err.message);
-    if (banksCache.data) return res.json(banksCache.data); // serve stale on failure
-    res.status(500).json({ message: 'Failed to fetch bank list' });
-  }
-});
+// NOTE: GET /api/banks is defined earlier (returns { banks: [...] } from the local
+// BANK_REGISTRY). A second, Paystack-backed /api/banks used to live here, but it was
+// shadowed by that earlier route (Express matches in registration order) and returned
+// an incompatible bare-array shape — which crashed callers that expected { banks }.
+// Removed to keep one canonical source of truth for the bank list.
 
 // Resolve account name from Paystack
 app.get('/api/bank/resolve', auth, async (req, res) => {

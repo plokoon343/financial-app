@@ -23,6 +23,7 @@ const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
 const { parseOpayStatement } = require('./lib/opayStatement');
 const { extractStatement: llmExtractStatement } = require('./lib/llmStatement');
+const { extractCounterparty, contactKey, familySignal } = require('./lib/counterparty');
 const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
@@ -470,6 +471,32 @@ const userAccountSchema = new mongoose.Schema({
 }, { timestamps: true });
 userAccountSchema.index({ userId: 1, bankCode: 1, accountMask: 1 }, { unique: true });
 const UserAccount = mongoose.model('UserAccount', userAccountSchema);
+
+// People & Family ledger. Every person/business the user sends to or receives from,
+// built from transfer counterparties (lib/counterparty). Aggregated stats let us show
+// "who you send the most to", suggest family by shared surname, and — once the user
+// labels a contact (relationship + optional category) — auto-categorise their
+// transfers. User-set fields (relationship/label/category) are never overwritten by
+// re-aggregation. Keyed by account number when known, else normalised name.
+const contactSchema = new mongoose.Schema({
+  userId:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  key:           { type: String, required: true },   // contactKey: 'acct:…' | 'name:…'
+  name:          { type: String, default: '' },      // best-seen display name
+  bank:          { type: String, default: '' },
+  account:       { type: String, default: '' },      // may be masked (503****065)
+  sentTotal:     { type: Number, default: 0 },       // ₦ you sent them
+  sentCount:     { type: Number, default: 0 },
+  receivedTotal: { type: Number, default: 0 },       // ₦ they sent you
+  receivedCount: { type: Number, default: 0 },
+  firstSeen:     { type: Date },
+  lastSeen:      { type: Date },
+  familySuggested: { type: Boolean, default: false }, // shared-surname signal (suggestion only)
+  relationship:  { type: String, enum: ['family', 'friend', 'business', 'self', 'unknown'], default: 'unknown' },
+  label:         { type: String, default: '' },      // user nickname
+  category:      { type: String, default: '' },      // user-set: auto-apply to their transfers
+}, { timestamps: true });
+contactSchema.index({ userId: 1, key: 1 }, { unique: true });
+const Contact = mongoose.model('Contact', contactSchema);
 
 // Learn-unknown-senders flywheel (spec Addendum A, slice 3). A sender ID the parser
 // couldn't map to a bank becomes an UnknownSender (one global doc per senderKey). As
@@ -3961,6 +3988,99 @@ async function llmParseStatement(rawText) {
   } catch (e) { console.error('[llmParseStatement]', e.message); return null; }
 }
 
+// ─── People & Family ledger helpers ──────────────────────────────────────────
+// Fold a list of transactions into per-counterparty aggregates (sent/received totals
+// + first/last seen), keeping the fullest name and best bank/account seen.
+function aggregateCounterparties(txns) {
+  const agg = new Map();
+  for (const t of txns) {
+    const cp = extractCounterparty(t.description);
+    if (!cp) continue;
+    const key = contactKey(cp);
+    if (!key) continue;
+    const amt = Math.abs(Number(t.amount) || 0);
+    if (!amt) continue;
+    const when = new Date(t.date);
+    let g = agg.get(key);
+    if (!g) { g = { key, name: cp.name, bank: cp.bank, account: cp.account, sent: 0, sentCount: 0, recv: 0, recvCount: 0, first: when, last: when }; agg.set(key, g); }
+    // Direction: prefer the narration's to/from; fall back to the ledger sign.
+    const isOut = cp.direction === 'to' || (cp.direction !== 'from' && t.type === 'expense');
+    if (isOut) { g.sent += amt; g.sentCount++; } else { g.recv += amt; g.recvCount++; }
+    if (when < g.first) g.first = when;
+    if (when > g.last) g.last = when;
+    if (cp.account && !g.account) g.account = cp.account;
+    if (cp.bank && !g.bank) g.bank = cp.bank;
+    if ((cp.name || '').length > (g.name || '').length) g.name = cp.name;
+  }
+  return agg;
+}
+
+// Incremental fold after an import (fresh rows only) — adds to existing totals and
+// never touches the user's own relationship/label/category.
+async function foldContactsIncremental(userId, txns, holderName) {
+  const agg = aggregateCounterparties(txns);
+  const ops = [];
+  for (const g of agg.values()) {
+    ops.push({ updateOne: {
+      filter: { userId, key: g.key },
+      update: {
+        $setOnInsert: { userId, key: g.key, relationship: 'unknown', label: '', category: '' },
+        $set: { name: g.name, bank: g.bank, account: g.account, familySuggested: familySignal(holderName, g.name), lastSeen: g.last },
+        $inc: { sentTotal: g.sent, sentCount: g.sentCount, receivedTotal: g.recv, receivedCount: g.recvCount },
+        $min: { firstSeen: g.first },
+      },
+      upsert: true,
+    } });
+  }
+  if (ops.length) await Contact.bulkWrite(ops, { ordered: false });
+  return ops.length;
+}
+
+// Full rebuild from ALL of the user's transactions — resets the stats but preserves
+// the user's own labels/relationship/category across the rebuild.
+async function rebuildContacts(userId, holderName) {
+  const txns = await Transaction.find({ userId }, { description: 1, amount: 1, type: 1, date: 1 }).lean();
+  const agg = aggregateCounterparties(txns);
+  const existing = await Contact.find({ userId }, { key: 1, relationship: 1, label: 1, category: 1 }).lean();
+  const userFields = new Map(existing.map((c) => [c.key, { relationship: c.relationship, label: c.label, category: c.category }]));
+  await Contact.deleteMany({ userId });
+  const docs = [];
+  for (const g of agg.values()) {
+    const uf = userFields.get(g.key) || {};
+    docs.push({
+      userId, key: g.key, name: g.name, bank: g.bank, account: g.account,
+      sentTotal: g.sent, sentCount: g.sentCount, receivedTotal: g.recv, receivedCount: g.recvCount,
+      firstSeen: g.first, lastSeen: g.last, familySuggested: familySignal(holderName, g.name),
+      relationship: uf.relationship || 'unknown', label: uf.label || '', category: uf.category || '',
+    });
+  }
+  if (docs.length) await Contact.insertMany(docs, { ordered: false });
+  return docs.length;
+}
+
+// The category a labelled contact should stamp on their transfers: an explicit
+// category the user chose, else 'Family & Friends' when tagged family/friend.
+function contactCategory(c) {
+  if (c && c.category) return c.category;
+  if (c && (c.relationship === 'family' || c.relationship === 'friend')) return 'Family & Friends';
+  return '';
+}
+
+// Recategorise the user's existing transfers to one contact (used when they label it).
+async function applyContactToPast(userId, contact) {
+  const cat = contactCategory(contact);
+  if (!cat) return 0;
+  const txns = await Transaction.find({ userId, type: { $in: ['income', 'expense'] } }, { description: 1 }).lean();
+  const ids = [];
+  for (const t of txns) {
+    const cp = extractCounterparty(t.description);
+    if (cp && contactKey(cp) === contact.key) ids.push(t._id);
+  }
+  if (!ids.length) return 0;
+  await Transaction.updateMany({ _id: { $in: ids }, userId }, { $set: { category: cat } });
+  return ids.length;
+}
+
 // Deterministic parse, with an optional LLM rescue for the needs-review tail (unknown
 // banks / odd wording) when a provider is configured. Rescue is capped per call so a
 // paste of many unparseable lines can't fan out into many LLM calls.
@@ -4242,6 +4362,17 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       else { await logUnknownSender(key, t.raw || t.description || '', t._parse?.source || 'sms'); }
     }
 
+    // Auto-categorise transfers to/from contacts the user has already labelled: a
+    // contact with a category (or tagged family/friend) stamps that on their rows.
+    const cpKeyOf = new Map(); // txn -> contactKey
+    for (const t of fresh) { const cp = extractCounterparty(t.description); if (cp) { const k = contactKey(cp); if (k) cpKeyOf.set(t, k); } }
+    const contactCatMap = new Map();
+    if (cpKeyOf.size) {
+      const keys = [...new Set(cpKeyOf.values())];
+      const cs = await Contact.find({ userId: req.user._id, key: { $in: keys } }, { key: 1, category: 1, relationship: 1 }).lean();
+      for (const c of cs) { const cat = contactCategory(c); if (cat) contactCatMap.set(c.key, cat); }
+    }
+
     const docs = fresh.map(t => {
       // Sign stays tied to the real direction (income +, expense −); the KIND
       // (cash-out / loan / repayment / reversal / failed) only overrides the type,
@@ -4252,9 +4383,10 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       // transfer) becomes an internal_transfer — sign already set above — so it's
       // excluded from spend/income math without losing the row.
       const finalType = t.internal ? 'internal_transfer' : (kind || t.type);
+      const contactCat = contactCatMap.get(cpKeyOf.get(t)) || '';
       return new Transaction({
         userId: req.user._id, date: new Date(t.date), description: t.description,
-        amount, category: t.category || 'Other', type: finalType,
+        amount, category: contactCat || t.category || 'Other', type: finalType,
         // Prefer a per-transaction bank (an SMS scan can span several banks),
         // falling back to the batch-level label.
         source: 'import', bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
@@ -4291,6 +4423,8 @@ app.post('/api/import-transactions', auth, async (req, res) => {
         );
       }
     } catch (e) { console.error('[import/accounts]', e.message); }
+    // Update the People & Family ledger from this batch (counterparties + totals).
+    try { await foldContactsIncremental(req.user._id, fresh, req.user.name); } catch (e) { console.error('[import/contacts]', e.message); }
     // Learn description -> category from what the user chose to import (incl. any
     // edits they made on the review screen), so future imports auto-apply them.
     await learnCategories(req.user._id, fresh);
@@ -4369,6 +4503,68 @@ app.post('/api/accounts/:id/dismiss', auth, async (req, res) => {
     if (!acct) return res.status(404).json({ message: 'Account not found' });
     res.json({ ok: true });
   } catch (e) { console.error('[accounts/dismiss]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// --------------------------
+// People & Family ledger
+// --------------------------
+// List contacts (people/businesses the user transacts with), richest first.
+app.get('/api/contacts', auth, async (req, res) => {
+  try {
+    const rows = await Contact.find({ userId: req.user._id }).lean();
+    const out = rows
+      .map((c) => ({
+        id: c._id,
+        name: c.label || c.name,
+        realName: c.name,
+        bank: c.bank || '',
+        account: c.account || '',
+        sentTotal: Math.round(c.sentTotal || 0),
+        sentCount: c.sentCount || 0,
+        receivedTotal: Math.round(c.receivedTotal || 0),
+        receivedCount: c.receivedCount || 0,
+        net: Math.round((c.receivedTotal || 0) - (c.sentTotal || 0)),
+        volume: Math.round((c.sentTotal || 0) + (c.receivedTotal || 0)),
+        relationship: c.relationship || 'unknown',
+        familySuggested: !!c.familySuggested,
+        category: c.category || '',
+        firstSeen: c.firstSeen || null,
+        lastSeen: c.lastSeen || null,
+      }))
+      .sort((a, b) => b.volume - a.volume);
+    res.json({
+      contacts: out,
+      familySuggestions: out.filter((c) => c.familySuggested && c.relationship === 'unknown').length,
+    });
+  } catch (e) { console.error('[contacts/list]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Label a contact: set relationship (family/friend/business/self), a nickname, and/or
+// a category to auto-apply to their transfers. `applyToPast` recategorises existing
+// transfers to/from this contact right away.
+app.patch('/api/contacts/:id', auth, async (req, res) => {
+  try {
+    const c = await Contact.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!c) return res.status(404).json({ message: 'Contact not found' });
+    const rels = ['family', 'friend', 'business', 'self', 'unknown'];
+    if (req.body.relationship != null && rels.includes(req.body.relationship)) c.relationship = req.body.relationship;
+    if (req.body.label != null) c.label = req.body.label.toString().trim().slice(0, 60);
+    if (req.body.category != null) c.category = req.body.category.toString().trim().slice(0, 40);
+    await c.save();
+    let recategorized = 0;
+    if (req.body.applyToPast) {
+      try { recategorized = await applyContactToPast(req.user._id, c); } catch (e) { console.error('[contacts/apply]', e.message); }
+    }
+    res.json({ ok: true, id: c._id, relationship: c.relationship, category: contactCategory(c), recategorized });
+  } catch (e) { console.error('[contacts/patch]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Rebuild the whole ledger from all transactions (one-time backfill / after edits).
+app.post('/api/contacts/rebuild', auth, async (req, res) => {
+  try {
+    const count = await rebuildContacts(req.user._id, req.user.name);
+    res.json({ ok: true, contacts: count });
+  } catch (e) { console.error('[contacts/rebuild]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // --------------------------

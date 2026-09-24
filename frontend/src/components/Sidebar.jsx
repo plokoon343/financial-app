@@ -71,6 +71,7 @@ const Sidebar = () => {
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
       { path: '/cash', label: 'Track Cash', icon: 'payments' },
       { path: '/shared', label: 'Shared Expenses', icon: 'group' },
+      { path: '/people', label: 'People & Family', icon: 'diversity_3' },
       { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
       { path: '/wallet', label: 'Wallet', icon: 'wallet' },
     ]},

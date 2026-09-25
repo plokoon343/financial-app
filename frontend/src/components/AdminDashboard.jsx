@@ -4,6 +4,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import NewsletterComposer from './NewsletterComposer';
 import GlobalNotify from './GlobalNotify';
+import FeedbackInbox from './FeedbackInbox';
 
 const AdminDashboard = () => {
   const { user, darkMode } = useAuth();
@@ -205,7 +206,7 @@ const AdminDashboard = () => {
         </div>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
-        {['overview', 'accuracy', 'senders', 'users', 'tickets', 'waitlist', 'newsletter', 'notify', 'recaps'].map(tab => {
+        {['overview', 'accuracy', 'senders', 'users', 'tickets', 'feedback', 'waitlist', 'newsletter', 'notify', 'recaps'].map(tab => {
           const openCount = tab === 'tickets' ? tickets.filter(t => t.status === 'open').length : 0;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? 'var(--gradient-primary)' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>
@@ -447,6 +448,12 @@ const AdminDashboard = () => {
       {activeTab === 'notify' && (
         <div style={cardStyle}>
           <GlobalNotify />
+        </div>
+      )}
+
+      {activeTab === 'feedback' && (
+        <div style={cardStyle}>
+          <FeedbackInbox />
         </div>
       )}
 

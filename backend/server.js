@@ -2436,12 +2436,22 @@ app.post('/api/feedback', auth, async (req, res) => {
   } catch (e) { console.error('[feedback]', e.message); res.status(500).json({ message: 'Could not send feedback.' }); }
 });
 
-// Admin: read recent feedback (newest first).
+// Admin: read recent feedback (newest first), with an open/handled count.
 app.get('/api/admin/feedback', auth, superAdminAuth, async (req, res) => {
   try {
-    const items = await Feedback.find({}).sort({ createdAt: -1 }).limit(200).lean();
-    res.json({ items });
+    const items = await Feedback.find({}).sort({ createdAt: -1 }).limit(300).lean();
+    res.json({ items, open: items.filter((f) => !f.handled).length });
   } catch (e) { console.error('[admin/feedback]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Admin: mark a feedback item handled / re-open it.
+app.patch('/api/admin/feedback/:id', auth, superAdminAuth, async (req, res) => {
+  try {
+    const handled = !!req.body.handled;
+    const f = await Feedback.findByIdAndUpdate(req.params.id, { $set: { handled } }, { new: true }).lean();
+    if (!f) return res.status(404).json({ message: 'Not found' });
+    res.json({ ok: true, id: f._id, handled: f.handled });
+  } catch (e) { console.error('[admin/feedback/patch]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Pro / billing status for the client paywall. checkoutAvailable is false until

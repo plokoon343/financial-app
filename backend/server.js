@@ -238,6 +238,8 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['user', 'superadmin'], default: 'user' },
   // Scoped access: can use the Newsletter composer only (not the rest of admin).
   newsletterEditor: { type: Boolean, default: false },
+  // Opted in to the beta testers program (gets the beta community + feedback prompts).
+  betaTester: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true },
   // Subscription tier. 'pro' unlocks the AI assistant + advanced features (Paystack
   // billing wires `plan`/`planExpiry` later; for now the AI assistant is open to all).
@@ -713,6 +715,22 @@ const createNotification = async (userId, { type = 'info', title, message = '', 
   try { await Notification.create({ userId, type, title, message, link, dedupeKey }); }
   catch (e) { console.error('[createNotification]', e.message); }
 };
+
+// In-app / beta feedback. Any signed-in user can send it; beta testers are nudged to.
+// Superadmin reads it in the admin feedback inbox.
+const feedbackSchema = new mongoose.Schema({
+  userId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  email:      { type: String, default: '' },
+  name:       { type: String, default: '' },
+  kind:       { type: String, enum: ['bug', 'idea', 'praise', 'other'], default: 'other' },
+  message:    { type: String, required: true },
+  platform:   { type: String, default: '' },   // 'web' | 'mobile'
+  appVersion: { type: String, default: '' },
+  betaTester: { type: Boolean, default: false },
+  handled:    { type: Boolean, default: false }, // admin can mark as dealt with
+}, { timestamps: true });
+feedbackSchema.index({ userId: 1, createdAt: -1 });
+const Feedback = mongoose.model('Feedback', feedbackSchema);
 
 // Site-wide dismissible banner. A new doc is created each time it's set (so editing
 // re-shows it to everyone); GET returns the latest active one. Per-user dismissal is
@@ -2224,7 +2242,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
     const user = new User({ name, email: cleanEmail, password: hashedPassword, phone: cleanPhone.slice(0, 20), emailVerified: true });
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, onboarded: user.onboarded } });
+    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 app.post('/api/login', authLimiter, async (req, res) => {
@@ -2258,7 +2276,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, onboarded: user.onboarded } });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -2282,7 +2300,7 @@ app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
       user.lastLogin = new Date();
       await user.save();
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-      return res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, onboarded: user.onboarded } });
+      return res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
     }
 
     // No account yet → this code confirms a sign-up. Promote the pending record
@@ -2370,7 +2388,7 @@ app.post('/api/auth/google', authLimiter, async (req, res) => {
 
     // Google itself is the strong factor, so we skip our email OTP here.
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, onboarded: user.onboarded } });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
   } catch (error) {
     console.error('[google-auth]', error.message);
     res.status(500).json({ message: 'Server error' });
@@ -2383,12 +2401,47 @@ app.get('/api/me', auth, async (req, res) => {
   res.json({
     id: u._id, name: u.name, email: u.email, role: u.role,
     newsletterEditor: !!u.newsletterEditor,
+    betaTester: !!u.betaTester,
     plan: u.plan || 'free',
     phone: u.phone || '', monthlyIncome: u.monthlyIncome || 0,
     primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
     twoFactorEnabled: !!u.twoFactorEnabled,
     onboarded: !!u.onboarded, lastLogin: u.lastLogin || null,
   });
+});
+
+// Opt in / out of the beta testers program. Returns the beta community link on opt-in.
+app.patch('/api/me/beta', auth, async (req, res) => {
+  try {
+    const on = !!req.body.enabled;
+    await User.updateOne({ _id: req.user._id }, { $set: { betaTester: on } });
+    res.json({ ok: true, betaTester: on, groupUrl: on ? BETA_WHATSAPP_URL : '' });
+  } catch (e) { console.error('[me/beta]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Send in-app feedback (bug / idea / praise). Any signed-in user.
+app.post('/api/feedback', auth, async (req, res) => {
+  try {
+    const message = String(req.body.message || '').trim().slice(0, 4000);
+    if (message.length < 3) return res.status(400).json({ message: 'Please write a little more.' });
+    const kinds = ['bug', 'idea', 'praise', 'other'];
+    const kind = kinds.includes(req.body.kind) ? req.body.kind : 'other';
+    await Feedback.create({
+      userId: req.user._id, email: req.user.email, name: req.user.name, kind, message,
+      platform: String(req.body.platform || '').slice(0, 20),
+      appVersion: String(req.body.appVersion || '').slice(0, 20),
+      betaTester: !!req.user.betaTester,
+    });
+    res.json({ ok: true, message: 'Thank you. Your feedback is in.' });
+  } catch (e) { console.error('[feedback]', e.message); res.status(500).json({ message: 'Could not send feedback.' }); }
+});
+
+// Admin: read recent feedback (newest first).
+app.get('/api/admin/feedback', auth, superAdminAuth, async (req, res) => {
+  try {
+    const items = await Feedback.find({}).sort({ createdAt: -1 }).limit(200).lean();
+    res.json({ items });
+  } catch (e) { console.error('[admin/feedback]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Pro / billing status for the client paywall. checkoutAvailable is false until
@@ -2907,6 +2960,10 @@ app.delete('/api/savings/rules', auth, async (req, res) => {
 
 // Invite link to the Automonie WhatsApp community - sent to every new signup.
 const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/GwGSrl76CbaLA7xQqmmLrU?s=cl&p=a&ilr=4';
+// Separate beta testers community. Set BETA_WHATSAPP_URL on Render once the beta
+// group exists; until then it falls back to the general community link.
+const BETA_WHATSAPP_URL = process.env.BETA_WHATSAPP_URL || WHATSAPP_GROUP_URL;
+const groupUrlFor = (source) => (String(source || '').toLowerCase() === 'beta' ? BETA_WHATSAPP_URL : WHATSAPP_GROUP_URL);
 
 // Waitlist - public signup from the marketing site (rate-limited, deduped).
 app.post('/api/waitlist', authLimiter, async (req, res) => {
@@ -2945,7 +3002,7 @@ app.post('/api/waitlist', authLimiter, async (req, res) => {
         </div>`,
       }).catch(() => {});
     }
-    res.json({ ok: true, message: "You're on the list! We'll email you at launch.", groupUrl: WHATSAPP_GROUP_URL });
+    res.json({ ok: true, message: "You're on the list! We'll email you at launch.", groupUrl: groupUrlFor(req.body.source) });
   } catch (e) { console.error('[waitlist]', e.message); res.status(500).json({ message: 'Could not join the waitlist. Try again.' }); }
 });
 app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {

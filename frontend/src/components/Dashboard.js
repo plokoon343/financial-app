@@ -8,6 +8,7 @@ import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categ
 import { kindMeta } from '../utils/txnKind';
 import { fmtNaira } from '../utils/format';
 import { detectSalary, salaryPromptSeen, markSalaryPromptSeen } from '../lib/insights';
+import BetaPrompt from './BetaPrompt';
 import {
   FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
   FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
@@ -780,6 +781,9 @@ const Dashboard = ({ initialImport } = {}) => {
     <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit"
       className="dashboard-root"
       style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
+
+      {/* Beta program invite (hidden once joined or dismissed) */}
+      <BetaPrompt />
 
       {/* Header */}
       <motion.div className="dashboard-header" initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}

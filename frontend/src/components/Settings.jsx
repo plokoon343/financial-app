@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 import { tipsEnabled, setTipsEnabled, resetTips } from '../utils/tips';
+import BetaCard from './BetaCard';
 import { fmtNaira } from '../utils/format';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -310,6 +311,9 @@ const Settings = () => {
         <div className="row-between"><div><strong>Email alerts</strong><span className="hint">Important updates by email.</span></div><Toggle on={emailAlerts} onClick={() => saveEmailAlerts(!emailAlerts)} /></div>
         <div className="row-between"><div><strong>In-app alerts</strong><span className="hint">Ticket updates &amp; more in the bell. Always on.</span></div><Toggle on disabled /></div>
       </div>
+
+      {/* Beta program + feedback */}
+      <BetaCard />
 
       {/* Appearance + prefs */}
       <div className="settings-card">

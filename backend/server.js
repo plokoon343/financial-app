@@ -2814,6 +2814,39 @@ app.delete('/api/budgets/:id', auth, async (req, res) => {
   res.json({ message: 'Budget deleted' });
 });
 
+// Corper starter preset: seed a ₦77k NYSC allawee budget for this month plus an
+// after-service savings goal. Idempotent: skips any category that already has a
+// budget this month and won't duplicate the goal. Powers the /corper funnel so a
+// corper is set up in one tap. Amounts total ₦77,000 (needs ₦45k, savings ₦20k,
+// fun ₦12k); the user can edit any of them afterwards.
+const CORPER_BUDGET = [
+  { category: 'Transport', amount: 18000 },
+  { category: 'Food', amount: 22000 },
+  { category: 'Airtime & Data', amount: 5000 },
+  { category: 'Savings', amount: 20000 },
+  { category: 'Entertainment', amount: 12000 },
+];
+app.post('/api/presets/corper', auth, async (req, res) => {
+  try {
+    const month = new Date().toISOString().slice(0, 7);
+    const existing = await Budget.find({ userId: req.user._id, month }, { category: 1 }).lean();
+    const have = new Set(existing.map((b) => b.category));
+    const toCreate = CORPER_BUDGET.filter((b) => !have.has(b.category));
+    if (toCreate.length) {
+      await Budget.insertMany(toCreate.map((b) => ({ userId: req.user._id, category: b.category, amount: b.amount, month })));
+    }
+    let goalCreated = false;
+    const goalName = 'After Service Fund';
+    const goalExists = await Goal.findOne({ userId: req.user._id, name: goalName });
+    if (!goalExists) {
+      const deadline = new Date(); deadline.setMonth(deadline.getMonth() + 12);
+      await Goal.create({ userId: req.user._id, name: goalName, target: 240000, current: 0, deadline, category: 'Savings' });
+      goalCreated = true;
+    }
+    res.json({ ok: true, budgetsCreated: toCreate.length, budgetsSkipped: CORPER_BUDGET.length - toCreate.length, goalCreated, month });
+  } catch (e) { console.error('[presets/corper]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Financial health
 app.get('/api/financial-health', auth, async (req, res) => {
   const transactions = await Transaction.find({ userId: req.user._id });

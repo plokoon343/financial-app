@@ -24,6 +24,7 @@ const Budget = () => {
   const [detailBudget, setDetailBudget] = useState(null);
   const [editAmount, setEditAmount] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  const [seeding, setSeeding] = useState(false);
 
   // Always send the auth token explicitly (don't rely on a global axios default).
   const authConfig = () => ({
@@ -71,6 +72,18 @@ const Budget = () => {
     } catch (error) {
       console.error('Error fetching transactions:', error);
     }
+  };
+
+  // One-tap NYSC starter: seed a ₦77k allawee budget + an after-service goal.
+  const seedCorper = async () => {
+    setSeeding(true);
+    try {
+      await axios.post(`${API_URL}/api/presets/corper`, {}, authConfig());
+      setSelectedMonth(currentMonth);
+      await fetchBudgets();
+    } catch (error) {
+      console.error('Error seeding corper budget:', error);
+    } finally { setSeeding(false); }
   };
 
   const addBudget = async (e) => {
@@ -244,6 +257,28 @@ const Budget = () => {
         Pick a month, then add a budget per category. As your transactions for that month
         come in, each budget shows spent vs. limit and warns you at 80% and 100%.
       </FeatureTip>
+
+      {!loading && budgets.length === 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-between',
+          background: 'linear-gradient(135deg, rgba(0,135,81,0.10), rgba(99,102,241,0.08))',
+          border: '1px solid rgba(0,135,81,0.25)', borderRadius: 16, padding: '1.1rem 1.25rem', margin: '0 0 1.25rem',
+        }}>
+          <div style={{ maxWidth: '46ch' }}>
+            <h3 style={{ margin: '0 0 0.35rem', fontSize: '1.05rem', color: 'var(--text-primary, #1a365d)' }}>
+              <i className="fas fa-graduation-cap" style={{ marginRight: 8, color: '#008751' }}></i>
+              New corper? Start with the ₦77k allawee budget
+            </h3>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary, #5b6b82)', lineHeight: 1.5 }}>
+              One tap sets up Transport, Food, Data, Savings and Fun budgets that total ₦77,000, plus an After Service savings goal. Edit anything afterwards.
+            </p>
+          </div>
+          <button className="btn-primary" onClick={seedCorper} disabled={seeding} style={{ whiteSpace: 'nowrap' }}>
+            <i className={`fas ${seeding ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} style={{ marginRight: 8 }}></i>
+            {seeding ? 'Setting up…' : 'Set up my corper budget'}
+          </button>
+        </div>
+      )}
 
       {/* Budget Summary Cards */}
       <div className="budget-summary-grid">

@@ -42,6 +42,7 @@ const Transactions = () => {
   const [fCategory, setFCategory] = useState('all');
   const [fType, setFType] = useState('all');
   const [search, setSearch] = useState('');
+  const [showInternal, setShowInternal] = useState(false); // hide internal transfers by default
   const [sortBy, setSortBy] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
   const [page, setPage] = useState(1);
@@ -107,6 +108,10 @@ const Transactions = () => {
 
   const filtered = useMemo(() => {
     const rows = all.filter(t => {
+      // Internal transfers (e.g. OPay OWealth savings churn) are excluded from the
+      // money math and flood the list, so they're hidden unless the user asks. A
+      // matching type filter still overrides this.
+      if (!showInternal && fType === 'all' && t.type === 'internal_transfer') return false;
       if (fMonth !== 'all' && monthKey(t.date) !== fMonth) return false;
       if (fBank !== 'all' && (t.bank || '') !== fBank) return false;
       if (fCategory !== 'all' && t.category !== fCategory) return false;
@@ -127,7 +132,14 @@ const Transactions = () => {
       }
       return v * dir;
     });
-  }, [all, fMonth, fBank, fCategory, fType, search, sortBy, sortDir]);
+  }, [all, fMonth, fBank, fCategory, fType, search, sortBy, sortDir, showInternal]);
+
+  // How many internal transfers are currently hidden (for the toggle hint).
+  const hiddenInternal = useMemo(() =>
+    (!showInternal ? all.filter(t => t.type === 'internal_transfer'
+      && (fMonth === 'all' || monthKey(t.date) === fMonth)
+      && (fBank === 'all' || (t.bank || '') === fBank)).length : 0),
+    [all, showInternal, fMonth, fBank]);
 
   const totals = useMemo(() => {
     const income = filtered.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0);
@@ -136,7 +148,7 @@ const Transactions = () => {
   }, [filtered]);
 
   // Pagination - reset to page 1 whenever the result set changes.
-  useEffect(() => { setPage(1); }, [fMonth, fBank, fCategory, fType, search, sortBy, sortDir, pageSize]);
+  useEffect(() => { setPage(1); }, [fMonth, fBank, fCategory, fType, search, sortBy, sortDir, pageSize, showInternal]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageStart = (page - 1) * pageSize;
   const pageRows = filtered.slice(pageStart, pageStart + pageSize);
@@ -320,6 +332,13 @@ const Transactions = () => {
         <span>{filtered.length} shown</span>
         <span className="pos">In {money(totals.income)}</span>
         <span className="neg">Out {money(totals.expense)}</span>
+        {(hiddenInternal > 0 || showInternal) && (
+          <button className="tx-internal-toggle" onClick={() => setShowInternal(v => !v)}
+            title="Internal transfers (e.g. OPay OWealth savings) move money between your own pockets and aren't spending or income">
+            <i className="fas fa-arrow-right-arrow-left"></i>
+            {showInternal ? ' Hide internal transfers' : ` ${hiddenInternal} internal transfer${hiddenInternal !== 1 ? 's' : ''} hidden · Show`}
+          </button>
+        )}
         {selected.size > 0 && (
           <button className="btn-danger-sm" onClick={deleteSelected}><i className="fas fa-trash"></i> Delete selected ({selected.size})</button>
         )}
@@ -465,6 +484,7 @@ const Transactions = () => {
         .filters select, .filters input { padding: 8px 10px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); font-size: 0.85rem; }
         .filters input[type=text] { flex: 1; min-width: 160px; }
         .tx-summary { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.88rem; color: var(--text-primary); padding: 0 4px; }
+        .tx-internal-toggle { background: rgba(99,102,241,0.1); color: #6366f1; border: 1px solid rgba(99,102,241,0.25); border-radius: 999px; padding: 3px 12px; font-size: 0.8rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
         .pos { color: #1f9d57; font-weight: 700; }
         .neg { color: #d83a3a; font-weight: 700; }
         .dark-theme .pos { color: #48bb78; }

@@ -32,7 +32,7 @@ const monthLabel = (m) => {
 
 const Transactions = () => {
   const navigate = useNavigate();
-  const { scope } = useAccountScope();
+  const { scope, inactiveKeys } = useAccountScope();
   const [all, setAll] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
@@ -114,7 +114,7 @@ const Transactions = () => {
   const filtered = useMemo(() => {
     const rows = all.filter(t => {
       // Global account scope: when set, only that account's rows show.
-      if (!scopeMatches(t, scope)) return false;
+      if (!scopeMatches(t, scope, inactiveKeys)) return false;
       // Internal transfers (e.g. OPay OWealth savings churn) are excluded from the
       // money math and flood the list, so they're hidden unless the user asks. A
       // matching type filter still overrides this.
@@ -139,7 +139,7 @@ const Transactions = () => {
       }
       return v * dir;
     });
-  }, [all, fMonth, fBank, fCategory, fType, search, sortBy, sortDir, showInternal, scope]);
+  }, [all, fMonth, fBank, fCategory, fType, search, sortBy, sortDir, showInternal, scope, inactiveKeys]);
 
   // How many internal transfers are currently hidden (for the toggle hint).
   const hiddenInternal = useMemo(() =>

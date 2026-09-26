@@ -646,9 +646,10 @@ const Dashboard = ({ initialImport } = {}) => {
   const context         = useOutletContext();
   const memoCtx         = useMemo(() => context || {}, [context]);
   const allTransactions = useMemo(() => memoCtx.transactions || [], [memoCtx.transactions]);
-  const { scope } = useAccountScope();
-  // Everything on the dashboard respects the account scope (All, or one account).
-  const transactions    = useMemo(() => allTransactions.filter(t => scopeMatches(t, scope)), [allTransactions, scope]);
+  const { scope, inactiveKeys } = useAccountScope();
+  // Everything on the dashboard respects the account scope (All, or one account) and
+  // hides deactivated accounts.
+  const transactions    = useMemo(() => allTransactions.filter(t => scopeMatches(t, scope, inactiveKeys)), [allTransactions, scope, inactiveKeys]);
   const setTransactions = useMemo(() => memoCtx.setTransactions || (() => {}), [memoCtx.setTransactions]);
   const { darkMode, user } = useAuth();
 

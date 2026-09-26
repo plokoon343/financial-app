@@ -470,6 +470,7 @@ const userAccountSchema = new mongoose.Schema({
   firstSeen:   { type: Date },
   lastSeen:    { type: Date },
   hidden:      { type: Boolean, default: false },   // user dismissed the naming prompt
+  active:      { type: Boolean, default: true },     // false = deactivated (hidden from switcher + 'all' views, reversible)
 }, { timestamps: true });
 userAccountSchema.index({ userId: 1, bankCode: 1, accountMask: 1 }, { unique: true });
 const UserAccount = mongoose.model('UserAccount', userAccountSchema);
@@ -4594,7 +4595,8 @@ app.get('/api/accounts', auth, async (req, res) => {
       txnCount: a.txnCount || 0,
       firstSeen: a.firstSeen || null,
       lastSeen: a.lastSeen || null,
-      needsNaming: !a.label && !a.hidden && (a.txnCount || 0) > 0,
+      active: a.active !== false,
+      needsNaming: !a.label && !a.hidden && a.active !== false && (a.txnCount || 0) > 0,
     }));
     res.json({ accounts: out, unnamed: out.filter((a) => a.needsNaming).length });
   } catch (e) { console.error('[accounts/list]', e.message); res.status(500).json({ message: 'Server error' }); }
@@ -4621,6 +4623,37 @@ app.post('/api/accounts/:id/dismiss', auth, async (req, res) => {
     if (!acct) return res.status(404).json({ message: 'Account not found' });
     res.json({ ok: true });
   } catch (e) { console.error('[accounts/dismiss]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Deactivate / reactivate an account. A deactivated account keeps its data but is
+// hidden from the account switcher and from "All accounts" views (the frontend reads
+// `active` and filters). Fully reversible - nothing is deleted.
+app.post('/api/accounts/:id/active', auth, async (req, res) => {
+  try {
+    const active = req.body?.active !== false; // default true unless explicitly false
+    const acct = await UserAccount.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id }, { $set: { active } }, { new: true });
+    if (!acct) return res.status(404).json({ message: 'Account not found' });
+    res.json({ ok: true, id: acct._id, active });
+  } catch (e) { console.error('[accounts/active]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Delete an account. With ?withTransactions=1 it also permanently deletes every
+// transaction stamped to that account (bankCode + accountMask) - for clearing a bad
+// import. Without it, only the account record is removed (its rows become unassigned).
+app.delete('/api/accounts/:id', auth, async (req, res) => {
+  try {
+    const acct = await UserAccount.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!acct) return res.status(404).json({ message: 'Account not found' });
+    const withTxns = req.query.withTransactions === '1' || req.query.withTransactions === 'true';
+    let transactionsDeleted = 0;
+    if (withTxns) {
+      const del = await Transaction.deleteMany({ userId: req.user._id, bankCode: acct.bankCode, accountMask: acct.accountMask });
+      transactionsDeleted = del.deletedCount || 0;
+    }
+    await UserAccount.deleteOne({ _id: acct._id, userId: req.user._id });
+    res.json({ ok: true, transactionsDeleted });
+  } catch (e) { console.error('[accounts/delete]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // --------------------------

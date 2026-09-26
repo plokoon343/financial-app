@@ -86,9 +86,7 @@ const Sidebar = () => {
       ...(new Date().getMonth() === 11 ? [{ path: '/wrapped', label: 'Money Wrapped', icon: 'celebration' }] : []),
     ]},
     { title: 'You', items: [
-      { path: '/accounts', label: 'My Accounts', icon: 'credit_card' },
-      { path: '/connect-bank', label: 'Connect Bank', icon: 'account_balance' },
-      { path: '/email-forwarding', label: 'Email Forwarding', icon: 'forward_to_inbox' },
+      { path: '/accounts', label: 'Accounts & alerts', icon: 'account_balance' },
       { path: '/settings', label: 'Settings', icon: 'settings' },
       { path: '/support', label: 'Support & FAQ', icon: 'help' },
       ...((user?.role === 'superadmin' || user?.newsletterEditor) ? [{ path: '/newsletter', label: 'Newsletter', icon: 'campaign' }] : []),

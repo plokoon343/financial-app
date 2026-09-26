@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
@@ -30,6 +31,7 @@ const monthLabel = (m) => {
 };
 
 const Transactions = () => {
+  const navigate = useNavigate();
   const { scope } = useAccountScope();
   const [all, setAll] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -240,6 +242,18 @@ const Transactions = () => {
           <p>View, edit, group and delete every transaction across your statements.</p>
         </div>
         <AccountSwitcher style={{ marginTop: 4 }} />
+      </div>
+
+      {/* Ledger tools, folded in from their former standalone pages. */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '0 0 1rem' }}>
+        <button onClick={() => navigate('/smart-categorize')} title="Review and label your uncategorised transactions one by one"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--glass-bg)', border: '1px solid var(--border-color, var(--glass-border))', color: 'var(--text-primary)', borderRadius: 999, padding: '0.5rem 0.95rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>
+          <i className="fas fa-wand-magic-sparkles" style={{ color: 'var(--accent-primary)' }}></i> Review &amp; label
+        </button>
+        <button onClick={() => navigate('/cash')} title="Break a cash withdrawal down into what you spent it on"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--glass-bg)', border: '1px solid var(--border-color, var(--glass-border))', color: 'var(--text-primary)', borderRadius: 999, padding: '0.5rem 0.95rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>
+          <i className="fas fa-money-bill-wave" style={{ color: 'var(--accent-primary)' }}></i> Track cash
+        </button>
       </div>
 
       <FeatureTip tipKey="page:transactions" title="Your full ledger">

@@ -9,6 +9,8 @@ import { kindMeta } from '../utils/txnKind';
 import { fmtNaira } from '../utils/format';
 import { detectSalary, salaryPromptSeen, markSalaryPromptSeen } from '../lib/insights';
 import BetaPrompt from './BetaPrompt';
+import AccountSwitcher from './AccountSwitcher';
+import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 import {
   FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
   FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
@@ -641,7 +643,10 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
 const Dashboard = ({ initialImport } = {}) => {
   const context         = useOutletContext();
   const memoCtx         = useMemo(() => context || {}, [context]);
-  const transactions    = useMemo(() => memoCtx.transactions || [], [memoCtx.transactions]);
+  const allTransactions = useMemo(() => memoCtx.transactions || [], [memoCtx.transactions]);
+  const { scope } = useAccountScope();
+  // Everything on the dashboard respects the account scope (All, or one account).
+  const transactions    = useMemo(() => allTransactions.filter(t => scopeMatches(t, scope)), [allTransactions, scope]);
   const setTransactions = useMemo(() => memoCtx.setTransactions || (() => {}), [memoCtx.setTransactions]);
   const { darkMode, user } = useAuth();
 
@@ -796,7 +801,8 @@ const Dashboard = ({ initialImport } = {}) => {
             <FaWallet style={{ color: '#38a169', marginRight: '0.4rem' }} /> Welcome back, {user?.name || 'User'}!
           </p>
         </div>
-        <div className="dashboard-actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+        <div className="dashboard-actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <AccountSwitcher />
           <motion.button
             onClick={() => setHideAmounts(!hideAmounts)}
             whileHover={{ scale: 1.05 }}

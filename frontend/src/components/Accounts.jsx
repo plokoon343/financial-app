@@ -1,12 +1,17 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { useAccountScope, scopeKey } from '../contexts/AccountScope';
 
 // Bank accounts (spec Addendum A, slices 2 & 3) — web parity with the mobile screen.
 // Names the accounts we fingerprinted from imports/alerts, and lets the user tag any
 // sender the parser couldn't map to a bank (the learn-unknown-senders flywheel).
 
 export default function Accounts() {
+  const navigate = useNavigate();
+  const { setScope } = useAccountScope();
+  const viewAccount = (a) => { setScope(scopeKey(a.bankCode, a.accountMask)); navigate('/'); };
   const [accounts, setAccounts] = useState([]);
   const [unknown, setUnknown] = useState([]);
   const [banks, setBanks] = useState([]);
@@ -94,6 +99,9 @@ export default function Accounts() {
       />
       <div className="ac-actions">
         {prompt && <button className="ac-ghost" disabled={busy === a.id} onClick={() => dismiss(a)}>Not mine</button>}
+        {!prompt && a.accountMask && a.bankCode && (
+          <button className="ac-ghost" onClick={() => viewAccount(a)} title="See just this account's dashboard and insights">View</button>
+        )}
         <button className="ac-save" disabled={busy === a.id} onClick={() => saveName(a)}>{prompt ? 'Save name' : 'Rename'}</button>
       </div>
     </div>

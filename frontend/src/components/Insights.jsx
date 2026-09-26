@@ -5,6 +5,8 @@ import { fmtNaira } from '../utils/format';
 import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, getStreakInfo, recordCheckin, seasonFor, betterThanLastMonth } from '../lib/insights';
 import ProPaywall from './ProPaywall';
 import { verifyPendingPro } from '../lib/pro';
+import AccountSwitcher from './AccountSwitcher';
+import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 
 // Palette for category legend dots (categories carry no colour of their own).
 const PALETTE = ['#14b8a6', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#84cc16', '#ec4899'];
@@ -56,7 +58,10 @@ const Card = ({ title, right, children }) => (
   </div>
 );
 
-export default function Insights({ transactions = [] }) {
+export default function Insights({ transactions: allTransactions = [] }) {
+  const { scope } = useAccountScope();
+  // Scope every insight to the selected account (or All).
+  const transactions = useMemo(() => allTransactions.filter(t => scopeMatches(t, scope)), [allTransactions, scope]);
   const [month, setMonth] = useState(currentMonth());
   const isCurrent = month === currentMonth();
   const [reportBusy, setReportBusy] = useState(false);
@@ -193,7 +198,10 @@ export default function Insights({ transactions = [] }) {
           <h1 style={{ margin: 0, color: 'var(--text-primary)' }}>Insights</h1>
           <p style={{ color: 'var(--text-secondary)', margin: '4px 0 0' }}>Where your money went, and where it's heading.</p>
         </div>
-        {monthNav}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <AccountSwitcher />
+          {monthNav}
+        </div>
       </div>
 
       {/* Financial report (C6) */}

@@ -19,6 +19,7 @@ import InstallPrompt from './components/InstallPrompt';
 import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
 import ErrorBoundary from './components/ErrorBoundary';
+import { AccountScopeProvider } from './contexts/AccountScope';
 import { Loader } from './components/Logo';
 
 // Lazy: page bodies are loaded on demand to shrink the initial bundle.
@@ -175,6 +176,7 @@ const ProtectedLayout = ({ ...props }) => {
   const location = useLocation();
   if (!user) return <Navigate to="/login" replace />;
   return (
+    <AccountScopeProvider>
     <div className="app-layout">
       <Onboarding />
       <Walkthrough />
@@ -194,6 +196,7 @@ const ProtectedLayout = ({ ...props }) => {
       </main>
       <BottomNav />
     </div>
+    </AccountScopeProvider>
   );
 };
 

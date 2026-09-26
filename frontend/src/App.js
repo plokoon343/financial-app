@@ -36,9 +36,7 @@ const BillsManager = lazy(() => import('./components/BillsManager'));
 const PayBills = lazy(() => import('./components/PayBills'));
 const NetWorthCalculator = lazy(() => import('./components/NetWorthCalculator'));
 const AutoSavings = lazy(() => import('./components/AutoSavings'));
-const ConnectBank = lazy(() => import('./components/ConnectBank'));
-const EmailForwarding = lazy(() => import('./components/EmailForwarding'));
-const Accounts = lazy(() => import('./components/Accounts'));
+const AccountsHub = lazy(() => import('./components/AccountsHub'));
 const SmartCategorize = lazy(() => import('./components/SmartCategorize'));
 const CashTracking = lazy(() => import('./components/CashTracking'));
 const MoneyWrapped = lazy(() => import('./components/MoneyWrapped'));
@@ -137,9 +135,11 @@ function AppContent() {
           <Route path="pay-bills" element={<PayBills />} />
           <Route path="networth" element={<NetWorthCalculator />} />
           <Route path="auto-savings" element={<AutoSavings />} />
-          <Route path="connect-bank" element={<ConnectBank />} />
-          <Route path="email-forwarding" element={<EmailForwarding />} />
-          <Route path="accounts" element={<Accounts />} />
+          {/* Banking pages folded into one "Accounts & alerts" hub; old routes
+              redirect to the matching tab so deep links keep working. */}
+          <Route path="accounts" element={<AccountsHub />} />
+          <Route path="connect-bank" element={<Navigate to="/accounts?tab=bank" replace />} />
+          <Route path="email-forwarding" element={<Navigate to="/accounts?tab=email" replace />} />
           <Route path="smart-categorize" element={<SmartCategorize />} />
           <Route path="cash" element={<CashTracking />} />
           <Route path="wrapped" element={<MoneyWrapped />} />

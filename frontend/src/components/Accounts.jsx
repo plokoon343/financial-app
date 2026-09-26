@@ -10,7 +10,7 @@ import { useAccountScope, scopeKey } from '../contexts/AccountScope';
 
 export default function Accounts() {
   const navigate = useNavigate();
-  const { setScope } = useAccountScope();
+  const { setScope, reload: reloadScope } = useAccountScope();
   const viewAccount = (a) => { setScope(scopeKey(a.bankCode, a.accountMask)); navigate('/'); };
   const [accounts, setAccounts] = useState([]);
   const [unknown, setUnknown] = useState([]);
@@ -77,15 +77,48 @@ export default function Accounts() {
     finally { setBusy(''); }
   };
 
+  // Deactivate / reactivate: hides the account from the switcher and 'All' views but
+  // keeps the data. Reversible.
+  const setActive = async (a, active) => {
+    setBusy(a.id); setError('');
+    try {
+      await axios.post(`${API_URL}/api/accounts/${a.id}/active`, { active }, headers);
+      setAccounts((prev) => prev.map((x) => (x.id === a.id ? { ...x, active } : x)));
+      flash(active ? 'Reactivated' : 'Deactivated');
+      reloadScope();
+    } catch { setError('Could not update that account.'); }
+    finally { setBusy(''); }
+  };
+
+  // Delete: remove the account, and optionally its transactions (for clearing a bad
+  // import). Two native confirms keep the destructive choice explicit.
+  const remove = async (a) => {
+    const name = a.label || a.bankName || 'this account';
+    if (!window.confirm(`Delete ${name}? This can't be undone.`)) return;
+    const withTxns = a.txnCount > 0 && window.confirm(
+      `Also delete this account's ${a.txnCount} transaction${a.txnCount === 1 ? '' : 's'}?\n\nOK  = delete the transactions too.\nCancel = keep the transactions, just remove the account.`,
+    );
+    setBusy(a.id); setError('');
+    try {
+      const { data } = await axios.delete(`${API_URL}/api/accounts/${a.id}${withTxns ? '?withTransactions=1' : ''}`, headers);
+      setAccounts((prev) => prev.filter((x) => x.id !== a.id));
+      flash(withTxns ? `Deleted, ${data.transactionsDeleted} transaction${data.transactionsDeleted === 1 ? '' : 's'} removed` : 'Account removed');
+      reloadScope();
+    } catch { setError('Could not delete that account.'); }
+    finally { setBusy(''); }
+  };
+
   const unnamed = accounts.filter((a) => a.needsNaming);
   const named = accounts.filter((a) => !a.needsNaming);
 
-  const AccountCard = ({ a, prompt }) => (
-    <div className={`ac-card${prompt ? ' ac-prompt' : ''}`}>
+  const AccountCard = ({ a, prompt }) => {
+    const inactive = a.active === false;
+    return (
+    <div className={`ac-card${prompt ? ' ac-prompt' : ''}${inactive ? ' ac-inactive' : ''}`}>
       <div className="ac-top">
         <div className="ac-icon"><i className="fas fa-credit-card"></i></div>
         <div>
-          <div className="ac-bank">{a.bankName || 'Bank account'}</div>
+          <div className="ac-bank">{a.bankName || 'Bank account'}{inactive && <span className="ac-badge">Deactivated</span>}</div>
           <div className="ac-mask">•••• {a.accountMask} · {a.txnCount} txn{a.txnCount === 1 ? '' : 's'}</div>
         </div>
       </div>
@@ -99,13 +132,22 @@ export default function Accounts() {
       />
       <div className="ac-actions">
         {prompt && <button className="ac-ghost" disabled={busy === a.id} onClick={() => dismiss(a)}>Not mine</button>}
-        {!prompt && a.accountMask && a.bankCode && (
+        {!prompt && (
+          <button className="ac-danger" disabled={busy === a.id} onClick={() => remove(a)} title="Delete this account (optionally its transactions too)">Delete</button>
+        )}
+        {!prompt && (
+          inactive
+            ? <button className="ac-ghost" disabled={busy === a.id} onClick={() => setActive(a, true)}>Reactivate</button>
+            : <button className="ac-ghost" disabled={busy === a.id} onClick={() => setActive(a, false)} title="Hide this account from your views without deleting it">Deactivate</button>
+        )}
+        {!prompt && !inactive && a.accountMask && a.bankCode && (
           <button className="ac-ghost" onClick={() => viewAccount(a)} title="See just this account's dashboard and insights">View</button>
         )}
         <button className="ac-save" disabled={busy === a.id} onClick={() => saveName(a)}>{prompt ? 'Save name' : 'Rename'}</button>
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="ac-page">
@@ -192,7 +234,10 @@ export default function Accounts() {
         .ac-select { width: auto; flex: 1; }
         .ac-ghost { background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); border-radius: var(--radius-md); padding: 10px 16px; font-weight: 700; cursor: pointer; }
         .ac-save { background: var(--gradient-primary, var(--accent-primary)); color: #fff; border: none; border-radius: var(--radius-md); padding: 10px 20px; font-weight: 800; cursor: pointer; }
-        .ac-save:disabled, .ac-ghost:disabled { opacity: 0.6; cursor: default; }
+        .ac-save:disabled, .ac-ghost:disabled, .ac-danger:disabled { opacity: 0.6; cursor: default; }
+        .ac-danger { background: transparent; border: 1px solid rgba(229,62,62,0.5); color: #e53e3e; border-radius: var(--radius-md); padding: 10px 16px; font-weight: 700; cursor: pointer; }
+        .ac-inactive { opacity: 0.72; }
+        .ac-badge { display: inline-block; margin-left: 8px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; color: var(--text-secondary); background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 999px; padding: 2px 8px; vertical-align: middle; }
         .ac-suggest { display: flex; align-items: center; gap: 8px; width: 100%; background: var(--glass-bg); border: 1px solid var(--accent-primary); color: var(--accent-primary); border-radius: var(--radius-md); padding: 10px 12px; font-weight: 700; cursor: pointer; margin-bottom: 4px; }
         .ac-empty { text-align: center; }
         .ac-err { color: #e53e3e; }

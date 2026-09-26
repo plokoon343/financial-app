@@ -6,15 +6,20 @@ import { API_URL } from '../config';
 // otherwise the value is `${bankCode}|${accountMask}` identifying one account.
 // Dashboard, Insights and Transactions all read this so the whole app can be viewed
 // one account at a time.
-const AccountScopeContext = createContext({ scope: 'all', setScope: () => {}, accounts: [], reload: () => {} });
+const AccountScopeContext = createContext({ scope: 'all', setScope: () => {}, accounts: [], inactiveKeys: new Set(), reload: () => {} });
 
 export const useAccountScope = () => useContext(AccountScopeContext);
 
 export const scopeKey = (bankCode, accountMask) => `${bankCode || ''}|${accountMask || ''}`;
 
-// Does a transaction belong to the scoped account? 'all' matches everything.
-export const scopeMatches = (txn, scope) => {
-  if (!scope || scope === 'all') return true;
+// Does a transaction belong to the current view? 'all' matches everything except
+// deactivated accounts (passed as a Set of scopeKeys); a specific scope matches only
+// that account. Deactivated accounts are never in the switcher, so scope is never one.
+export const scopeMatches = (txn, scope, inactiveKeys) => {
+  if (!scope || scope === 'all') {
+    if (inactiveKeys && inactiveKeys.has(scopeKey(txn.bankCode, txn.accountMask))) return false;
+    return true;
+  }
   const [code, mask] = scope.split('|');
   return (txn.bankCode || '') === code && (txn.accountMask || '') === (mask || '');
 };
@@ -23,6 +28,7 @@ const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.get
 
 export function AccountScopeProvider({ children }) {
   const [accounts, setAccounts] = useState([]);
+  const [inactiveKeys, setInactiveKeys] = useState(() => new Set());
   const [scope, setScopeState] = useState(() => {
     try { return localStorage.getItem('acct_scope') || 'all'; } catch { return 'all'; }
   });
@@ -35,9 +41,13 @@ export function AccountScopeProvider({ children }) {
   const reload = useCallback(async () => {
     try {
       const { data } = await axios.get(`${API_URL}/api/accounts`, authHeader());
-      const list = (data.accounts || []).filter((a) => a.accountMask && (a.txnCount || 0) > 0);
+      const all = (data.accounts || []).filter((a) => a.accountMask && (a.txnCount || 0) > 0);
+      // The switcher only offers ACTIVE accounts; deactivated ones are hidden from it
+      // and their rows are excluded from "All accounts" via inactiveKeys.
+      const list = all.filter((a) => a.active !== false);
       setAccounts(list);
-      // If the scoped account no longer exists, fall back to All.
+      setInactiveKeys(new Set(all.filter((a) => a.active === false).map((a) => scopeKey(a.bankCode, a.accountMask))));
+      // If the scoped account is gone or deactivated, fall back to All.
       setScopeState((cur) => {
         if (cur === 'all') return cur;
         const ok = list.some((a) => scopeKey(a.bankCode, a.accountMask) === cur);
@@ -50,7 +60,7 @@ export function AccountScopeProvider({ children }) {
   useEffect(() => { reload(); }, [reload]);
 
   return (
-    <AccountScopeContext.Provider value={{ scope, setScope, accounts, reload }}>
+    <AccountScopeContext.Provider value={{ scope, setScope, accounts, inactiveKeys, reload }}>
       {children}
     </AccountScopeContext.Provider>
   );

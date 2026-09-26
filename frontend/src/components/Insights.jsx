@@ -59,9 +59,9 @@ const Card = ({ title, right, children }) => (
 );
 
 export default function Insights({ transactions: allTransactions = [] }) {
-  const { scope } = useAccountScope();
+  const { scope, inactiveKeys } = useAccountScope();
   // Scope every insight to the selected account (or All).
-  const transactions = useMemo(() => allTransactions.filter(t => scopeMatches(t, scope)), [allTransactions, scope]);
+  const transactions = useMemo(() => allTransactions.filter(t => scopeMatches(t, scope, inactiveKeys)), [allTransactions, scope, inactiveKeys]);
   const [month, setMonth] = useState(currentMonth());
   const isCurrent = month === currentMonth();
   const [reportBusy, setReportBusy] = useState(false);

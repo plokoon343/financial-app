@@ -9,6 +9,7 @@ import { kindMeta } from '../utils/txnKind';
 import { fmtNaira } from '../utils/format';
 import { detectSalary, salaryPromptSeen, markSalaryPromptSeen } from '../lib/insights';
 import BetaPrompt from './BetaPrompt';
+import IncomePrompt from './IncomePrompt';
 import AccountSwitcher from './AccountSwitcher';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 import {
@@ -789,6 +790,9 @@ const Dashboard = ({ initialImport } = {}) => {
 
       {/* Beta program invite (hidden once joined or dismissed) */}
       <BetaPrompt />
+
+      {/* Progressive profiling: ask monthly income once the user has data to see */}
+      <IncomePrompt hasData={allTransactions.length > 0} />
 
       {/* Header */}
       <motion.div className="dashboard-header" initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}

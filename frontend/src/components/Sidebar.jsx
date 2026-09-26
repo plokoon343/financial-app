@@ -50,43 +50,47 @@ const Sidebar = () => {
     navigate('/login');
   };
 
-  // Grouped navigation
+  // Grouped navigation — the five intents (web parity with the mobile 5-tab nav:
+  // Home / Money / Grow / Insights / You). Tools that will later fold into a hub as
+  // tabs (Smart Categorise, Track Cash, the Insights analyses, the account/alert
+  // pages) are grouped under their destination now so the sidebar already reads that
+  // way. Shared Expenses is hidden for now (under review); Quick Log was removed.
   const navGroups = [
-    { title: 'Banking', items: [
-      { path: '/connect-bank', label: 'Connect Bank', icon: 'account_balance' },
-      { path: '/accounts', label: 'My Accounts', icon: 'credit_card' },
-      { path: '/email-forwarding', label: 'Email Forwarding', icon: 'forward_to_inbox' },
+    { title: 'Home', items: [
+      { path: '/', label: 'Dashboard', icon: 'dashboard' },
+      { path: '/assistant', label: 'AI Assistant', icon: 'smart_toy' },
     ]},
     { title: 'Money', items: [
-      { path: '/', label: 'Dashboard', icon: 'dashboard' },
-      { path: '/quick-log', label: 'Quick Log', icon: 'bolt' },
-      { path: '/assistant', label: 'AI Assistant', icon: 'smart_toy' },
-      { path: '/smart-categorize', label: 'Smart Categorise', icon: 'sell' },
-      { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
-      { path: '/insights', label: 'Insights', icon: 'pie_chart' },
-      // Money Wrapped is a year-in-review — only surface it in December.
-      ...(new Date().getMonth() === 11 ? [{ path: '/wrapped', label: 'Money Wrapped', icon: 'celebration' }] : []),
-      { path: '/recap', label: 'Recaps', icon: 'movie' },
-      { path: '/cashflow', label: 'Cashflow', icon: 'monitoring' },
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
-      { path: '/cash', label: 'Track Cash', icon: 'payments' },
-      { path: '/shared', label: 'Shared Expenses', icon: 'group' },
       { path: '/people', label: 'People & Family', icon: 'diversity_3' },
-      { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
-      { path: '/wallet', label: 'Wallet', icon: 'wallet' },
-    ]},
-    { title: 'Plan', items: [
-      { path: '/goals', label: 'Goals', icon: 'track_changes' },
-      { path: '/auto-savings', label: 'Auto‑Savings', icon: 'savings' },
-      { path: '/debt', label: 'Debt', icon: 'credit_card' },
       { path: '/subscriptions', label: 'Subscriptions', icon: 'subscriptions' },
+      { path: '/cash', label: 'Track Cash', icon: 'payments' },
+      { path: '/smart-categorize', label: 'Smart Categorise', icon: 'sell' },
+    ]},
+    { title: 'Grow', items: [
+      { path: '/goals', label: 'Goals', icon: 'track_changes' },
+      { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
       { path: '/bills', label: 'Bills', icon: 'receipt' },
       { path: '/pay-bills', label: 'Pay Bills', icon: 'bolt' },
-      { path: '/networth', label: 'Net Worth', icon: 'show_chart' },
+      { path: '/auto-savings', label: 'Auto‑Savings', icon: 'savings' },
+      { path: '/debt', label: 'Debt', icon: 'credit_card' },
+      { path: '/wallet', label: 'Wallet', icon: 'wallet' },
     ]},
-    { title: 'Help', items: [
-      { path: '/support', label: 'Support & FAQ', icon: 'help' },
+    { title: 'Insights', items: [
+      { path: '/insights', label: 'Insights', icon: 'pie_chart' },
+      { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
+      { path: '/cashflow', label: 'Cashflow', icon: 'monitoring' },
+      { path: '/networth', label: 'Net Worth', icon: 'show_chart' },
+      { path: '/recap', label: 'Recaps', icon: 'movie' },
+      // Money Wrapped is a year-in-review — only surface it in December.
+      ...(new Date().getMonth() === 11 ? [{ path: '/wrapped', label: 'Money Wrapped', icon: 'celebration' }] : []),
+    ]},
+    { title: 'You', items: [
+      { path: '/accounts', label: 'My Accounts', icon: 'credit_card' },
+      { path: '/connect-bank', label: 'Connect Bank', icon: 'account_balance' },
+      { path: '/email-forwarding', label: 'Email Forwarding', icon: 'forward_to_inbox' },
       { path: '/settings', label: 'Settings', icon: 'settings' },
+      { path: '/support', label: 'Support & FAQ', icon: 'help' },
       ...((user?.role === 'superadmin' || user?.newsletterEditor) ? [{ path: '/newsletter', label: 'Newsletter', icon: 'campaign' }] : []),
       ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'shield' }] : []),
     ]},

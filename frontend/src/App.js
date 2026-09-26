@@ -42,7 +42,6 @@ const Accounts = lazy(() => import('./components/Accounts'));
 const SmartCategorize = lazy(() => import('./components/SmartCategorize'));
 const CashTracking = lazy(() => import('./components/CashTracking'));
 const MoneyWrapped = lazy(() => import('./components/MoneyWrapped'));
-const QuickLog = lazy(() => import('./components/QuickLog'));
 const Recap = lazy(() => import('./components/Recap'));
 const SharedExpenses = lazy(() => import('./components/SharedExpenses'));
 const People = lazy(() => import('./components/People'));
@@ -144,7 +143,6 @@ function AppContent() {
           <Route path="smart-categorize" element={<SmartCategorize />} />
           <Route path="cash" element={<CashTracking />} />
           <Route path="wrapped" element={<MoneyWrapped />} />
-          <Route path="quick-log" element={<QuickLog />} />
           <Route path="recap" element={<Recap />} />
           <Route path="shared" element={<SharedExpenses />} />
           <Route path="people" element={<People />} />

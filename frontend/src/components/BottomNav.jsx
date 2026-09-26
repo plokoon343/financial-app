@@ -17,13 +17,13 @@ const BottomNav = () => {
   return (
     <nav className="bottom-nav">
       <Tab to="/" icon="dashboard" label="Home" />
-      <Tab to="/transactions" icon="receipt_long" label="History" />
+      <Tab to="/transactions" icon="receipt_long" label="Money" />
 
-      <button className="bn-fab" onClick={() => navigate('/')} aria-label="Add or import">
+      <button className="bn-fab" onClick={() => navigate('/import-statement')} aria-label="Add or import">
         <span className="material-symbols-outlined">add</span>
       </button>
 
-      <Tab to="/goals" icon="savings" label="Goals" />
+      <Tab to="/insights" icon="pie_chart" label="Insights" />
       <button className="bn-item" onClick={() => window.dispatchEvent(new Event('finpilot:open-menu'))}>
         <span className="material-symbols-outlined">menu</span>
         <span className="bn-label">Menu</span>

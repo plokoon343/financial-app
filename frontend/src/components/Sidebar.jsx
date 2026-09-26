@@ -64,8 +64,6 @@ const Sidebar = () => {
       { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
       { path: '/people', label: 'People & Family', icon: 'diversity_3' },
       { path: '/subscriptions', label: 'Subscriptions', icon: 'subscriptions' },
-      { path: '/cash', label: 'Track Cash', icon: 'payments' },
-      { path: '/smart-categorize', label: 'Smart Categorise', icon: 'sell' },
     ]},
     { title: 'Grow', items: [
       { path: '/goals', label: 'Goals', icon: 'track_changes' },

@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/counterparty.test.js
-const { extractCounterparty, normalizeName, contactKey, familySignal } = require('./counterparty');
+const { extractCounterparty, normalizeName, contactKey, familySignal, isSelf } = require('./counterparty');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -44,6 +44,13 @@ check('family: shared surname last', familySignal(holder, 'CHIMDALU MIRIAM ONUKO
 check('family: shared surname first', familySignal(holder, 'ONUKOGU UNEZE VINCENT') === true);
 check('family: unrelated -> false', familySignal(holder, 'UCHENDU JULIUS OKWUCHUKWU') === false);
 check('family: short tokens ignored', familySignal('AB CD', 'CD EF') === false);
+
+// --- isSelf (transfer between the user's own accounts) ---
+check('self: same name reordered', isSelf('Chidumebi Onukogu', 'ONUKOGU CHIDUMEBI VINCENT') === true);
+check('self: exact + middle name', isSelf('Chidumebi Vincent Onukogu', 'CHIDUMEBI VINCENT ONUKOGU') === true);
+check('self: family member is NOT self', isSelf('Chidumebi Onukogu', 'ONUKOGU UNEZE VINCENT') === false);
+check('self: unrelated is NOT self', isSelf('Chidumebi Onukogu', 'UCHENDU JULIUS') === false);
+check('self: single-token holder never self', isSelf('Dumebi', 'DUMEBI ONUKOGU') === false);
 
 // --- normalizeName ---
 check('normalize strips digits + pipes', normalizeName('ADA MARY | Access | 0123456789') === 'ADA MARY');

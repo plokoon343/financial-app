@@ -91,4 +91,16 @@ function familySignal(holderName, contactName) {
   return nameTokens(contactName).some((t) => a.has(t));
 }
 
-module.exports = { extractCounterparty, normalizeName, contactKey, familySignal, findAccount };
+// Is this counterparty the account holder themselves (a transfer between their own
+// accounts)? True only when EVERY significant token of the holder's name appears in
+// the contact's name (order-independent — Nigerian names get reordered across banks),
+// and both have at least two significant tokens. Stricter than familySignal (which
+// needs just one shared surname), so a real family member is never mistaken for self.
+function isSelf(holderName, contactName) {
+  const h = nameTokens(holderName);
+  const c = new Set(nameTokens(contactName));
+  if (h.length < 2 || c.size < 2) return false;
+  return h.every((t) => c.has(t));
+}
+
+module.exports = { extractCounterparty, normalizeName, contactKey, familySignal, isSelf, findAccount };

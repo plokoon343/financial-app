@@ -78,9 +78,6 @@ const Sidebar = () => {
     ]},
     { title: 'Insights', items: [
       { path: '/insights', label: 'Insights', icon: 'pie_chart' },
-      { path: '/financial-health', label: 'Financial Health', icon: 'health_and_safety' },
-      { path: '/cashflow', label: 'Cashflow', icon: 'monitoring' },
-      { path: '/networth', label: 'Net Worth', icon: 'show_chart' },
       { path: '/recap', label: 'Recaps', icon: 'movie' },
       // Money Wrapped is a year-in-review — only surface it in December.
       ...(new Date().getMonth() === 11 ? [{ path: '/wrapped', label: 'Money Wrapped', icon: 'celebration' }] : []),

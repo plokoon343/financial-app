@@ -24,9 +24,7 @@ import { Loader } from './components/Logo';
 // Lazy: page bodies are loaded on demand to shrink the initial bundle.
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Budget = lazy(() => import('./components/Budget'));
-const FinancialHealth = lazy(() => import('./components/FinancialHealth'));
-const Insights = lazy(() => import('./components/Insights'));
-const Cashflow = lazy(() => import('./components/Cashflow'));
+const InsightsHub = lazy(() => import('./components/InsightsHub'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const Wallet = lazy(() => import('./components/Wallet'));
 const GoalTracker = lazy(() => import('./components/GoalTracker'));
@@ -34,7 +32,6 @@ const DebtManager = lazy(() => import('./components/DebtManager'));
 const SubscriptionManager = lazy(() => import('./components/SubscriptionManager'));
 const BillsManager = lazy(() => import('./components/BillsManager'));
 const PayBills = lazy(() => import('./components/PayBills'));
-const NetWorthCalculator = lazy(() => import('./components/NetWorthCalculator'));
 const AutoSavings = lazy(() => import('./components/AutoSavings'));
 const AccountsHub = lazy(() => import('./components/AccountsHub'));
 const SmartCategorize = lazy(() => import('./components/SmartCategorize'));
@@ -124,16 +121,18 @@ function AppContent() {
           <Route path="transactions" element={<Transactions />} />
           <Route path="assistant" element={<AiAssistant />} />
           <Route path="budget" element={<Budget budgets={budgets} setBudgets={setBudgets} transactions={transactions} />} />
-          <Route path="financial-health" element={<FinancialHealth transactions={transactions} />} />
-          <Route path="insights" element={<Insights transactions={transactions} />} />
-          <Route path="cashflow" element={<Cashflow />} />
+          {/* Analysis pages folded into one "Insights" hub; old routes redirect to
+              the matching tab so deep links keep working. */}
+          <Route path="insights" element={<InsightsHub />} />
+          <Route path="financial-health" element={<Navigate to="/insights?tab=health" replace />} />
+          <Route path="cashflow" element={<Navigate to="/insights?tab=cashflow" replace />} />
+          <Route path="networth" element={<Navigate to="/insights?tab=networth" replace />} />
           <Route path="wallet" element={<Wallet />} />
           <Route path="goals" element={<GoalTracker goals={goals} setGoals={setGoals} />} />
           <Route path="debt" element={<DebtManager debts={debts} setDebts={setDebts} />} />
           <Route path="subscriptions" element={<SubscriptionManager subscriptions={subscriptions} setSubscriptions={setSubscriptions} />} />
           <Route path="bills" element={<BillsManager />} />
           <Route path="pay-bills" element={<PayBills />} />
-          <Route path="networth" element={<NetWorthCalculator />} />
           <Route path="auto-savings" element={<AutoSavings />} />
           {/* Banking pages folded into one "Accounts & alerts" hub; old routes
               redirect to the matching tab so deep links keep working. */}

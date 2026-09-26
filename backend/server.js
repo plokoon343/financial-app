@@ -2983,15 +2983,9 @@ const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/GwGSrl76CbaLA7xQqmmLrU?s=c
 // Separate beta testers community. Set BETA_WHATSAPP_URL on Render once the beta
 // group exists; until then it falls back to the general community link.
 const BETA_WHATSAPP_URL = process.env.BETA_WHATSAPP_URL || WHATSAPP_GROUP_URL;
-// Dedicated NYSC corper community (for the corper landing + corper quiz signups).
-// Set CORPER_WHATSAPP_URL on Render; until then it falls back to the general link.
-const CORPER_WHATSAPP_URL = process.env.CORPER_WHATSAPP_URL || WHATSAPP_GROUP_URL;
-const groupUrlFor = (source) => {
-  const s = String(source || '').toLowerCase();
-  if (s === 'beta') return BETA_WHATSAPP_URL;
-  if (s === 'nysc-talk' || s === 'quiz-nysc' || s === 'corper') return CORPER_WHATSAPP_URL;
-  return WHATSAPP_GROUP_URL;
-};
+// Only two WhatsApp destinations: the general community (channel/group) for every
+// public signup incl. corpers, and the beta testers GC for beta opt-ins.
+const groupUrlFor = (source) => (String(source || '').toLowerCase() === 'beta' ? BETA_WHATSAPP_URL : WHATSAPP_GROUP_URL);
 
 // Waitlist - public signup from the marketing site (rate-limited, deduped).
 app.post('/api/waitlist', authLimiter, async (req, res) => {

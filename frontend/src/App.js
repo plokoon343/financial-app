@@ -16,7 +16,6 @@ import GlobalBanner from './components/GlobalBanner';
 import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
 import InstallPrompt from './components/InstallPrompt';
-import Walkthrough from './components/Walkthrough';
 import Onboarding from './components/Onboarding';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AccountScopeProvider } from './contexts/AccountScope';
@@ -179,7 +178,6 @@ const ProtectedLayout = ({ ...props }) => {
     <AccountScopeProvider>
     <div className="app-layout">
       <Onboarding />
-      <Walkthrough />
       <NotificationBell />
       <Sidebar />
       <main className="main-content">

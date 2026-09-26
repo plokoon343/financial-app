@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/inboundEmail.test.js
-const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText } = require('./inboundEmail');
+const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail } = require('./inboundEmail');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -100,6 +100,48 @@ check('empty body -> 0 segments', splitEmailAlerts('').length === 0);
 
 // emailBodyText excludes the subject (unlike emailToText).
 check('emailBodyText no subject', emailBodyText({ text: 'plain body' }) === 'plain body');
+
+// --- manual forwards (any provider) ---
+// A hand-forwarded Gmail message: envelope From is the user; the bank is in the header.
+const gmailFwd = [
+  'Here you go',
+  '',
+  '---------- Forwarded message ----------',
+  'From: GTBank <alerts@gtbank.com>',
+  'Date: Wed, 3 Sep 2026 at 10:02',
+  'Subject: Transaction Alert',
+  'To: me <someone@yahoo.com>',
+  '',
+  'Debit Alert: NGN5,000.00 to SHOPRITE on 03-Sep-2026. Bal: NGN12,000.00',
+].join('\n');
+check('forwardedSender finds bank', forwardedSender(gmailFwd) === 'alerts@gtbank.com');
+check('unwrapForwarded drops headers', !/forwarded message|Subject:|To:/i.test(unwrapForwarded(gmailFwd)));
+check('unwrapForwarded keeps alert', /5,000\.00/.test(unwrapForwarded(gmailFwd)) && /SHOPRITE/.test(unwrapForwarded(gmailFwd)));
+
+// Apple Mail style marker.
+const appleFwd = [
+  'Begin forwarded message:',
+  'From: Access Bank <noreply@accessbankplc.com>',
+  'Subject: Debit Alert',
+  '',
+  'Acct debited NGN2,500.00 for AIRTIME.',
+].join('\n');
+check('apple forwardedSender', forwardedSender(appleFwd) === 'noreply@accessbankplc.com');
+check('apple unwrap keeps body', /2,500\.00/.test(unwrapForwarded(appleFwd)));
+
+// resolveBankEmail: manual forward from a Yahoo mailbox still resolves to the bank.
+const r1 = resolveBankEmail({ subject: 'Fwd: Transaction Alert', text: gmailFwd, from: 'me <someone@yahoo.com>' });
+check('resolve manual-forward sender', r1 && r1.sender === 'alerts@gtbank.com');
+check('resolve manual-forward body has amount', r1 && /5,000\.00/.test(r1.fullText));
+// A direct/auto-forward (envelope From is the bank) resolves straight through.
+const r2 = resolveBankEmail({ subject: 'Alert', text: 'Debit NGN1,000 POS', from: 'GTBank <alerts@gtbank.com>' });
+check('resolve direct sender', r2 && r2.sender === 'GTBank <alerts@gtbank.com>');
+// A forward of non-bank mail (no bank in headers) is dropped.
+const r3 = resolveBankEmail({ text: 'just a note from a friend', from: 'me@yahoo.com' });
+check('resolve non-bank -> null', r3 === null);
+// No forwarded marker + non-bank From -> null (a bare signature "From:" must not pass).
+const r4 = resolveBankEmail({ text: 'Regards,\nFrom: John', from: 'me@outlook.com' });
+check('resolve bare From not a bank', r4 === null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -109,6 +109,75 @@ function emailBodyText({ text = '', html = '' } = {}) {
   return stripQuotedReply(body);
 }
 
+// ── Manual forwards (any provider) ──
+// Auto-forwarding (a Gmail filter / Yahoo-Outlook rule) resends the alert keeping the
+// bank as From, so the allowlist accepts it. A MANUAL "Forward", though, rewrites From
+// to the user's own mailbox (yahoo.com/gmail.com) and buries the bank alert under a
+// quoted forwarded header:
+//   ---------- Forwarded message ----------      (Gmail)
+//   Begin forwarded message:                     (Apple Mail)
+//   From: GTBank <alerts@gtbank.com>
+//   Date: ... / Subject: ... / To: ...
+//   <the original alert>
+// These two helpers recover the ORIGINAL sender and the inner alert so a hand-forward
+// from any provider still ingests, instead of being dropped as "sender-not-allowed".
+
+const FWD_MARKER = /-{2,}\s*forwarded message\s*-{2,}|begin forwarded message:/i;
+const FWD_HEADER = /^\s*(from|date|sent|subject|to|cc|bcc|reply-to):/i;
+
+// The original bank address from a forwarded header block, or '' if none. Scans only
+// the forwarded region (or the head of the body) so a signature "From:" won't match.
+function forwardedSender(rawBody) {
+  const text = (rawBody || '').toString();
+  const idx = text.search(FWD_MARKER);
+  const region = idx >= 0 ? text.slice(idx, idx + 800) : text.slice(0, 800);
+  const m = region.match(/\bFrom:\s*[^\n<]*<?\s*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\s*>?/i);
+  return m ? lc(m[1]) : '';
+}
+
+// The inner alert body of a forwarded message: everything after the forwarded header
+// block. Returns '' when there's no forwarded marker (nothing to unwrap).
+function unwrapForwarded(rawBody) {
+  const text = (rawBody || '').toString();
+  const idx = text.search(FWD_MARKER);
+  if (idx < 0) return '';
+  const lines = text.slice(idx).split('\n');
+  lines.shift(); // drop the marker line itself
+  const out = [];
+  let inHeaders = true;
+  for (const line of lines) {
+    if (inHeaders) {
+      if (FWD_HEADER.test(line)) continue;   // skip From/Date/Subject/To/... lines
+      if (!line.trim()) { inHeaders = false; continue; } // blank line ends the headers
+      inHeaders = false;                      // first real content line ends them too
+    }
+    out.push(line);
+  }
+  return out.map((l) => l.trim()).filter(Boolean).join('\n').trim();
+}
+
+// Decide the effective bank sender + the text to parse from a provider payload.
+// Handles both auto-forward/direct (envelope From is already the bank) and a manual
+// Forward (From is the user; the bank is inside the quoted forwarded header). Returns
+// { sender, fullText, bodyOnly } for an allowed bank, or null to drop the mail.
+//   fullText — parse input for a single alert (subject kept: banks put amounts there)
+//   bodyOnly — no subject, for the digest splitter
+function resolveBankEmail({ subject = '', text = '', html = '', from = '' } = {}, extra = []) {
+  if (isAllowedSender(from, extra)) {
+    return { sender: from, fullText: emailToText({ subject, text, html }), bodyOnly: emailBodyText({ text, html }) };
+  }
+  const raw = text && text.trim() ? text : htmlToText(html);
+  const fwd = forwardedSender(raw);
+  if (fwd && isAllowedSender(fwd, extra)) {
+    const inner = unwrapForwarded(raw);
+    const body = inner || stripQuotedReply(raw) || raw;
+    // The user's own subject ("Fwd: ...") is noise, and the forwarded Subject line is
+    // already inside `body`, so parse the body on its own here.
+    return { sender: fwd, fullText: body, bodyOnly: body };
+  }
+  return null;
+}
+
 // Best plain-text body from a provider payload (prefer text, fall back to HTML),
 // with the quoted tail stripped. Includes the subject — bank alerts often put the
 // amount/direction in the subject line.
@@ -182,4 +251,5 @@ module.exports = {
   genToken, BANK_EMAIL_DOMAINS, isAllowedSender, senderDomain, emailAddress,
   extractToken, htmlToText, stripQuotedReply, emailToText, emailBodyText,
   isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts,
+  forwardedSender, unwrapForwarded, resolveBankEmail,
 };

@@ -34,6 +34,7 @@ const BillsManager = lazy(() => import('./components/BillsManager'));
 const PayBills = lazy(() => import('./components/PayBills'));
 const AutoSavings = lazy(() => import('./components/AutoSavings'));
 const AccountsHub = lazy(() => import('./components/AccountsHub'));
+const FirstInsight = lazy(() => import('./components/FirstInsight'));
 const SmartCategorize = lazy(() => import('./components/SmartCategorize'));
 const CashTracking = lazy(() => import('./components/CashTracking'));
 const MoneyWrapped = lazy(() => import('./components/MoneyWrapped'));
@@ -141,6 +142,7 @@ function AppContent() {
           <Route path="email-forwarding" element={<Navigate to="/accounts?tab=email" replace />} />
           <Route path="smart-categorize" element={<SmartCategorize />} />
           <Route path="cash" element={<CashTracking />} />
+          <Route path="first-insight" element={<FirstInsight />} />
           <Route path="wrapped" element={<MoneyWrapped />} />
           <Route path="recap" element={<Recap />} />
           <Route path="shared" element={<SharedExpenses />} />

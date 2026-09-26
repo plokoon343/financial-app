@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useOutletContext, Link } from 'react-router-dom';
+import { useOutletContext, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
@@ -642,6 +642,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
 
 // ─── Main Dashboard Component ────────────────────────────────────────────────
 const Dashboard = ({ initialImport } = {}) => {
+  const navigate        = useNavigate();
   const context         = useOutletContext();
   const memoCtx         = useMemo(() => context || {}, [context]);
   const allTransactions = useMemo(() => memoCtx.transactions || [], [memoCtx.transactions]);
@@ -747,7 +748,13 @@ const Dashboard = ({ initialImport } = {}) => {
     const withIds = imported.map((t, i) => ({ ...t, _id: t._id || `imp_${Date.now()}_${i}` }));
     setTransactions(prev => [...withIds, ...prev]);
     setTimeout(() => setShowModal(false), 1500);
-  }, [setTransactions]);
+    // First-ever import → celebrate with the first-insight ceremony (once).
+    try {
+      if (!localStorage.getItem('first_insight_seen') && imported && imported.length > 0) {
+        setTimeout(() => navigate('/first-insight'), 1600);
+      }
+    } catch { /* ignore */ }
+  }, [setTransactions, navigate]);
 
   const deleteTransaction = useCallback(async (id) => {
     try {

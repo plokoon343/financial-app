@@ -4381,23 +4381,27 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
       return res.json({ ok: true, gmailVerification: !!v });
     }
 
-    // Sender allowlist — silently drop anything that isn't a known bank (spec B1).
-    if (!inboundEmail.isAllowedSender(from, inboundExtraDomains)) return res.json({ ok: true, skipped: 'sender-not-allowed' });
+    // Resolve the effective bank sender + text to parse. Accepts a direct/auto-forward
+    // (envelope From is the bank) AND a manual forward from any provider (From is the
+    // user's Yahoo/Gmail; the bank sits in the quoted forwarded header). Anything with
+    // no recognisable bank sender is silently dropped (spec B1).
+    const resolved = inboundEmail.resolveBankEmail({ subject, text, html, from }, inboundExtraDomains);
+    if (!resolved) return res.json({ ok: true, skipped: 'sender-not-allowed' });
+    const bankFrom = resolved.sender;
 
     // We're receiving mail for this user → light up the status regardless of parse.
     user.inboundEmailLastAt = new Date();
 
     // Digest emails (spec 3.6): one mail may cover several transactions. Split the
     // body into per-transaction segments — a single alert yields exactly one — and
-    // ingest each. Only for a single alert do we prepend the subject (banks often put
-    // the amount/direction there); a digest's subject is a generic summary line.
-    const bodyOnly = inboundEmail.emailBodyText({ text, html });
-    const segments = inboundEmail.splitEmailAlerts(bodyOnly);
+    // ingest each. Only for a single alert do we parse the subject-bearing text (banks
+    // often put the amount/direction there); a digest's subject is a generic summary.
+    const segments = inboundEmail.splitEmailAlerts(resolved.bodyOnly);
     let parsedRows;
     if (segments.length > 1) {
-      parsedRows = (await parseAlertsWithRescue(segments, 'email', from)).filter((r) => r && r.amount > 0);
+      parsedRows = (await parseAlertsWithRescue(segments, 'email', bankFrom)).filter((r) => r && r.amount > 0);
     } else {
-      const [one] = await parseAlertsWithRescue([inboundEmail.emailToText({ subject, text, html })], 'email', from);
+      const [one] = await parseAlertsWithRescue([resolved.fullText], 'email', bankFrom);
       parsedRows = one && one.amount > 0 ? [one] : [];
     }
     let created = 0;

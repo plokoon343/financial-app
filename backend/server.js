@@ -1560,8 +1560,18 @@ const parsePDF = async (filePath, password = '') => {
   const opayParsed = parseOpayStatement(rawText);
   if (opayParsed && opayParsed.length > 0) {
     console.log(`[parsePDF] OPay parser found ${opayParsed.length} transactions (${opayParsed.filter(t => t.internal).length} internal)`);
-    opayParsed.forEach((t) => { if (!t.category) t.category = categorizeTransaction(t.description, t.type === 'income' ? 'income' : 'expense'); });
+    // Stamp every row with the OPay wallet's account fingerprint (bank code + last
+    // 4 of the wallet number) so the wallet registers as its own traceable account
+    // for per-account views, like every other bank the parsers detect.
+    const opayMask = (opayParsed.accountNumber || '').toString().replace(/\D/g, '').slice(-4);
+    opayParsed.forEach((t) => {
+      if (!t.category) t.category = categorizeTransaction(t.description, t.type === 'income' ? 'income' : 'expense');
+      t.bankCode = 'opay';
+      if (opayMask) t.accountMask = opayMask;
+    });
     opayParsed.bank = 'OPay';
+    opayParsed.bankCode = 'opay';
+    opayParsed.accountMask = opayMask;
     // Balance can't reconcile on OPay (OWealth-funded debits bypass the wallet
     // balance), but the explicit debit/credit columns are authoritative → trusted.
     opayParsed.reconciliation = { checked: false, ok: null };

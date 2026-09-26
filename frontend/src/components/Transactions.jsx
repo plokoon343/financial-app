@@ -3,6 +3,8 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { kindMeta, isExcludedKind } from '../utils/txnKind';
+import AccountSwitcher from './AccountSwitcher';
+import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 import { avatarFor } from '../utils/merchantAvatar';
 import { FeatureTip, InfoTip } from './FeatureTip';
 import { fmtNaira } from '../utils/format';
@@ -28,6 +30,7 @@ const monthLabel = (m) => {
 };
 
 const Transactions = () => {
+  const { scope } = useAccountScope();
   const [all, setAll] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
@@ -108,6 +111,8 @@ const Transactions = () => {
 
   const filtered = useMemo(() => {
     const rows = all.filter(t => {
+      // Global account scope: when set, only that account's rows show.
+      if (!scopeMatches(t, scope)) return false;
       // Internal transfers (e.g. OPay OWealth savings churn) are excluded from the
       // money math and flood the list, so they're hidden unless the user asks. A
       // matching type filter still overrides this.
@@ -132,7 +137,7 @@ const Transactions = () => {
       }
       return v * dir;
     });
-  }, [all, fMonth, fBank, fCategory, fType, search, sortBy, sortDir, showInternal]);
+  }, [all, fMonth, fBank, fCategory, fType, search, sortBy, sortDir, showInternal, scope]);
 
   // How many internal transfers are currently hidden (for the toggle hint).
   const hiddenInternal = useMemo(() =>
@@ -229,9 +234,12 @@ const Transactions = () => {
 
   return (
     <div className="tx-page">
-      <div className="section-header">
-        <h2><i className="fas fa-receipt"></i> Transactions</h2>
-        <p>View, edit, group and delete every transaction across your statements.</p>
+      <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h2><i className="fas fa-receipt"></i> Transactions</h2>
+          <p>View, edit, group and delete every transaction across your statements.</p>
+        </div>
+        <AccountSwitcher style={{ marginTop: 4 }} />
       </div>
 
       <FeatureTip tipKey="page:transactions" title="Your full ledger">

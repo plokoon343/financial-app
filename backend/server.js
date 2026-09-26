@@ -23,7 +23,7 @@ const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
 const { parseOpayStatement } = require('./lib/opayStatement');
 const { extractStatement: llmExtractStatement } = require('./lib/llmStatement');
-const { extractCounterparty, contactKey, familySignal } = require('./lib/counterparty');
+const { extractCounterparty, contactKey, familySignal, isSelf } = require('./lib/counterparty');
 const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
@@ -4103,11 +4103,13 @@ async function llmParseStatement(rawText) {
 // ─── People & Family ledger helpers ──────────────────────────────────────────
 // Fold a list of transactions into per-counterparty aggregates (sent/received totals
 // + first/last seen), keeping the fullest name and best bank/account seen.
-function aggregateCounterparties(txns) {
+function aggregateCounterparties(txns, holderName) {
   const agg = new Map();
   for (const t of txns) {
     const cp = extractCounterparty(t.description);
     if (!cp) continue;
+    // A transfer to/from the user's own account is internal, not a contact.
+    if (holderName && isSelf(holderName, cp.name)) continue;
     const key = contactKey(cp);
     if (!key) continue;
     const amt = Math.abs(Number(t.amount) || 0);
@@ -4130,7 +4132,7 @@ function aggregateCounterparties(txns) {
 // Incremental fold after an import (fresh rows only) — adds to existing totals and
 // never touches the user's own relationship/label/category.
 async function foldContactsIncremental(userId, txns, holderName) {
-  const agg = aggregateCounterparties(txns);
+  const agg = aggregateCounterparties(txns, holderName);
   const ops = [];
   for (const g of agg.values()) {
     ops.push({ updateOne: {
@@ -4152,7 +4154,7 @@ async function foldContactsIncremental(userId, txns, holderName) {
 // the user's own labels/relationship/category across the rebuild.
 async function rebuildContacts(userId, holderName) {
   const txns = await Transaction.find({ userId }, { description: 1, amount: 1, type: 1, date: 1 }).lean();
-  const agg = aggregateCounterparties(txns);
+  const agg = aggregateCounterparties(txns, holderName);
   const existing = await Contact.find({ userId }, { key: 1, relationship: 1, label: 1, category: 1 }).lean();
   const userFields = new Map(existing.map((c) => [c.key, { relationship: c.relationship, label: c.label, category: c.category }]));
   await Contact.deleteMany({ userId });

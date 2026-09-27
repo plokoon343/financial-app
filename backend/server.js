@@ -26,6 +26,7 @@ const { extractStatement: llmExtractStatement } = require('./lib/llmStatement');
 const { extractCounterparty, contactKey, familySignal, isSelf } = require('./lib/counterparty');
 const { normalizeAmount } = require('./lib/amount');
 const inboundEmail = require('./lib/inboundEmail');
+const shareIngest = require('./lib/shareIngest');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
@@ -421,7 +422,7 @@ const transactionSchema = new mongoose.Schema({
   // same way (they are neither 'income' nor 'expense', so aggregations skip them).
   type: { type: String, enum: ['income', 'expense', 'internal_transfer', 'cash_withdrawal', 'loan_in', 'debt_repayment', 'reversal', 'failed'], required: true },
   // Origin tracking so transactions can be grouped/deleted by bank statement.
-  source: { type: String, enum: ['manual', 'import', 'email'], default: 'manual' },
+  source: { type: String, enum: ['manual', 'import', 'email', 'share'], default: 'manual' },
   bank: { type: String, default: '' },           // e.g. 'GTBank', 'Union', 'Kuda'
   // Account fingerprint (spec Addendum A, slice 2): the resolved bank code plus the
   // masked account tail (last 3-4 digits) the alert/statement referenced. Together
@@ -441,6 +442,10 @@ const transactionSchema = new mongoose.Schema({
   // withdrawal's id, so the spending is counted while the withdrawal stays excluded.
   cashAllocated: { type: Boolean, default: false },
   cashParentId:  { type: String, default: '' },
+  // Share-to-Automonie ingestion (share-sheet channel): provenance of a shared alert.
+  parseConfidence: { type: String, default: '' },   // 'high' | 'low' at confirm time
+  parseId:         { type: String, default: '' },   // ties the saved row to its parse
+  dedupeGroupId:   { type: String, default: '' },   // shared with a merged auto-forward twin
 }, { timestamps: true });
 
 // Confirmed self-transfer routes (a pair of the user's own banks). Once a user
@@ -2797,10 +2802,25 @@ app.get('/api/transactions', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 app.post('/api/transactions', auth, async (req, res) => {
-  const { date, description, amount, category, type } = req.body;
+  const { date, description, amount, category, type, source, bank, bankCode, accountMask, parseConfidence, parseId, dedupeGroupId } = req.body;
   if (!date || !description || !amount || !category || !type) return res.status(400).json({ message: 'All fields required' });
-  const transaction = new Transaction({ userId: req.user._id, date: new Date(date), description: description.trim(), amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount), category: category.trim(), type });
+  // Provenance for a share-sheet confirm (spec §8): stamp source + parse metadata + the
+  // account fingerprint so a confirmed shared alert behaves like any imported row.
+  const shared = source === 'share';
+  const bCode = (bankCode || '').toString().toLowerCase().slice(0, 24);
+  const bMask = (accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
+  const transaction = new Transaction({
+    userId: req.user._id, date: new Date(date), description: description.trim(),
+    amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount), category: category.trim(), type,
+    ...(shared ? { source: 'share', importedAt: new Date() } : {}),
+    ...(bank ? { bank: String(bank).slice(0, 40) } : {}),
+    ...(bCode ? { bankCode: bCode } : {}), ...(bMask ? { accountMask: bMask } : {}),
+    ...(parseConfidence ? { parseConfidence: String(parseConfidence).slice(0, 8) } : {}),
+    ...(parseId ? { parseId: String(parseId).slice(0, 64) } : {}),
+    ...(dedupeGroupId ? { dedupeGroupId: String(dedupeGroupId).slice(0, 64) } : {}),
+  });
   await transaction.save();
+  if (shared && bCode) { try { await touchUserAccount(req.user._id, { bankCode: bCode, bankName: bank || '', accountMask: bMask }, transaction.date); } catch { /* non-fatal */ } }
   await applySavingsRule(req.user._id, transaction.amount, transaction.type);
   if (transaction.type === 'expense') {
     checkBudgetAlert(req.user._id, transaction.category, new Date(transaction.date).toISOString().slice(0, 7));
@@ -4328,6 +4348,65 @@ async function ingestEmailAlert(user, parsed) {
   await maybeLinkSubscription(user._id, { description: parsed.description, amount: parsed.amount, category: parsed.category, date: when, bankName: eBank });
   return 1;
 }
+
+// ─── Share-to-Automonie ingestion (share-sheet channel) ─────────────────────────
+// The user shares any transaction alert (SMS / OPay-PalmPay push / email body / any
+// on-screen text) to Automonie. We run it through the SAME deterministic parser as
+// SMS/email (parseOneAlert), dedupe it against recent rows, and return candidate(s) +
+// confidence + a dedupe verdict. We do NOT save here: the client shows a confirm sheet
+// and persists via POST /api/transactions with source:'share'. Raw shared text is
+// transient — parsed, then never persisted or logged (it holds full account details).
+const shareIdemp = new Map(); // clientIdempotencyKey -> { at, body }  (double-submit guard)
+function shareDedupeCheck(existing, parsed) {
+  const fp = fingerprint({ amount: parsed.amount, type: parsed.type, date: parsed.date, bank: parsed.bank, description: parsed.description });
+  for (const e of existing) {
+    const s = matchScore(fp, fingerprint({ amount: e.amount, type: e.type, date: new Date(e.date).toISOString().slice(0, 10), bank: e.bank, description: e.description }));
+    if (s >= MERGE) return { verdict: 'duplicate_suspected', existingTransactionId: String(e._id) };
+  }
+  return { verdict: 'unique', existingTransactionId: null };
+}
+app.post('/api/ingest/share', auth, async (req, res) => {
+  try {
+    const key = (req.body?.clientIdempotencyKey || '').toString().slice(0, 64);
+    const now = Date.now();
+    for (const [k, v] of shareIdemp) if (now - v.at > 120000) shareIdemp.delete(k);
+    if (key && shareIdemp.has(key)) return res.json(shareIdemp.get(key).body); // reject double-submit
+
+    const rawText = (req.body?.sharedText || '').toString();
+    if (rawText.length > shareIngest.MAX_SHARE_CHARS * 4) return res.status(413).json({ message: 'Shared text too large' });
+    const text = shareIngest.guardText(rawText);
+    if (!text.trim()) return res.status(422).json({ error: 'no_transaction', message: "Couldn't find a transaction here." });
+
+    // Multi-transaction blob → split (reuse the email digest splitter); a single alert
+    // yields exactly one segment.
+    const segments = inboundEmail.splitEmailAlerts(text);
+    const rows = [];
+    for (const seg of segments) {
+      const parsed = parseOneAlert(seg, 'share'); // deterministic only — no LLM gap-fill for amount/direction
+      if (parsed && parsed.amount > 0) rows.push(parsed);
+    }
+    if (rows.length === 0) return res.status(422).json({ error: 'no_transaction', message: "Couldn't find a transaction here." });
+
+    // Dedupe each candidate against the user's rows in a ±1-day window (cross-source:
+    // catches an auto-forwarded twin so we never double-count).
+    const times = rows.map((r) => new Date(r.date).getTime()).filter((t) => !isNaN(t));
+    const base = times.length ? times : [now];
+    const gte = new Date(Math.min(...base) - 86400000), lte = new Date(Math.max(...base) + 86400000);
+    const existing = await Transaction.find({ userId: req.user._id, date: { $gte: gte, $lte: lte } })
+      .select('amount type date bank description').lean();
+
+    const parseId = crypto.randomUUID();
+    const candidates = rows.map((r) => ({
+      ...shareIngest.toCandidate(r),
+      confidence: shareIngest.confidenceTier(r),
+      dedupe: shareDedupeCheck(existing, r),
+      bankCode: r.bankCode || null, // passed back so the confirm-save can persist the fingerprint
+    }));
+    const body = { candidates, candidate: candidates[0], parseId, multiple: candidates.length > 1 };
+    if (key) shareIdemp.set(key, { at: now, body });
+    res.json(body);
+  } catch (e) { console.error('[ingest/share]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
 
 // Inbound providers (SendGrid Inbound Parse, Mailgun routes) POST the email as
 // multipart/form-data, which express.json/urlencoded don't parse — so we run a

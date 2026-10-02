@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/llmExtract.test.js
-const { buildExtractPrompt, parseExtract, validateExtract, extractAlertOpenAICompat } = require('./llmExtract');
+const { buildExtractPrompt, parseExtract, validateExtract, extractAlertLLM } = require('./llmExtract');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -37,15 +37,15 @@ check('reject bad date -> null date but still valid', (() => { const r = validat
     seen = { url, body: JSON.parse(opts.body), auth: opts.headers.Authorization };
     return { ok: true, json: async () => ({ choices: [{ message: { content: '{"is_transaction":true,"amount":15000,"direction":"credit","merchant":"JANE","date":"2026-09-12"}' } }] }) };
   };
-  const cfg = { baseURL: 'https://api.groq.com/openai/v1', apiKey: 'k', model: 'llama-3.3-70b-versatile', name: 'groq' };
-  const out = await extractAlertOpenAICompat(RAW, cfg, mockFetch);
+  const cfg = { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: 'k', model: 'gemini-3.6-flash', name: 'gemini' };
+  const out = await extractAlertLLM(RAW, cfg, mockFetch);
   check('calls chat/completions', seen.url.endsWith('/chat/completions'));
   check('json mode + temp0', seen.body.response_format.type === 'json_object' && seen.body.temperature === 0);
   check('bearer key', seen.auth === 'Bearer k');
   check('parses model reply', out.amount === 15000 && out.direction === 'credit');
 
   let threw = false;
-  try { await extractAlertOpenAICompat(RAW, cfg, async () => ({ ok: false, status: 500, text: async () => 'err' })); } catch { threw = true; }
+  try { await extractAlertLLM(RAW, cfg, async () => ({ ok: false, status: 500, text: async () => 'err' })); } catch { threw = true; }
   check('throws on HTTP error', threw);
 
   console.log(`\n${pass} passed, ${fail} failed`);

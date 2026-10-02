@@ -50,4 +50,4 @@ eq('short text untouched', guardText('Debit NGN500'), 'Debit NGN500');
 eq('oversized truncated', guardText('x'.repeat(MAX_SHARE_CHARS + 500)).length, MAX_SHARE_CHARS);
 eq('empty safe', guardText(null), '');
 
-console.log(`shareIngest.test.js: ${passed} assertions passed`);
+console.log(`\n${passed} passed, 0 failed`);

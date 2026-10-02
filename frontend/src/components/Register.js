@@ -118,7 +118,7 @@ const Register = () => {
     if (!touched[name]) return '';
     const v = formData[name] || '';
     if (name === 'email' && v && !emailValid(v)) return 'Enter a valid email address';
-    if (name === 'password' && v && v.length < 6) return 'At least 6 characters';
+    if (name === 'password' && v && v.length < 8) return 'At least 8 characters';
     if (name === 'confirmPassword' && v && v !== formData.password) return 'Passwords don’t match';
     return '';
   };
@@ -129,8 +129,8 @@ const Register = () => {
       setError('Passwords do not match');
       return;
     }
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
     if (formData.phone.replace(/\D/g, '').length < 7) {
@@ -259,7 +259,7 @@ const Register = () => {
                 onChange={handleChange}
                 onBlur={markTouched}
                 required
-                placeholder="At least 6 characters"
+                placeholder="At least 8 characters"
                 className={`form-input ${fieldError('password') ? 'input-invalid' : ''}`}
                 disabled={loading}
               />

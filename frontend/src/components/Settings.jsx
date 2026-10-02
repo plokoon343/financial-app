@@ -75,7 +75,7 @@ const Settings = () => {
 
   // ── handlers ──
   const changePassword = async () => {
-    if (pw.next.length < 6) return flash('New password must be at least 6 characters', 'error');
+    if (pw.next.length < 8) return flash('New password must be at least 8 characters', 'error');
     if (pw.next !== pw.confirm) return flash('New passwords do not match', 'error');
     setSavingPw(true);
     try {
@@ -255,7 +255,7 @@ const Settings = () => {
           <input type="password" value={pw.current} onChange={e => setPw({ ...pw, current: e.target.value })} /></div>
         <div className="form-row">
           <div className="form-group"><label>New Password</label>
-            <input type="password" value={pw.next} onChange={e => setPw({ ...pw, next: e.target.value })} placeholder="At least 6 characters" /></div>
+            <input type="password" value={pw.next} onChange={e => setPw({ ...pw, next: e.target.value })} placeholder="At least 8 characters" /></div>
           <div className="form-group"><label>Confirm</label>
             <input type="password" value={pw.confirm} onChange={e => setPw({ ...pw, confirm: e.target.value })} /></div>
         </div>

@@ -164,8 +164,7 @@ const AdminDashboard = () => {
       showMessage(res.data.message || 'Test email sent - check inbox & spam');
     } catch (error) {
       const d = error.response?.data;
-      showMessage(`Email failed: ${d?.message || 'error'}${d?.code ? ' (' + d.code + ')' : ''}`, 'error');
-      console.log('Email diagnostic:', d);
+      showMessage(`Email failed: ${d?.message || 'error'}${d?.status ? ' (' + d.status + ')' : ''}`, 'error');
     } finally { setActionLoading(null); }
   };
 

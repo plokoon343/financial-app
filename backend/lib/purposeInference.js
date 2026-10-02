@@ -117,36 +117,6 @@ function buildCandidates(txns, { minCount = 1, maxGroups = 25 } = {}) {
   return candidates.slice(0, maxGroups);
 }
 
-// The forced-tool schema the model fills in: one entry per candidate ref.
-function proposalToolSchema() {
-  return {
-    name: 'propose_purposes',
-    description: "For each counterparty ref, propose the most likely purpose of the money movement, or 'other' if unsure.",
-    input_schema: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        proposals: {
-          type: 'array',
-          items: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              ref: { type: 'integer', description: 'The candidate ref number given in the prompt.' },
-              purpose: { type: 'string', enum: PURPOSE_IDS },
-              confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-              reason: { type: 'string', description: 'A short, user-facing reason (<= 12 words).' },
-            },
-            required: ['ref', 'purpose', 'confidence'],
-          },
-        },
-      },
-      required: ['proposals'],
-    },
-    strict: true,
-  };
-}
-
 // The redacted, privacy-safe prompt text describing the candidates for the model.
 function buildInferencePrompt(candidates, nairaFmt = (n) => `NGN ${n}`) {
   const lines = candidates.map((c, i) => {
@@ -190,5 +160,5 @@ function validateProposals(rawProposals, candidates, { minConfidence = 'medium' 
 module.exports = {
   PURPOSES, PURPOSE_IDS, purposeById, isGenericCategory,
   redactCounterparty, counterpartyKey, cadenceOf, buildCandidates,
-  proposalToolSchema, buildInferencePrompt, validateProposals,
+  buildInferencePrompt, validateProposals,
 };

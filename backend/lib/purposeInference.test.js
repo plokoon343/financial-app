@@ -2,7 +2,7 @@
 // Run: node backend/lib/purposeInference.test.js
 const {
   PURPOSE_IDS, isGenericCategory, redactCounterparty, counterpartyKey, cadenceOf,
-  buildCandidates, proposalToolSchema, buildInferencePrompt, validateProposals,
+  buildCandidates, buildInferencePrompt, validateProposals,
 } = require('./purposeInference');
 
 let pass = 0, fail = 0;
@@ -48,11 +48,6 @@ check('candidate carries no digits', kunle && !/\d/.test(kunle.counterparty));
 check('categorised row excluded', !cands.some((c) => /shoprite/i.test(c.counterparty)));
 check('excluded-kind row excluded', !cands.some((c) => /savings/i.test(c.counterparty)));
 check('income counterparty present', cands.some((c) => /mum/i.test(c.counterparty) && c.direction === 'in'));
-
-// --- tool schema ---
-const schema = proposalToolSchema();
-check('schema forces enum', JSON.stringify(schema.input_schema).includes(PURPOSE_IDS[0]));
-check('schema is strict', schema.strict === true);
 
 // --- prompt is privacy-safe (no raw account numbers) ---
 const prompt = buildInferencePrompt(cands);

@@ -22,7 +22,7 @@ const ResetPassword = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (password.length < 6) return setError('Password must be at least 6 characters');
+    if (password.length < 8) return setError('Password must be at least 8 characters');
     if (password !== confirm) return setError('Passwords do not match');
     setLoading(true);
     try {
@@ -69,7 +69,7 @@ const ResetPassword = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                placeholder="At least 6 characters"
+                placeholder="At least 8 characters"
                 className="form-input"
                 disabled={loading}
               />

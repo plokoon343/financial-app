@@ -64,4 +64,4 @@ check('kind types count', KIND_TYPES.length, 5);
 assert.ok(KIND_TYPES.includes('loan_in') && KIND_TYPES.includes('debt_repayment'), 'KIND_TYPES complete');
 passed += 1;
 
-console.log(`txnKinds.test.js: ${passed} assertions passed`);
+console.log(`\n${passed} passed, 0 failed`);

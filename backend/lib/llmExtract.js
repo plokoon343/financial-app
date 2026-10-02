@@ -2,8 +2,8 @@
 // PARSER). Only the ambiguous tail the deterministic layer can't handle — unknown
 // banks / unstructured wording — is sent here. The model PROPOSES a structured
 // transaction; validateExtract checks it against the raw text so a hallucinated
-// amount/direction is rejected. Reuses the same OpenAI-compatible providers as the
-// purpose tier (Groq / Gemini). Pure except the injected fetch, so it unit-tests.
+// amount/direction is rejected. Uses the same Gemini config as the purpose tier.
+// Pure except the injected fetch, so it unit-tests.
 
 'use strict';
 
@@ -49,9 +49,9 @@ function validateExtract(ex, rawText) {
   return { amount: +amount.toFixed(2), type: dir === 'credit' ? 'income' : 'expense', merchant: (ex.merchant || '').toString().replace(/\s+/g, ' ').trim().slice(0, 140), date };
 }
 
-// Call an OpenAI-compatible provider (Groq/Gemini) to extract; returns the RAW parsed
-// object (validate it with validateExtract). Throws on transport/HTTP error.
-async function extractAlertOpenAICompat(text, cfg, fetchImpl = fetch) {
+// Ask the model to extract; returns the RAW parsed object (validate it with
+// validateExtract). Throws on transport/HTTP error.
+async function extractAlertLLM(text, cfg, fetchImpl = fetch) {
   const res = await fetchImpl(`${cfg.baseURL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
@@ -66,4 +66,4 @@ async function extractAlertOpenAICompat(text, cfg, fetchImpl = fetch) {
   return parseExtract(data?.choices?.[0]?.message?.content || '{}');
 }
 
-module.exports = { EXTRACT_SYSTEM, buildExtractPrompt, parseExtract, validateExtract, extractAlertOpenAICompat };
+module.exports = { EXTRACT_SYSTEM, buildExtractPrompt, parseExtract, validateExtract, extractAlertLLM };

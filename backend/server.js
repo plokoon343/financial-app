@@ -14,8 +14,6 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const axios = require('axios');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
-const Anthropic = require('@anthropic-ai/sdk');
 const { fingerprint, matchScore, MERGE } = require('./lib/dedupe');
 const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
@@ -34,77 +32,41 @@ const { detectDirection, parseLabeledAlert } = require('./lib/alertParse');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
-const { purposeProviderConfig, purposeLLMActive, inferOpenAICompat } = require('./lib/llmPurpose');
-const { extractAlertOpenAICompat, validateExtract } = require('./lib/llmExtract');
+const { llmConfig, llmActive, inferPurposesLLM } = require('./lib/llmPurpose');
+const { extractAlertLLM, validateExtract } = require('./lib/llmExtract');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://financial-app-fawn-nu.vercel.app';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.automonie.com';
 
-// Email can be sent two ways:
-//   1. Brevo HTTP API (port 443) - preferred on Render, whose free/starter tiers
-//      BLOCK outbound SMTP (you get ETIMEDOUT to smtp.gmail.com). HTTPS isn't blocked.
-//   2. SMTP via nodemailer - fallback for local dev or hosts that allow SMTP.
-// Set BREVO_API_KEY to use the API path; otherwise it falls back to EMAIL_USER/PASS.
-const brevoConfigured = () => !!process.env.BREVO_API_KEY;
-const smtpConfigured = () => !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
-const emailConfigured = () => brevoConfigured() || smtpConfigured();
+// Email goes through the Brevo HTTP API (port 443). Render blocks outbound SMTP, so
+// there is deliberately one transport. Without BREVO_API_KEY, email is disabled.
+const emailConfigured = () => !!process.env.BREVO_API_KEY;
 
-// Build the SMTP transport. Gmail app passwords are shown as "abcd efgh ijkl mnop";
-// users often paste them with spaces (or stray quotes), which Gmail rejects (535).
-// Strip those defensively so a correctly-generated app password always works.
-const makeTransport = () => nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: Number(process.env.EMAIL_PORT) || 587,
-  secure: Number(process.env.EMAIL_PORT) === 465,
-  auth: {
-    user: (process.env.EMAIL_USER || '').trim(),
-    pass: (process.env.EMAIL_PASS || '').replace(/\s+/g, '').replace(/^["']|["']$/g, ''),
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 15000,
-});
-
-// The "from" identity. Brevo requires a VERIFIED sender. TEMPORARY: we send from
-// jaysonoketa@gmail.com (already verified in Brevo) until automonie.com is
-// authenticated in Brevo - then set EMAIL_FROM_ADDRESS=superadmin@automonie.com
-// (or change the default here). EMAIL_USER is also the SMTP login for the dev fallback.
-const senderEmail = () => (process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER || 'jaysonoketa@gmail.com').trim();
+// The "from" identity. Brevo requires a verified sender; automonie.com is authenticated.
+const senderEmail = () => (process.env.EMAIL_FROM_ADDRESS || 'hello@automonie.com').trim();
 const senderName = () => process.env.EMAIL_FROM_NAME || 'Automonie';
-const mailFrom = () => process.env.EMAIL_FROM || `${senderName()} <${senderEmail()}>`;
 
-// Send one email via whichever transport is configured. Brevo wins if its key is set.
-// Optional: replyTo (string or {email,name}) and from-identity overrides — used by the
-// newsletter to send as a no-reply. Returns nothing on success; throws on failure.
+// Send one email. Optional replyTo (string or {email,name}) and from-identity overrides
+// are used by the newsletter to send as a no-reply. Throws on failure.
 const sendEmail = async ({ to, subject, text, html, replyTo, fromName, fromEmail }) => {
-  const sName = fromName || senderName();
-  const sEmail = fromEmail || senderEmail();
-  const rt = replyTo ? (typeof replyTo === 'string' ? { email: replyTo } : replyTo) : null;
-  if (brevoConfigured()) {
-    const body = {
-      sender: { name: sName, email: sEmail },
-      to: [{ email: to }],
-      subject,
-      textContent: text,
-      htmlContent: html || `<p>${text}</p>`,
-    };
-    if (rt) body.replyTo = rt;
-    await axios.post('https://api.brevo.com/v3/smtp/email', body, {
-      headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
-      timeout: 15000,
-    });
-    return;
-  }
-  // SMTP fallback
-  const opts = { from: process.env.EMAIL_FROM || `${sName} <${sEmail}>`, to, subject, text, html };
-  if (rt) opts.replyTo = rt.name ? `${rt.name} <${rt.email}>` : rt.email;
-  await makeTransport().sendMail(opts);
+  if (!emailConfigured()) throw new Error('Email is not configured (BREVO_API_KEY missing)');
+  const body = {
+    sender: { name: fromName || senderName(), email: fromEmail || senderEmail() },
+    to: [{ email: to }],
+    subject,
+    textContent: text,
+    htmlContent: html || `<p>${text}</p>`,
+  };
+  if (replyTo) body.replyTo = typeof replyTo === 'string' ? { email: replyTo } : replyTo;
+  await axios.post('https://api.brevo.com/v3/smtp/email', body, {
+    headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
+    timeout: 15000,
+  });
 };
 
-// Newsletter sends as a no-reply. Reply-To goes to a no-reply address (no DNS needed —
-// just a header), so replies don't hit a real inbox. Once automonie.com is authenticated
-// in Brevo, set NEWSLETTER_FROM_ADDRESS=noreply@automonie.com to make the From no-reply too.
+// Newsletter sends as a no-reply: Reply-To points at a no-reply address so replies
+// don't land in a real inbox. NEWSLETTER_FROM_ADDRESS can make the From no-reply too.
 const NEWSLETTER_FROM_NAME = process.env.NEWSLETTER_FROM_NAME || 'Automonie';
 const NEWSLETTER_FROM_ADDRESS = process.env.NEWSLETTER_FROM_ADDRESS || '';
 const NEWSLETTER_REPLY_TO = process.env.NEWSLETTER_REPLY_TO || 'noreply@automonie.com';
@@ -115,23 +77,44 @@ const sendNewsletterEmail = ({ to, subject, text, html }) => sendEmail({
   replyTo: { email: NEWSLETTER_REPLY_TO, name: 'Automonie (no-reply)' },
 });
 
-// Send a password-reset email if email is configured; otherwise log the link so the
-// owner can still recover an account from the server logs during setup.
+// Send a password-reset email. When email isn't configured, local development logs the
+// link so an account can still be recovered; production never logs a reset token.
 const sendResetEmail = async (to, link) => {
   if (!emailConfigured()) {
-    console.log(`[password-reset] (email not configured) reset link for ${to}: ${link}`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[password-reset] (dev, email off) reset link for ${to}: ${link}`);
+    else console.error('[password-reset] email not configured; reset email not sent');
     return false;
   }
   await sendEmail({
     to,
     subject: 'Reset your Automonie password',
-    text: `Reset your password using this link (valid for 1 hour):\n\n${link}\n\nIf you didn't request this, ignore this email.`,
+    text: `Reset your password using this link (valid for 1 hour):
+
+${link}
+
+If you didn't request this, ignore this email.`,
     html: `<p>Reset your Automonie password using the link below (valid for 1 hour):</p>
            <p><a href="${link}">Reset my password</a></p>
            <p style="color:#888;font-size:12px">If you didn't request this, you can safely ignore this email.</p>`,
   });
   return true;
 };
+
+// One password rule for every path that sets a password (register, change, reset,
+// admin setup). Returns an error message, or '' when the password is acceptable.
+const MIN_PASSWORD_LENGTH = 8;
+const passwordProblem = (pw) => (typeof pw !== 'string' || pw.length < MIN_PASSWORD_LENGTH
+  ? `Password must be at least ${MIN_PASSWORD_LENGTH} characters` : '');
+
+// Constant-time comparison for secrets and signatures, so response timing can't be
+// used to guess them byte by byte.
+const safeEqual = (a, b) => {
+  const x = Buffer.from(String(a || ''));
+  const y = Buffer.from(String(b || ''));
+  return x.length > 0 && x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+// Cron endpoints are triggered by an external scheduler holding CRON_SECRET.
+const cronAuthorized = (req) => !!process.env.CRON_SECRET && safeEqual(req.get('x-cron-secret'), process.env.CRON_SECRET);
 
 const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
@@ -147,26 +130,21 @@ app.set('trust proxy', 1);             // behind Render's proxy - needed for cor
 app.use(helmet());                     // standard security headers
 app.use(compression());                // gzip responses
 
-// Restrict cross-origin requests to our own frontend(s). Non-browser callers
-// (curl, health checks) send no Origin and are allowed. Extra origins can be
-// added via the ALLOWED_ORIGINS env var (comma-separated).
+// Restrict cross-origin requests to our own frontends. Non-browser callers (curl,
+// health checks, the mobile app) send no Origin and are allowed. Extra origins, such
+// as a preview deploy, can be added via ALLOWED_ORIGINS (comma-separated).
 const allowedOrigins = [
-  'https://financial-app-fawn-nu.vercel.app',
   'https://app.automonie.com',
   'https://automonie.com',
   'https://www.automonie.com',
-  'http://localhost:3000',
+  'https://financial-app-fawn-nu.vercel.app',
+  ...(process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:4321']),
   ...((process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)),
 ];
-// Also trust our own deploys on the big static hosts (Cloudflare Pages / Vercel
-// / Netlify) so the marketing site + waitlist keep working if we move it off
-// GitHub Pages for reliability. API auth is via Bearer tokens (not cookies), so
-// CORS is not the security boundary here.
-const trustedHostRe = /^https:\/\/([a-z0-9-]+\.)*(pages\.dev|vercel\.app|netlify\.app|onrender\.com)$/i;
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin) || trustedHostRe.test(origin)) return cb(null, true);
-    return cb(new Error('Not allowed by CORS'));
+    // Unknown origins get no CORS headers, so the browser blocks them; no server error.
+    cb(null, !origin || allowedOrigins.includes(origin));
   },
 }));
 
@@ -187,6 +165,30 @@ app.use((req, _res, next) => {
   stripMongoOperators(req.query);
   next();
 });
+
+// Baseline per-IP limit across the whole API, so no endpoint (statement uploads,
+// LLM-backed parsing, share ingestion) can be hammered. Generous enough for normal
+// app use; the stricter limiters below still apply to auth and sensitive routes.
+// Webhooks and cron are excluded: providers retry in bursts and cron is secret-gated.
+// Signed-in requests are counted per user (people sharing campus or office Wi-Fi share
+// one IP); anything without a valid token is counted per IP, so a forged token can't
+// buy a fresh allowance.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const token = (req.get('Authorization') || '').replace('Bearer ', '');
+    if (token) {
+      try { return `u:${jwt.verify(token, JWT_SECRET).userId}`; } catch { /* fall back to IP */ }
+    }
+    return rateLimit.ipKeyGenerator(req.ip);
+  },
+  skip: (req) => /^\/api\/(cron\/|paystack\/webhook|bank\/mono-webhook|inbound-email\/webhook)/.test(req.originalUrl),
+  message: { message: 'Too many requests. Please slow down and try again shortly.' },
+});
+app.use('/api', apiLimiter);
 
 // Throttle auth endpoints to slow brute-force / credential stuffing.
 const authLimiter = rateLimit({
@@ -218,12 +220,9 @@ const aiLimiter = rateLimit({
 // --------------------------
 // MongoDB Connection
 // --------------------------
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/financial_app', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('✅ MongoDB connected'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/financial_app')
+.then(() => console.log('MongoDB connected'))
+.catch((err) => console.error('MongoDB connection error:', err.message));
 
 // --------------------------
 // Schemas (Models)
@@ -2211,9 +2210,8 @@ app.get('/api/health', async (req, res) => {
   try {
     await mongoose.connection.db.admin().ping();
     res.json({ status: 'OK', database: 'Connected', timestamp: new Date().toISOString() });
-  } catch (error) { res.status(503).json({ status: 'Error', database: 'Disconnected', error: error.message }); }
+  } catch { res.status(503).json({ status: 'Error', database: 'Disconnected' }); }
 });
-app.get('/api/test', (req, res) => res.json({ message: 'Backend is working!' }));
 
 // Auth
 app.post('/api/register', authLimiter, async (req, res) => {
@@ -2227,6 +2225,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
     if (cleanPhone.replace(/\D/g, '').length < 7) {
       return res.status(400).json({ message: 'Enter a valid phone number' });
     }
+    if (passwordProblem(password)) return res.status(400).json({ message: passwordProblem(password) });
     const cleanEmail = email.toLowerCase().trim();
     const existing = await User.findOne({ email: cleanEmail });
     if (existing) return res.status(400).json({ message: 'User already exists' });
@@ -2509,7 +2508,7 @@ app.post('/api/change-password', sensitiveLimiter, auth, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ message: 'Current and new password are required' });
-    if (newPassword.length < 6) return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    if (passwordProblem(newPassword)) return res.status(400).json({ message: passwordProblem(newPassword) });
     const acct = await User.findById(req.user._id).select('+password');
     if (!acct) return res.status(404).json({ message: 'Account not found' });
     const ok = await bcrypt.compare(currentPassword, acct.password);
@@ -2632,7 +2631,7 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
   try {
     const { token, password } = req.body;
     if (!token || !password) return res.status(400).json({ message: 'Token and new password are required' });
-    if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    if (passwordProblem(password)) return res.status(400).json({ message: passwordProblem(password) });
     const user = await User.findOne({
       resetToken: hashToken(token),
       resetTokenExpiry: { $gt: new Date() },
@@ -2642,6 +2641,9 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
     user.password = await bcrypt.hash(password, await bcrypt.genSalt(10));
     user.resetToken = undefined;
     user.resetTokenExpiry = undefined;
+    // A reset often follows a compromise: end every existing session so a stolen
+    // token stops working immediately (same as a normal password change).
+    user.sessionsValidFrom = new Date();
     await user.save();
     res.json({ message: 'Password updated. You can now log in with your new password.' });
   } catch (error) {
@@ -2939,16 +2941,6 @@ app.post('/api/presets/corper', auth, async (req, res) => {
     }
     res.json({ ok: true, budgetsCreated: toCreate.length, budgetsSkipped: CORPER_BUDGET.length - toCreate.length, goalCreated, month });
   } catch (e) { console.error('[presets/corper]', e.message); res.status(500).json({ message: 'Server error' }); }
-});
-
-// Financial health
-app.get('/api/financial-health', auth, async (req, res) => {
-  const transactions = await Transaction.find({ userId: req.user._id });
-  const totalIncome = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + Math.abs(t.amount), 0);
-  const netIncome = totalIncome - totalExpenses;
-  const savingsRate = totalIncome > 0 ? (netIncome / totalIncome) * 100 : 0;
-  res.json({ totalIncome, totalExpenses, netIncome, savingsRate: parseFloat(savingsRate.toFixed(1)) });
 });
 
 // Wallet
@@ -3635,8 +3627,7 @@ setTimeout(sweepAllDueBills, 30 * 1000);
 // idle, so the in-process interval above can miss days; point an external
 // scheduler (cron-job.org / Render cron) at this daily, guarded by CRON_SECRET.
 app.post('/api/cron/process-bills', async (req, res) => {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
   try {
     const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
     const dueBills = await RecurringBill.find({ status: 'active', nextDue: { $lte: endOfDay } });
@@ -3806,8 +3797,7 @@ async function runScheduledPayments(now = new Date()) {
 // External scheduler trigger (Render free tier sleeps; the interval alone can miss a
 // day). Guarded by CRON_SECRET like the other crons.
 app.post('/api/cron/subscription-reminders', async (req, res) => {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
   try { await sweepSubscriptionReminders(); res.json({ ok: true }); }
   catch (e) { console.error('[cron/subscription-reminders]', e.message); res.status(500).json({ message: 'Sweep failed' }); }
 });
@@ -3817,8 +3807,7 @@ app.post('/api/cron/subscription-reminders', async (req, res) => {
 // never blocks the other. Guarded by CRON_SECRET. The per-job endpoints above still
 // exist if you'd rather schedule them separately.
 app.post('/api/cron/daily', (req, res) => {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
   // Respond immediately (202) so the scheduler never waits on the sweep — it can grow
   // past a 30s HTTP timeout as the user base grows, and a timed-out request would look
   // like a failure. The jobs run in the background, each isolated so one can't block
@@ -3950,9 +3939,9 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
       meta: { totalFound: tagged.length, duplicateCount: dupCount, uncertainCount, detectedBank, reconciliation, warnings },
     });
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('[upload-statement]', error.message);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    return res.status(500).json({ message: 'Error processing file: ' + error.message });
+    return res.status(500).json({ message: "We couldn't read that file. Check it's a bank statement (PDF, CSV or Excel) and try again." });
   }
 });
 
@@ -4052,19 +4041,14 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
   };
 }
 
-// Tier-2 LLM parser rescue (spec 6.1). Only the OpenAI-compatible providers
-// (Gemini / Groq) support extraction here; shares AI_PURPOSE_PROVIDER + its key with
-// the purpose tier, so one env config lights up both. Returns a validated
+// Tier-2 LLM parser rescue (spec 6.1). Uses the shared Gemini config, so one env key
+// lights up parsing and purpose inference together. Returns a validated
 // { amount, type, merchant, date } or null (never throws).
-function extractLLMActive(env = process.env) {
-  const cfg = purposeProviderConfig(env);
-  return !!(cfg && cfg.kind === 'openai' && cfg.apiKey);
-}
 async function llmRescueRow(rawText, source = 'sms', sender = '') {
   try {
-    const cfg = purposeProviderConfig();
-    if (!cfg || cfg.kind !== 'openai' || !cfg.apiKey) return null;
-    const ex = await extractAlertOpenAICompat(rawText, cfg);
+    const cfg = llmConfig();
+    if (!cfg) return null;
+    const ex = await extractAlertLLM(rawText, cfg);
     const v = validateExtract(ex, rawText);
     if (!v) return null;
     const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(rawText, sender);
@@ -4091,8 +4075,8 @@ async function llmRescueRow(rawText, source = 'sms', sender = '') {
 // ledger. Returns a parser-shaped array (or null), never throws.
 async function llmParseStatement(rawText) {
   try {
-    if (!extractLLMActive()) return null;
-    const cfg = purposeProviderConfig();
+    const cfg = llmConfig();
+    if (!cfg) return null;
     const rows = await llmExtractStatement(rawText, cfg);
     if (!rows || !rows.length) return null;
 
@@ -4222,7 +4206,7 @@ async function applyContactToPast(userId, contact) {
 const LLM_RESCUE_MAX = 8;
 async function parseAlertsWithRescue(rawList, source = 'sms', sender = '') {
   const rows = rawList.map((b) => ({ raw: b, row: parseOneAlert(b, source, sender) }));
-  if (extractLLMActive()) {
+  if (llmActive()) {
     let used = 0;
     for (const item of rows) {
       if (used >= LLM_RESCUE_MAX) break;
@@ -4428,7 +4412,7 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
   try {
     if (!inboundActive()) return res.status(503).json({ message: 'Email forwarding is not enabled yet.' });
     const key = req.get('x-inbound-key') || req.query.key || req.body?.key || '';
-    if (key !== process.env.INBOUND_EMAIL_SECRET) return res.status(401).json({ message: 'Bad webhook key' });
+    if (!safeEqual(key, process.env.INBOUND_EMAIL_SECRET)) return res.status(401).json({ message: 'Bad webhook key' });
 
     const b = req.body || {};
     // Collect EVERY possible recipient field into one string for extractToken to
@@ -5057,12 +5041,6 @@ app.get('/api/subscriptions', auth, async (req, res) => {
   } catch (e) { console.error('[subscriptions]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Look up the cancellation guide for a name without a saved subscription (Pro).
-app.get('/api/subscriptions/cancel-guide', auth, (req, res) => {
-  if (!isPro(req.user)) return res.status(402).json(upgradeRequired('cancel'));
-  res.json({ guide: cancelGuideFor((req.query.name || '').toString()) });
-});
-
 // Auto-detect likely subscriptions from the user's transactions: recurring
 // charges to the same merchant, similar amount, across multiple months.
 app.get('/api/subscriptions/detect', auth, async (req, res) => {
@@ -5414,35 +5392,21 @@ app.get('/api/admin/stats', auth, superAdminAuth, async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// Email diagnostics (superadmin): verifies SMTP and sends a test mail, returning
-// the real error so misconfiguration is obvious. Visit while logged in as admin:
+// Email diagnostics (superadmin): sends a test mail through Brevo and returns the
+// provider's real error so misconfiguration is obvious.
 //   GET /api/admin/test-email            -> sends to your own account email
 //   GET /api/admin/test-email?to=x@y.com -> sends to a specific address
 app.get('/api/admin/test-email', auth, superAdminAuth, async (req, res) => {
-  const transport = brevoConfigured() ? 'brevo-api' : (smtpConfigured() ? 'smtp' : 'none');
-  const diag = {
-    transport, // which path will actually be used
-    BREVO_API_KEY_set: brevoConfigured(),
-    EMAIL_USER_set: !!process.env.EMAIL_USER,
-    EMAIL_PASS_set: !!process.env.EMAIL_PASS,
-    EMAIL_PASS_length: (process.env.EMAIL_PASS || '').replace(/\s+/g, '').length, // app passwords are 16
-    sender: senderEmail() || null,
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: Number(process.env.EMAIL_PORT) || 587,
-    from: emailConfigured() ? mailFrom() : null,
-  };
-  if (!emailConfigured()) return res.status(400).json({ ok: false, message: 'No email transport configured. Set BREVO_API_KEY (recommended) or EMAIL_USER/EMAIL_PASS.', diag });
-  if (brevoConfigured() && !senderEmail()) {
-    return res.status(400).json({ ok: false, message: 'BREVO_API_KEY is set but no sender address. Set EMAIL_FROM_ADDRESS (or EMAIL_USER) to your Brevo-verified sender.', diag });
-  }
+  const diag = { BREVO_API_KEY_set: emailConfigured(), sender: senderEmail(), senderName: senderName() };
+  if (!emailConfigured()) return res.status(400).json({ ok: false, message: 'Email is not configured. Set BREVO_API_KEY.', diag });
   try {
     const to = (req.query.to || req.user.email);
-    await sendEmail({ to, subject: `Automonie email test ✅ (${transport})`, text: 'If you can read this, email sending works.' });
-    res.json({ ok: true, message: `Test email sent to ${to} via ${transport}. Check inbox and spam.`, diag });
+    await sendEmail({ to, subject: 'Automonie email test', text: 'If you can read this, email sending works.' });
+    res.json({ ok: true, message: `Test email sent to ${to}. Check inbox and spam.`, diag });
   } catch (err) {
     // Brevo errors carry the real reason in the HTTP response body.
     const apiMsg = err.response?.data?.message || err.response?.data?.code;
-    res.status(502).json({ ok: false, message: apiMsg || err.message, code: err.code || err.response?.status || err.responseCode || null, diag });
+    res.status(502).json({ ok: false, message: apiMsg || 'Send failed', status: err.response?.status || null, diag });
   }
 });
 // Idempotent: with the correct setup key, creates a superadmin - or, if the email
@@ -5456,11 +5420,11 @@ app.post('/api/admin/setup', authLimiter, async (req, res) => {
       return res.status(403).json({ message: 'Admin setup is disabled.' });
     }
     const { setupKey, name, email, password } = req.body;
-    if (!process.env.ADMIN_SETUP_KEY || setupKey !== process.env.ADMIN_SETUP_KEY) {
+    if (!process.env.ADMIN_SETUP_KEY || !safeEqual(setupKey, process.env.ADMIN_SETUP_KEY)) {
       return res.status(403).json({ message: 'Invalid setup key' });
     }
     if (!email || !password) return res.status(400).json({ message: 'email and password are required' });
-    if (password.length < 6) return res.status(400).json({ message: 'password must be at least 6 characters' });
+    if (passwordProblem(password)) return res.status(400).json({ message: passwordProblem(password) });
     const hashedPassword = await bcrypt.hash(password, await bcrypt.genSalt(10));
     const existing = await User.findOne({ email: email.toLowerCase().trim() });
     if (existing) {
@@ -5583,9 +5547,8 @@ app.post('/api/paystack/webhook', async (req, res) => {
   try {
     const secret = process.env.PAYSTACK_SECRET_KEY;
     if (!secret) return res.sendStatus(200);
-    const crypto = require('crypto');
     const hash = crypto.createHmac('sha512', secret).update(req.rawBody || Buffer.from('')).digest('hex');
-    if (hash !== req.headers['x-paystack-signature']) return res.sendStatus(401);
+    if (!safeEqual(hash, req.headers['x-paystack-signature'])) return res.sendStatus(401);
     const event = req.body;
     if (event?.event === 'charge.success') {
       const d = event.data || {};
@@ -5796,7 +5759,7 @@ app.post('/api/billing/auto-renew', auth, async (req, res) => {
 // a saved card. Charges the saved authorization; grantProFromCharge extends them.
 app.post('/api/cron/renew-pro', async (req, res) => {
   try {
-    if ((req.headers['x-cron-secret'] || '') !== process.env.CRON_SECRET) return res.sendStatus(401);
+    if (!cronAuthorized(req)) return res.sendStatus(401);
     if (!proCheckoutReady()) return res.json({ renewed: 0, skipped: 'not-live' });
     const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const due = await User.find({
@@ -6173,8 +6136,7 @@ app.post('/api/bank/sync', auth, async (req, res) => {
 // an external scheduler (e.g. cron-job.org / a Render cron job) can trigger it -
 // Render's free tier sleeps, so an in-process cron wouldn't fire reliably.
 app.post('/api/cron/sync-banks', async (req, res) => {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
   if (!monoConfigured()) return res.status(503).json({ message: 'Bank linking is not configured yet.' });
   try {
     const users = await User.find({ $or: [
@@ -6220,20 +6182,6 @@ app.post('/api/push/settings', auth, async (req, res) => {
     await User.updateOne({ _id: req.user._id }, { $set: { notifyInsights: insights } });
     res.json({ ok: true, notifyInsights: insights });
   } catch (e) { console.error('[push/settings]', e.message); res.status(500).json({ message: 'Server error' }); }
-});
-
-// Send an immediate test push to the caller's own devices (bypasses the daily
-// cap) so notifications can be verified on demand from Settings.
-app.post('/api/push/test', auth, async (req, res) => {
-  try {
-    const u = await User.findById(req.user._id).select('pushTokens').lean();
-    if (!u || !(u.pushTokens || []).length) {
-      return res.status(400).json({ message: 'No device registered yet. Open Automonie on your phone and allow notifications first.' });
-    }
-    const msg = (await buildInsight(req.user._id)) || { title: 'Automonie', body: 'Test push - your notifications are working! 🎉' };
-    await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'test' } });
-    res.json({ ok: true, devices: u.pushTokens.length });
-  } catch (e) { console.error('[push/test]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Fire-and-forget send via the Expo push service (batched at 100/request).
@@ -6312,8 +6260,7 @@ async function runInsightsJob() {
 
 // External scheduler (cron-job.org / Render cron) - the reliable path.
 app.post('/api/cron/insights', async (req, res) => {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.get('x-cron-secret') !== secret) return res.status(401).json({ message: 'Unauthorized' });
+  if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
   try { res.json(await runInsightsJob()); }
   catch (e) { console.error('[cron/insights]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -6334,7 +6281,7 @@ setInterval(() => { runInsightsJob().catch((e) => console.error('[insights:inter
 // matching below is deliberately liberal so it works across their variants.
 app.post('/api/bank/mono-webhook', async (req, res) => {
   const sec = process.env.MONO_WEBHOOK_SEC;
-  if (!sec || req.get('mono-webhook-secret') !== sec) return res.status(401).json({ status: 'unauthorized' });
+  if (!sec || !safeEqual(req.get('mono-webhook-secret'), sec)) return res.status(401).json({ status: 'unauthorized' });
   try {
     const event = (req.body?.event || req.body?.type || '').toString();
     const d = req.body?.data || {};
@@ -6699,15 +6646,13 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
 });
 
 // --------------------------
-// AI Assistant (Claude) - natural-language Q&A over the user's own finances
+// AI Assistant - natural-language Q&A over the user's own finances
 // --------------------------
-// Activated by setting ANTHROPIC_API_KEY on the host. Until then the endpoint
-// returns a friendly "coming soon" reply (same keys-pending pattern as the
-// Mono/VTpass/Paystack integrations) so the UI degrades gracefully.
-const aiConfigured = () => !!process.env.ANTHROPIC_API_KEY;
-// Model is overridable, but defaults to Anthropic's current flagship.
-const AI_MODEL = process.env.AI_MODEL || 'claude-opus-4-8';
-const anthropic = aiConfigured() ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+// Runs on Gemini (the shared llmConfig). Off until AI_ASSISTANT_ENABLED=true is set
+// on the host, so turning on the key for parsing doesn't also launch the assistant.
+// While off, the endpoint returns a friendly "coming soon" reply.
+const aiConfigured = () => process.env.AI_ASSISTANT_ENABLED === 'true' && !!llmConfig();
+const aiModel = () => process.env.AI_ASSISTANT_MODEL || (llmConfig() || {}).model || null;
 
 const naira = (n) => '₦' + Math.round(Number(n) || 0).toLocaleString('en-NG');
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -6817,7 +6762,7 @@ const AI_TOOLS = [
   {
     name: 'create_transaction',
     description: 'Log a new income or expense transaction for the user. Use when the user says they earned, received, spent, paid, or bought something.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         type: { type: 'string', enum: ['income', 'expense'] },
@@ -6832,7 +6777,7 @@ const AI_TOOLS = [
   {
     name: 'create_budget',
     description: "Set a monthly spending budget for a category. Use when the user wants to budget or cap spending on something.",
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         category: { type: 'string' },
@@ -6845,7 +6790,7 @@ const AI_TOOLS = [
   {
     name: 'create_goal',
     description: 'Create a savings goal the user is working toward.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         name: { type: 'string' },
@@ -6859,7 +6804,7 @@ const AI_TOOLS = [
   {
     name: 'add_subscription',
     description: 'Add a recurring subscription to track (e.g. Netflix, DSTV, gym). Tracking only - it does not auto-pay.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         name: { type: 'string' },
@@ -6873,7 +6818,7 @@ const AI_TOOLS = [
   {
     name: 'create_bill',
     description: 'Set up a recurring bill reminder (e.g. rent, electricity) due on a day of the month. Reminder/tracking only - it does not auto-pay.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         name: { type: 'string' },
@@ -6886,6 +6831,8 @@ const AI_TOOLS = [
     },
   },
 ];
+// The same tools in the chat-completions function-calling shape.
+const AI_FUNCTIONS = AI_TOOLS.map((t) => ({ type: 'function', function: t }));
 
 // Execute one assistant tool call against the DB, scoped to `user`. Returns a
 // { ok, summary } result that is fed back to the model and surfaced to the UI.
@@ -6967,7 +6914,7 @@ const executeAiTool = async (name, input, user) => {
 };
 
 app.get('/api/ai/status', auth, async (req, res) => {
-  res.json({ configured: aiConfigured(), model: aiConfigured() ? AI_MODEL : null, plan: req.user.plan || 'free' });
+  res.json({ configured: aiConfigured(), model: aiConfigured() ? aiModel() : null, plan: req.user.plan || 'free' });
 });
 
 app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
@@ -6991,7 +6938,9 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
 
     const context = await buildFinancialContext(req.user);
 
+    const cfg = llmConfig();
     const messages = [
+      { role: 'system', content: AI_SYSTEM_PROMPT },
       ...priorTurns,
       {
         role: 'user',
@@ -6999,42 +6948,33 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       },
     ];
 
-    // Agentic loop: let the model call CREATE tools, execute them, feed results
-    // back, and continue until it produces a final text answer. Capped so a
-    // misbehaving turn can't loop forever.
+    // Agentic loop: let the model call CREATE tools, execute them, feed results back,
+    // and continue until it produces a final text answer. Capped so a misbehaving
+    // turn can't loop forever.
     const actions = [];
     let reply = '';
     for (let step = 0; step < 6; step++) {
-      const completion = await anthropic.messages.create({
-        model: AI_MODEL,
-        max_tokens: 1024,
-        system: AI_SYSTEM_PROMPT,
-        tools: AI_TOOLS,
-        messages,
+      const r = await fetch(`${cfg.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: aiModel(), max_tokens: 1024, temperature: 0.3, messages, tools: AI_FUNCTIONS }),
       });
+      if (!r.ok) { const err = new Error(`assistant HTTP ${r.status}`); err.status = r.status; throw err; }
+      const msg = (await r.json())?.choices?.[0]?.message || {};
+      if (typeof msg.content === 'string' && msg.content.trim()) reply = msg.content.trim();
 
-      const textOut = (completion.content || [])
-        .filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
-      if (textOut) reply = textOut;
+      const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+      if (!calls.length) break;
 
-      const toolUses = (completion.content || []).filter((b) => b.type === 'tool_use');
-      if (completion.stop_reason !== 'tool_use' || toolUses.length === 0) break;
-
-      // Echo the assistant turn (must include the tool_use blocks) then answer
-      // each tool call in a single user turn.
-      messages.push({ role: 'assistant', content: completion.content });
-      const toolResults = [];
-      for (const tu of toolUses) {
-        const result = await executeAiTool(tu.name, tu.input || {}, req.user);
-        actions.push({ tool: tu.name, ok: result.ok, kind: result.kind, summary: result.summary });
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: tu.id,
-          content: result.summary,
-          is_error: !result.ok,
-        });
+      // Echo the assistant turn (with its tool calls), then answer each call.
+      messages.push({ role: 'assistant', content: msg.content || null, tool_calls: calls });
+      for (const call of calls) {
+        let input = {};
+        try { input = JSON.parse(call.function?.arguments || '{}'); } catch { /* empty args */ }
+        const result = await executeAiTool(call.function?.name, input, req.user);
+        actions.push({ tool: call.function?.name, ok: result.ok, kind: result.kind, summary: result.summary });
+        messages.push({ role: 'tool', tool_call_id: call.id, content: result.summary });
       }
-      messages.push({ role: 'user', content: toolResults });
     }
 
     res.json({
@@ -7077,27 +7017,11 @@ async function purposeHints(userId, candidates) {
   return hints;
 }
 
-// Tier-2: send the residual (ambiguous) candidates to the configured LLM provider and
-// return validated proposals tagged source:'ai'. Groq/Gemini via OpenAI-compatible
-// fetch; Anthropic via the existing SDK client + forced tool. Never throws — a failure
-// just means Tier-1's results stand.
+// Tier-2: send the residual (ambiguous) candidates to Gemini and return validated
+// proposals tagged source:'ai'. A failure just means Tier-1's results stand.
 async function tier2Propose(residual, cfg) {
   const prompt = purposeInf.buildInferencePrompt(residual, naira);
-  let raw = [];
-  if (cfg.kind === 'anthropic') {
-    if (!anthropic) return [];
-    const tool = purposeInf.proposalToolSchema();
-    const completion = await anthropic.messages.create({
-      model: cfg.model, max_tokens: 1024,
-      system: 'You label the purpose of a user\'s uncategorised bank transfers. You only ever choose from the provided list and you must call the propose_purposes tool. Be conservative: prefer "other" over a wrong guess.',
-      tools: [tool], tool_choice: { type: 'tool', name: tool.name },
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const call = (completion.content || []).find((b) => b.type === 'tool_use' && b.name === tool.name);
-    raw = call && Array.isArray(call.input?.proposals) ? call.input.proposals : [];
-  } else {
-    raw = await inferOpenAICompat(prompt, cfg);
-  }
+  const raw = await inferPurposesLLM(prompt, cfg);
   return purposeInf.validateProposals(raw, residual).map((p) => ({ ...p, source: 'ai' }));
 }
 
@@ -7110,10 +7034,10 @@ app.get('/api/ai/purpose/candidates', auth, async (req, res) => {
     const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
       .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
     const candidates = purposeInf.buildCandidates(txns);
-    const cfg = purposeProviderConfig();
+    const cfg = llmConfig();
     res.json({
-      available: true,                                   // Tier-1 always available
-      booster: purposeLLMActive() ? cfg.name : null,     // LLM tail, if configured
+      available: true,                    // Tier-1 always available
+      booster: cfg ? cfg.name : null,     // LLM tail, if configured
       candidates: candidates.map((c) => ({ counterparty: c.counterparty, count: c.count, avgAmount: c.avgAmount, totalAmount: c.totalAmount, direction: c.direction, cadence: c.cadence, txnIds: c.txnIds })),
     });
   } catch (e) { console.error('[ai/purpose/candidates]', e.message); res.status(500).json({ message: 'Server error' }); }
@@ -7144,8 +7068,8 @@ app.post('/api/ai/purpose/infer', auth, async (req, res) => {
 
     // Tier-2 — the ambiguous tail only, if an LLM provider is configured + keyed.
     let aiCount = 0;
-    const cfg = purposeProviderConfig();
-    if (residual.length && cfg && cfg.apiKey) {
+    const cfg = llmConfig();
+    if (residual.length && cfg) {
       try {
         const aiProps = await tier2Propose(residual, cfg);
         aiCount = aiProps.length;
@@ -7163,33 +7087,21 @@ app.post('/api/ai/purpose/infer', auth, async (req, res) => {
 // Superadmin diagnostic: one-shot LIVE ping of the configured Tier-2 LLM provider, so
 // you can confirm the key actually works (not just that it's set). Not on any hot path.
 app.get('/api/admin/ai/ping', auth, superAdminAuth, async (req, res) => {
-  const cfg = purposeProviderConfig();
-  if (!cfg) return res.json({ configured: false, provider: null, message: 'No AI_PURPOSE_PROVIDER set — running deterministic-only.' });
-  if (!cfg.apiKey) return res.json({ configured: true, provider: cfg.name, ok: false, error: `Provider is "${cfg.name}" but its API-key env is empty.` });
+  const cfg = llmConfig();
+  if (!cfg) return res.json({ configured: false, provider: null, message: 'No GEMINI_API_KEY set, running deterministic-only.' });
   const started = Date.now();
   try {
-    let r, parse;
-    if (cfg.kind === 'openai') {
-      r = await fetch(`${cfg.baseURL}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: cfg.model, max_tokens: 5, temperature: 0, messages: [{ role: 'user', content: 'Reply with the single word: OK' }] }),
-      });
-      parse = (j) => j?.choices?.[0]?.message?.content || '';
-    } else {
-      r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: cfg.model, max_tokens: 5, messages: [{ role: 'user', content: 'Reply with the single word: OK' }] }),
-      });
-      parse = (j) => j?.content?.[0]?.text || '';
-    }
+    const r = await fetch(`${cfg.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: cfg.model, max_tokens: 5, temperature: 0, messages: [{ role: 'user', content: 'Reply with the single word: OK' }] }),
+    });
     const body = await r.text();
-    if (!r.ok) return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: false, status: r.status, error: body.slice(0, 300) });
-    let sample = ''; try { sample = parse(JSON.parse(body)); } catch { /* noop */ }
-    return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: true, ms: Date.now() - started, sample: (sample || '').slice(0, 60) });
-  } catch (e) {
-    return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: false, error: e.message });
+    if (!r.ok) return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: false, status: r.status });
+    let sample = ''; try { sample = JSON.parse(body)?.choices?.[0]?.message?.content || ''; } catch { /* noop */ }
+    return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: true, ms: Date.now() - started, sample: sample.slice(0, 60) });
+  } catch {
+    return res.json({ configured: true, provider: cfg.name, model: cfg.model, ok: false });
   }
 });
 
@@ -7354,15 +7266,6 @@ app.post('/api/transactions/recategorize', auth, async (req, res) => {
   } catch (e) { console.error('[recategorize]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Clean up past internal transfers across ALL history (Spec 3 backfill). Safe to
-// run repeatedly; only re-classifies pairs it is confident about.
-app.post('/api/transactions/detect-transfers', auth, async (req, res) => {
-  try {
-    const result = await reconcileTransfers(req.user._id, { allHistory: true });
-    res.json(result); // { classified, charges, ask }
-  } catch (e) { console.error('[detect-transfers]', e.message); res.status(500).json({ message: 'Server error' }); }
-});
-
 // List the medium-confidence (55-79) transfer pairs that need the user to confirm
 // ("Was this a transfer to your own account?"). Same detection as reconcileTransfers
 // but returns the `ask` pairs shaped for the confirm card instead of just a count.
@@ -7415,24 +7318,6 @@ app.post('/api/transactions/confirm-transfer', auth, async (req, res) => {
     try { await TransferRoute.updateOne({ userId: uid, routeKey: routeKey(d.bank, c.bank) }, { $setOnInsert: { userId: uid, routeKey: routeKey(d.bank, c.bank) } }, { upsert: true }); } catch { /* dup ok */ }
     res.json({ ok: true, transferPairId: pairId, fee });
   } catch (e) { console.error('[confirm-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
-});
-
-// Undo an internal-transfer classification ("this wasn't a transfer") - split the
-// pair back to income/expense and drop any generated fee row.
-app.post('/api/transactions/split-transfer', auth, async (req, res) => {
-  try {
-    const uid = req.user._id;
-    const { transferPairId } = req.body || {};
-    if (!transferPairId) return res.status(400).json({ message: 'transferPairId is required' });
-    const rows = await Transaction.find({ userId: uid, transferPairId });
-    for (const r of rows) {
-      if (r.description === 'Transfer fee' && r.category === 'Bank Charges') { await r.deleteOne(); continue; }
-      r.type = r.amount >= 0 ? 'income' : 'expense';
-      r.transferPairId = '';
-      await r.save();
-    }
-    res.json({ ok: true, restored: rows.length });
-  } catch (e) { console.error('[split-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Manually mark ONE transaction as a transfer between the user's own accounts
@@ -7721,7 +7606,7 @@ app.use((error, req, res, next) => {
 // --------------------------
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 MongoDB: ${process.env.MONGODB_URI || 'mongodb://localhost:27017/financial_app'}`);
-  console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
+  // Never log the full connection string: in production it carries the DB password.
+  const dbHost = (process.env.MONGODB_URI || 'mongodb://localhost:27017').replace(/\/\/[^@/]*@/, '//***@').split('?')[0];
+  console.log(`Server running on port ${PORT} (db: ${dbHost})`);
 });

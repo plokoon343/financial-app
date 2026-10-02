@@ -299,51 +299,6 @@ const userSchema = new mongoose.Schema({
     dirty:           { type: Boolean, default: false }, // webhook flagged new data to pull
     needsReauth:     { type: Boolean, default: false }, // user must manually re-link
   }],
-  bankDetails: {
-    bankName:        { type: String, default: '' },
-    bankCode:        { type: String, default: '' },
-    accountNumber:   { type: String, default: '' },
-    accountName:     { type: String, default: '' },
-    verified:        { type: Boolean, default: false }
-  },
-  // Dedicated NGN account for funding the wallet (Paystack DVA, or a 'dummy'
-  // placeholder until Paystack DVA is activated). Deposits to it credit the wallet.
-  virtualAccount: {
-    provider:      { type: String, default: '' },   // 'paystack' | 'dummy'
-    customerCode:  { type: String, default: '' },
-    accountNumber: { type: String, default: '' },
-    accountName:   { type: String, default: '' },
-    bankName:      { type: String, default: '' },
-    active:        { type: Boolean, default: false },
-  },
-  // Wallet payout destination. One active method at a time: 'card' or 'titan'.
-  // For cards we deliberately store only the last 4 digits (never the full PAN or CVV).
-  payout: {
-    method: { type: String, enum: ['card', 'titan', ''], default: '' },
-    card: {
-      last4:      { type: String, default: '' },
-      expiry:     { type: String, default: '' },   // MM/YY
-      holderName: { type: String, default: '' },
-    },
-    titan: {
-      accountNumber: { type: String, default: '' },
-      accountName:   { type: String, default: '' },
-      bankCode:      { type: String, default: '' },
-      bankName:      { type: String, default: 'Titan-Paystack' },
-    },
-  },
-  // Reusable Paystack card authorization for one-tap wallet top-ups (quick-add).
-  // We never store card numbers - only Paystack's authorization_code (a token) and
-  // display-safe metadata. Charged server-side via /transaction/charge_authorization.
-  fundingCard: {
-    authorizationCode: { type: String, default: '' },
-    last4:             { type: String, default: '' },
-    expMonth:          { type: String, default: '' },
-    expYear:           { type: String, default: '' },
-    bank:              { type: String, default: '' },
-    cardType:          { type: String, default: '' },
-    active:            { type: Boolean, default: false },
-  },
   // Automonie Pro subscription (Paystack). We keep only the reusable authorization
   // token so renewals can charge the card without re-checkout. plan/planExpiry above
   // hold the entitlement; this holds how it renews.
@@ -550,53 +505,10 @@ const goalSchema = new mongoose.Schema({
   current:  { type: Number, default: 0, min: 0 },
   deadline: { type: Date, required: true },
   category: { type: String, default: 'General' },
-  scheduledPayment: {
-    enabled:    { type: Boolean, default: false },
-    amount:     { type: Number, default: 0 },
-    dayOfMonth: { type: Number, min: 1, max: 31, default: 1 },
-    lastChargedPeriod: { type: String, default: '' }, // 'YYYY-MM' guard — never charge a period twice
-  },
-  // Savings plan: a locked goal can't be withdrawn before its deadline without
-  // a 3% early-break fee. `locked` is the commitment; `deadline` is maturity.
-  locked:   { type: Boolean, default: false },
-  lockedAt: { type: Date },
-  interestRate: { type: Number, default: 10 },  // annual % earned on a locked plan, paid at maturity
   createdAt: { type: Date, default: Date.now }
 });
 const Goal = mongoose.model('Goal', goalSchema);
 
-const walletSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
-  balance: { type: Number, default: 0, min: 0 },
-  savingsBalance: { type: Number, default: 0, min: 0 },
-  currency: { type: String, default: 'NGN' }
-}, { timestamps: true });
-const Wallet = mongoose.model('Wallet', walletSchema);
-
-const walletTransactionSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['deposit', 'withdrawal', 'savings_transfer'], required: true },
-  amount: { type: Number, required: true },
-  description: { type: String, required: true },
-  reference: { type: String, sparse: true },
-  status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'completed' }
-}, { timestamps: true });
-const WalletTransaction = mongoose.model('WalletTransaction', walletTransactionSchema);
-
-const savingsRuleSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  // 'fixed'   → save a flat naira amount from each income
-  // 'roundup' → round each expense up to the nearest step and save the difference
-  // 'percentage' kept only so legacy rules still read without error
-  type: { type: String, enum: ['fixed', 'roundup', 'percentage'], required: true },
-  value: { type: Number, required: true },
-  active: { type: Boolean, default: true },
-  targetGoalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Goal', default: null },
-  // Optionally auto-pay down a debt instead of (or as well as) saving to a goal.
-  targetDebtId: { type: mongoose.Schema.Types.ObjectId, ref: 'Debt', default: null },
-  createdAt: { type: Date, default: Date.now }
-});
-const SavingsRule = mongoose.model('SavingsRule', savingsRuleSchema);
 
 // Learn-from-correction categorization: maps a per-user merchant "key" (a distilled
 // signature of a transaction description) to the category the user assigned. Future
@@ -751,11 +663,11 @@ const globalBannerSchema = new mongoose.Schema({
 const GlobalBanner = mongoose.model('GlobalBanner', globalBannerSchema);
 
 // Activity log - a durable history of milestone actions in the app (goal
-// reached, debt cleared, bill auto-paid, wallet funded…), distinct from the
+// reached, goal created, Pro subscribed...), distinct from the
 // bank/transaction ledger. Surfaced on the History screen.
 const activitySchema = new mongoose.Schema({
   userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type:    { type: String, required: true }, // 'goal_reached','goal_created','goal_withdrawn','debt_cleared','bill_paid','wallet_funded','savings_rule'
+  type:    { type: String, required: true }, // 'goal_reached','goal_created','goal_withdrawn','pro_subscribed'
   title:   { type: String, required: true },
   message: { type: String, default: '' },
   amount:  { type: Number, default: 0 },
@@ -854,7 +766,6 @@ const checkBudgetAlert = async (userId, category, monthStr) => {
   } catch (e) { console.error('[checkBudgetAlert]', e.message); }
 };
 
-// UPDATED: Added bank fields + recipient
 const recurringBillSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
@@ -862,19 +773,12 @@ const recurringBillSchema = new mongoose.Schema({
   dueDate: { type: Number, required: true },
   frequency: { type: String, enum: ['monthly', 'yearly'], default: 'monthly' },
   category: { type: String, default: 'Bills' },
-  autoPay: { type: Boolean, default: false },
   nextDue: { type: Date, required: true },
   status: { type: String, enum: ['active', 'paused'], default: 'active' },
-  bankName: { type: String, default: '' },
-  bankCode: { type: String, default: '' },
-  accountNumber: { type: String, default: '' },
-  accountName: { type: String, default: '' },
-  recipient: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now }
 });
 const RecurringBill = mongoose.model('RecurringBill', recurringBillSchema);
 
-// UPDATED: Added bank fields (subscription)
 const subscriptionSchema = new mongoose.Schema({
   userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name:      { type: String, required: true },
@@ -887,16 +791,6 @@ const subscriptionSchema = new mongoose.Schema({
   status:    { type: String, enum: ['active', 'cancelling', 'cancelled'], default: 'active' },
   cancelRequestedAt: { type: Date },
   nextPayment: { type: Date },
-  scheduledPayment: {
-    enabled:    { type: Boolean, default: false },
-    dayOfMonth: { type: Number, min: 1, max: 31, default: 1 },
-    lastChargedPeriod: { type: String, default: '' }, // 'YYYY-MM'/'YYYY' guard — never charge a period twice
-  },
-  bankName: { type: String, default: '' },
-  bankCode: { type: String, default: '' },
-  accountNumber: { type: String, default: '' },
-  accountName: { type: String, default: '' },
-  recipient: { type: String, default: '' },
   // Auto-linking: when a transaction is recognised as a subscription (import, email,
   // SMS, or manual recategorise) we upsert a Subscription keyed by sourceKey so it
   // shows on the Subscriptions page immediately. autoDetected ones are kept current
@@ -921,148 +815,6 @@ const dismissedDetectionSchema = new mongoose.Schema({
 }, { timestamps: true });
 dismissedDetectionSchema.index({ userId: 1, key: 1 }, { unique: true });
 const DismissedDetection = mongoose.model('DismissedDetection', dismissedDetectionSchema);
-
-// UPDATED: Added bank fields (debt)
-const debtSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  name: { type: String, required: true },
-  balance: { type: Number, required: true, min: 0 },
-  interest: { type: Number, default: 0, min: 0 },
-  minPayment: { type: Number, required: true, min: 0 },
-  scheduledPayment: {
-    enabled:    { type: Boolean, default: false },
-    amount:     { type: Number, default: 0 },
-    dayOfMonth: { type: Number, min: 1, max: 31, default: 1 },
-    lastChargedPeriod: { type: String, default: '' }, // 'YYYY-MM' guard — never charge a period twice
-  },
-  bankName: { type: String, default: '' },
-  bankCode: { type: String, default: '' },
-  accountNumber: { type: String, default: '' },
-  accountName: { type: String, default: '' },
-  recipient: { type: String, default: '' },
-  createdAt: { type: Date, default: Date.now }
-});
-const Debt = mongoose.model('Debt', debtSchema);
-
-// --------------------------
-// Helper Functions
-// --------------------------
-const getOrCreateWallet = async (userId) => {
-  let wallet = await Wallet.findOne({ userId });
-  if (!wallet) {
-    wallet = new Wallet({ userId, balance: 0, savingsBalance: 0 });
-    await wallet.save();
-  }
-  return wallet;
-};
-
-// Atomic wallet debit: decrements the balance ONLY while it still covers the amount,
-// in a single DB op. Prevents the read-modify-write lost-update (two concurrent charges
-// for one user racing on a stale in-memory balance) and any overspend below zero.
-// Returns the updated wallet, or null when funds are insufficient.
-const debitWallet = async (userId, amount) => {
-  const amt = Math.abs(Number(amount) || 0);
-  if (!(amt > 0)) return null;
-  await getOrCreateWallet(userId); // ensure the doc exists
-  return Wallet.findOneAndUpdate(
-    { userId, balance: { $gte: amt } },
-    { $inc: { balance: -amt } },
-    { new: true },
-  );
-};
-// Atomic credit (refund / deposit). Always succeeds; creates the wallet if missing.
-const creditWallet = async (userId, amount) => {
-  const amt = Math.abs(Number(amount) || 0);
-  if (!(amt > 0)) return getOrCreateWallet(userId);
-  await getOrCreateWallet(userId);
-  return Wallet.findOneAndUpdate({ userId }, { $inc: { balance: amt } }, { new: true, upsert: true });
-};
-
-const applySavingsRule = async (userId, transactionAmount, transactionType) => {
-  try {
-    const rule = await SavingsRule.findOne({ userId, active: true });
-    if (!rule) return;
-
-    let saveAmount = 0;
-    let description = '';
-
-    if (rule.type === 'fixed' && transactionType === 'income') {
-      saveAmount = rule.value;
-      description = `Auto‑savings (₦${rule.value} per income)`;
-    } else if (rule.type === 'percentage' && transactionType === 'income') {
-      // Legacy percentage rules still work for users who set one previously.
-      saveAmount = (Math.abs(transactionAmount) * rule.value) / 100;
-      description = `Auto‑savings (${rule.value}% of income)`;
-    } else if (rule.type === 'roundup' && transactionType === 'expense') {
-      const amount = Math.abs(transactionAmount);
-      const remainder = amount % rule.value;
-      if (remainder !== 0) {
-        saveAmount = rule.value - remainder;
-        description = `Round‑up savings (rounded ₦${amount} → ₦${amount + saveAmount})`;
-      }
-    }
-
-    if (saveAmount > 0) {
-      const wallet = await getOrCreateWallet(userId);
-      if (wallet.balance >= saveAmount) {
-        wallet.balance -= saveAmount;
-        wallet.savingsBalance += saveAmount;
-        await wallet.save();
-
-        const savingsTx = new WalletTransaction({
-          userId,
-          type: 'savings_transfer',
-          amount: saveAmount,
-          description,
-          status: 'completed'
-        });
-        await savingsTx.save();
-
-        if (rule.targetGoalId) {
-          const goal = await Goal.findOne({ _id: rule.targetGoalId, userId });
-          if (goal) {
-            const justReached = goal.current < goal.target && goal.current + saveAmount >= goal.target;
-            goal.current = Math.min(goal.current + saveAmount, goal.target);
-            await goal.save();
-            if (justReached) {
-              await createNotification(userId, { type: 'success', title: 'Goal reached 🎉', message: `${goal.name} completed via auto-savings.` });
-              await logActivity(userId, { type: 'goal_reached', title: 'Goal reached 🎉', message: `${goal.name} completed`, amount: goal.target });
-            }
-          }
-        }
-        // Auto-pay down a linked debt as the amount is set aside.
-        if (rule.targetDebtId) {
-          const debt = await Debt.findOne({ _id: rule.targetDebtId, userId });
-          if (debt) {
-            debt.balance = Math.max(0, debt.balance - saveAmount);
-            if (debt.balance <= 0) {
-              await createNotification(userId, { type: 'success', title: 'Debt cleared 🎉', message: `You fully paid off ${debt.name}.` });
-              await logActivity(userId, { type: 'debt_cleared', title: 'Debt cleared', message: `Fully paid off ${debt.name} via auto-savings.` });
-              await debt.deleteOne();     // fully paid → remove it (matches manual pay)
-            } else {
-              await debt.save();
-            }
-          }
-        }
-        console.log(`✅ Auto‑saved ₦${saveAmount} for user ${userId}`);
-      } else {
-        // Not enough in the wallet to move to savings - tell the user instead of
-        // failing silently. De-duped to once per day per user.
-        const day = new Date().toISOString().slice(0, 10);
-        const link = `savings_skip_${day}`;
-        if (!(await Notification.findOne({ userId, link }))) {
-          await createNotification(userId, {
-            type: 'info', title: 'Auto-save skipped',
-            message: `We couldn't move ₦${Math.round(saveAmount).toLocaleString()} to savings - your wallet balance is low. Top up to keep saving.`,
-            link,
-          });
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Auto‑savings error:', err);
-  }
-};
 
 // --------------------------
 // File Parsing Helpers (same as before)
@@ -2547,24 +2299,57 @@ app.post('/api/logout-all', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
+// Collections from retired features (wallet, auto-savings, debts, bill payments).
+// Their models are gone, but older accounts may still hold rows, so export and
+// deletion reach them by collection name.
+const LEGACY_USER_COLLECTIONS = ['wallets', 'wallettransactions', 'savingsrules', 'debts', 'billpayments'];
+const legacyRows = async (userId) => {
+  const out = {};
+  for (const name of LEGACY_USER_COLLECTIONS) {
+    const rows = await mongoose.connection.collection(name).find({ userId }).toArray().catch(() => []);
+    if (rows.length) out[name] = rows;
+  }
+  return out;
+};
+
+// Remove everything we hold about a user. ProPayment rows stay: they are payment
+// records we must retain for accounting.
+async function deleteUserData(userId, email) {
+  const uid = new mongoose.Types.ObjectId(String(userId));
+  await Promise.all([
+    Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
+    SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
+    Feedback, Activity, DismissedDetection,
+  ].map((M) => M.deleteMany({ userId: uid })));
+  await Promise.all(LEGACY_USER_COLLECTIONS.map((name) =>
+    mongoose.connection.collection(name).deleteMany({ userId: uid }).catch(() => null)));
+  if (email) {
+    await Waitlist.deleteMany({ email });
+    await PendingRegistration.deleteMany({ email });
+  }
+  await User.deleteOne({ _id: uid });
+}
+
 // Export all of the user's data as JSON
 app.get('/api/me/export', auth, async (req, res) => {
   try {
     const uid = req.user._id;
-    const [transactions, budgets, goals, subscriptions, debts, bills, walletTx, tickets] = await Promise.all([
+    const [transactions, budgets, goals, subscriptions, bills, accounts, contacts, tickets, legacy] = await Promise.all([
       Transaction.find({ userId: uid }).lean(),
       Budget.find({ userId: uid }).lean(),
       Goal.find({ userId: uid }).lean(),
       Subscription.find({ userId: uid }).lean(),
-      Debt.find({ userId: uid }).lean(),
       RecurringBill.find({ userId: uid }).lean(),
-      WalletTransaction.find({ userId: uid }).lean(),
+      UserAccount.find({ userId: uid }).lean(),
+      Contact.find({ userId: uid }).lean(),
       SupportTicket.find({ userId: uid }).lean(),
+      legacyRows(uid),
     ]);
     res.json({
       exportedAt: new Date().toISOString(),
       profile: { name: req.user.name, email: req.user.email, phone: req.user.phone, monthlyIncome: req.user.monthlyIncome, primaryGoal: req.user.primaryGoal },
-      transactions, budgets, goals, subscriptions, debts, bills, walletTransactions: walletTx, supportTickets: tickets,
+      transactions, budgets, goals, subscriptions, bills, accounts, contacts, supportTickets: tickets,
+      ...(Object.keys(legacy).length ? { legacy } : {}),
     });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -2577,23 +2362,7 @@ app.delete('/api/me', sensitiveLimiter, auth, async (req, res) => {
     const acct = await User.findById(req.user._id).select('+password');
     const ok = acct && await bcrypt.compare(password, acct.password);
     if (!ok) return res.status(400).json({ message: 'Password is incorrect' });
-    const uid = req.user._id;
-    await Promise.all([
-      Transaction.deleteMany({ userId: uid }),
-      Budget.deleteMany({ userId: uid }),
-      Goal.deleteMany({ userId: uid }),
-      Subscription.deleteMany({ userId: uid }),
-      Debt.deleteMany({ userId: uid }),
-      RecurringBill.deleteMany({ userId: uid }),
-      Wallet.deleteMany({ userId: uid }),
-      WalletTransaction.deleteMany({ userId: uid }),
-      SavingsRule.deleteMany({ userId: uid }),
-      LearnedCategory.deleteMany({ userId: uid }),
-      ParseCorrection.deleteMany({ userId: uid }),
-      SupportTicket.deleteMany({ userId: uid }),
-      Notification.deleteMany({ userId: uid }),
-    ]);
-    await User.deleteOne({ _id: uid });
+    await deleteUserData(req.user._id, req.user.email);
     res.json({ message: 'Your account and all data have been deleted.' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -2823,7 +2592,6 @@ app.post('/api/transactions', auth, async (req, res) => {
   });
   await transaction.save();
   if (shared && bCode) { try { await touchUserAccount(req.user._id, { bankCode: bCode, bankName: bank || '', accountMask: bMask }, transaction.date); } catch { /* non-fatal */ } }
-  await applySavingsRule(req.user._id, transaction.amount, transaction.type);
   if (transaction.type === 'expense') {
     checkBudgetAlert(req.user._id, transaction.category, new Date(transaction.date).toISOString().slice(0, 7));
   }
@@ -2941,54 +2709,6 @@ app.post('/api/presets/corper', auth, async (req, res) => {
     }
     res.json({ ok: true, budgetsCreated: toCreate.length, budgetsSkipped: CORPER_BUDGET.length - toCreate.length, goalCreated, month });
   } catch (e) { console.error('[presets/corper]', e.message); res.status(500).json({ message: 'Server error' }); }
-});
-
-// Wallet
-app.get('/api/wallet', auth, async (req, res) => {
-  const wallet = await getOrCreateWallet(req.user._id);
-  const transactions = await WalletTransaction.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(20);
-  res.json({ balance: wallet.balance, savingsBalance: wallet.savingsBalance, transactions });
-});
-app.post('/api/wallet/deposit', auth, async (req, res) => {
-  const { amount, description } = req.body;
-  if (!amount || amount <= 0) return res.status(400).json({ message: 'Amount must be positive' });
-  const wallet = await getOrCreateWallet(req.user._id);
-  wallet.balance += amount;
-  await wallet.save();
-  const transaction = new WalletTransaction({ userId: req.user._id, type: 'deposit', amount, description: description || 'Manual deposit' });
-  await transaction.save();
-  res.json({ balance: wallet.balance, transaction });
-});
-app.post('/api/wallet/withdraw', auth, async (req, res) => {
-  const { amount, description } = req.body;
-  if (!amount || amount <= 0) return res.status(400).json({ message: 'Amount must be positive' });
-  const wallet = await getOrCreateWallet(req.user._id);
-  if (wallet.balance < amount) return res.status(400).json({ message: 'Insufficient balance' });
-  wallet.balance -= amount;
-  await wallet.save();
-  const transaction = new WalletTransaction({ userId: req.user._id, type: 'withdrawal', amount, description: description || 'Manual withdrawal' });
-  await transaction.save();
-  res.json({ balance: wallet.balance, transaction });
-});
-
-// Savings rules
-app.get('/api/savings/rules', auth, async (req, res) => {
-  const rule = await SavingsRule.findOne({ userId: req.user._id });
-  res.json(rule || null);
-});
-app.post('/api/savings/rules', auth, async (req, res) => {
-  const { type, value, active, targetGoalId, targetDebtId } = req.body;
-  if (!type || !value) return res.status(400).json({ message: 'Type and value required' });
-  if (type === 'fixed' && value <= 0) return res.status(400).json({ message: 'Amount must be greater than 0' });
-  if (type === 'roundup' && value <= 0) return res.status(400).json({ message: 'Round‑up step must be >0' });
-  await SavingsRule.deleteOne({ userId: req.user._id });
-  const rule = new SavingsRule({ userId: req.user._id, type, value, active: active !== false, targetGoalId: targetGoalId || null, targetDebtId: targetDebtId || null });
-  await rule.save();
-  res.json(rule);
-});
-app.delete('/api/savings/rules', auth, async (req, res) => {
-  await SavingsRule.deleteOne({ userId: req.user._id });
-  res.json({ message: 'Rule removed' });
 });
 
 // Invite link to the Automonie WhatsApp community - sent to every new signup.
@@ -3369,124 +3089,39 @@ app.delete('/api/goals/:id', auth, async (req, res) => {
   await Goal.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
   res.json({ message: 'Goal deleted' });
 });
+// Goals track money the user sets aside themselves. Adding to or taking from a goal
+// only updates its progress; no money moves.
 app.post('/api/goals/:id/contribute', auth, async (req, res) => {
   try {
-    const { amount } = req.body;
-    if (!amount || amount <= 0) return res.status(400).json({ message: 'Invalid amount' });
-
+    const amount = Math.abs(Number(req.body.amount) || 0);
+    if (!amount) return res.status(400).json({ message: 'Enter an amount greater than 0' });
     const goal = await Goal.findOne({ _id: req.params.id, userId: req.user._id });
     if (!goal) return res.status(404).json({ message: 'Goal not found' });
     if (goal.current >= goal.target) return res.status(400).json({ message: 'Goal already achieved' });
-
-    const wallet = await getOrCreateWallet(req.user._id);
-    if (wallet.balance < amount) return res.status(400).json({ message: 'Insufficient wallet balance' });
-
-    wallet.balance -= amount;
-    await wallet.save();
-
-    const justReached = goal.current + amount >= goal.target;   // pre-clamp crossing
+    const justReached = goal.current + amount >= goal.target;
     goal.current = Math.min(goal.current + amount, goal.target);
     await goal.save();
-
-    const tx = new WalletTransaction({
-      userId: req.user._id,
-      type: 'withdrawal',
-      amount,
-      description: `Contribution to goal: ${goal.name}`,
-      status: 'completed'
-    });
-    await tx.save();
-    if (justReached) await logActivity(req.user._id, { type: 'goal_reached', title: 'Goal reached 🎉', message: `${goal.name} completed`, amount: goal.target });
-
-    res.json({ goal, newBalance: wallet.balance });
-  } catch (error) {
-    console.error('Goal contribute error:', error);
-    res.status(500).json({ message: error.message || 'Server error' });
-  }
+    if (justReached) await logActivity(req.user._id, { type: 'goal_reached', title: 'Goal reached', message: `${goal.name} completed`, amount: goal.target });
+    res.json({ goal });
+  } catch (e) { console.error('[goals/contribute]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Turn a goal into a locked Savings Plan: committed until its deadline.
-app.post('/api/goals/:id/lock', auth, async (req, res) => {
-  try {
-    const goal = await Goal.findOne({ _id: req.params.id, userId: req.user._id });
-    if (!goal) return res.status(404).json({ message: 'Goal not found' });
-    if (new Date(goal.deadline) <= new Date()) {
-      return res.status(400).json({ message: 'Pick a future deadline before locking this goal.' });
-    }
-    goal.locked = true;
-    goal.lockedAt = new Date();
-    goal.interestRate = PLAN_INTEREST_RATE;
-    await goal.save();
-    res.json(goal);
-  } catch (error) {
-    console.error('Goal lock error:', error);
-    res.status(500).json({ message: error.message || 'Server error' });
-  }
-});
-
-// Withdraw a goal's balance back to the wallet. If it's a locked plan pulled
-// before its deadline, a 3% early-break fee is deducted; matured/unlocked goals
-// withdraw in full.
-const EARLY_BREAK_FEE = 0.03;
-const PLAN_INTEREST_RATE = 10; // % per annum on locked savings plans
+// Record money taken out of a goal. Without an amount, the whole balance is taken.
 app.post('/api/goals/:id/withdraw', auth, async (req, res) => {
   try {
     const goal = await Goal.findOne({ _id: req.params.id, userId: req.user._id });
     if (!goal) return res.status(404).json({ message: 'Goal not found' });
-
-    const amount = goal.current;
-    if (amount <= 0) return res.status(400).json({ message: 'This goal has no funds to withdraw.' });
-    const reached = goal.target > 0 && amount >= goal.target;
-
-    const matured = new Date() >= new Date(goal.deadline);
-    const early = goal.locked && !matured;
-    const fee = early ? Math.round(amount * EARLY_BREAK_FEE * 100) / 100 : 0;
-
-    // A matured locked plan earns interest for its full locked term (lockedAt →
-    // deadline). Breaking early forfeits interest (and pays the 3% fee).
-    let interest = 0;
-    if (matured && goal.locked && goal.lockedAt) {
-      const rate = (goal.interestRate ?? PLAN_INTEREST_RATE) / 100;
-      const years = (new Date(goal.deadline) - new Date(goal.lockedAt)) / (365.25 * 24 * 60 * 60 * 1000);
-      interest = Math.round(amount * rate * Math.max(0, years) * 100) / 100;
-    }
-    const net = Math.round((amount - fee + interest) * 100) / 100;
-
-    const wallet = await getOrCreateWallet(req.user._id);
-    wallet.balance += net;
-    await wallet.save();
-
-    // A reached goal is done once withdrawn - remove it. Otherwise reset to 0.
-    if (reached) {
-      await logActivity(req.user._id, { type: 'goal_withdrawn', title: 'Goal completed & withdrawn', message: `${goal.name} - ₦${net.toLocaleString()} paid to your wallet`, amount: net });
-      await Goal.deleteOne({ _id: goal._id });
-    } else {
-      goal.current = 0;
-      goal.locked = false;
-      goal.lockedAt = undefined;
-      await goal.save();
-    }
-
-    await new WalletTransaction({
-      userId: req.user._id,
-      type: 'deposit',
-      amount: net,
-      description: early
-        ? `Early break of locked plan: ${goal.name} (3% fee ₦${fee.toLocaleString()})`
-        : interest > 0
-          ? `Matured plan: ${goal.name} (+₦${interest.toLocaleString()} interest)`
-          : `Withdrawal from goal: ${goal.name}`,
-      status: 'completed',
-    }).save();
-
-    res.json({ goal: reached ? null : goal, deleted: reached, withdrawn: net, fee, interest, early, newBalance: wallet.balance });
-  } catch (error) {
-    console.error('Goal withdraw error:', error);
-    res.status(500).json({ message: error.message || 'Server error' });
-  }
+    if (goal.current <= 0) return res.status(400).json({ message: 'This goal has nothing saved yet.' });
+    const asked = Math.abs(Number(req.body.amount) || 0);
+    const amount = asked ? Math.min(asked, goal.current) : goal.current;
+    goal.current = Math.round((goal.current - amount) * 100) / 100;
+    await goal.save();
+    await logActivity(req.user._id, { type: 'goal_withdrawn', title: 'Taken from goal', message: goal.name, amount });
+    res.json({ goal, withdrawn: amount });
+  } catch (e) { console.error('[goals/withdraw]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Recurring Bills (updated PUT to accept new fields)
+// Recurring bills. Reminders only: nothing is ever paid automatically.
 app.get('/api/bills', auth, async (req, res) => {
   try {
     const bills = await RecurringBill.find({ userId: req.user._id }).sort({ nextDue: 1 });
@@ -3495,18 +3130,18 @@ app.get('/api/bills', auth, async (req, res) => {
 });
 app.post('/api/bills', auth, async (req, res) => {
   try {
-    const { name, amount, dueDate, frequency, category, autoPay } = req.body;
+    const { name, amount, dueDate, frequency, category } = req.body;
     const now = new Date();
     let nextDue = new Date(now.getFullYear(), now.getMonth(), dueDate);
     if (nextDue < now) nextDue = new Date(now.getFullYear(), now.getMonth() + 1, dueDate);
-    const bill = new RecurringBill({ userId: req.user._id, name, amount, dueDate, frequency, category, autoPay, nextDue, status: 'active' });
+    const bill = new RecurringBill({ userId: req.user._id, name, amount, dueDate, frequency, category, nextDue, status: 'active' });
     await bill.save();
     res.status(201).json(bill);
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 app.put('/api/bills/:id', auth, async (req, res) => {
   try {
-    const { name, amount, dueDate, frequency, category, autoPay, status, recipient, bankName, bankCode, accountNumber, accountName } = req.body;
+    const { name, amount, dueDate, frequency, category, status } = req.body;
     const bill = await RecurringBill.findOne({ _id: req.params.id, userId: req.user._id });
     if (!bill) return res.status(404).json({ message: 'Bill not found' });
     if (name !== undefined) bill.name = name;
@@ -3514,13 +3149,7 @@ app.put('/api/bills/:id', auth, async (req, res) => {
     if (dueDate !== undefined) bill.dueDate = dueDate;
     if (frequency !== undefined) bill.frequency = frequency;
     if (category !== undefined) bill.category = category;
-    if (autoPay !== undefined) bill.autoPay = autoPay;
     if (status !== undefined) bill.status = status;
-    if (recipient !== undefined) bill.recipient = recipient;
-    if (bankName !== undefined) bill.bankName = bankName;
-    if (bankCode !== undefined) bill.bankCode = bankCode;
-    if (accountNumber !== undefined) bill.accountNumber = accountNumber;
-    if (accountName !== undefined) bill.accountName = accountName;
     const now = new Date();
     let nextDue = new Date(now.getFullYear(), now.getMonth(), bill.dueDate);
     if (nextDue < now) nextDue = new Date(now.getFullYear(), now.getMonth() + 1, bill.dueDate);
@@ -3536,8 +3165,8 @@ app.delete('/api/bills/:id', auth, async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 // Advance a bill's nextDue to the next occurrence strictly after `from`. Loops so
-// several missed periods don't leave it stuck in the past (but never double-charges,
-// because a paid/skipped bill is only processed once per sweep).
+// several missed periods don't leave it stuck in the past (but never double-reminds,
+// because a bill is only processed once per sweep).
 // Pure: the nextDue strictly after `from`, without mutating the bill.
 function nextDueAfter(bill, from = new Date()) {
   let next = new Date(bill.nextDue);
@@ -3552,42 +3181,20 @@ function advanceBillDue(bill, from = new Date()) {
   bill.nextDue = nextDueAfter(bill, from);
 }
 
-// Process a single due bill: auto-debit the wallet (autoPay) or leave a reminder.
-// On success also records an expense Transaction so autopay shows in insights/budgets.
+// Process a single due bill: leave a reminder and move it to its next cycle.
 async function processDueBill(bill) {
   const userId = bill.userId;
   const claimedNext = nextDueAfter(bill);
   // Atomically claim this due-cycle: advance nextDue only while it still equals
   // the value we read. Overlapping sweeps (cron + in-process interval +
   // app-launch trigger) race here - exactly one wins; the losers get null and
-  // skip, so a bill can never be paid twice for the same cycle.
+  // skip, so a bill is never reminded twice for the same cycle.
   const claim = async () => RecurringBill.findOneAndUpdate(
     { _id: bill._id, status: 'active', nextDue: bill.nextDue },
     { $set: { nextDue: claimedNext } },
   );
 
-  if (bill.autoPay) {
-    // Atomic debit FIRST — guarantees funds and can't lose a concurrent update or
-    // overspend below zero. On insufficient funds nothing is claimed, so nextDue is
-    // untouched and it retries next sweep.
-    const debited = await debitWallet(userId, bill.amount);
-    if (!debited) {
-      const link = `autopay_fail_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
-      if (!(await Notification.findOne({ userId, link }))) {
-        await createNotification(userId, { type: 'danger', title: 'Autopay failed', message: `Couldn't pay ${bill.name} (₦${bill.amount.toLocaleString()}) - your wallet is low. Top up to pay it.`, link });
-      }
-      return { bill: bill.name, status: 'insufficient_funds', amount: bill.amount };
-    }
-    // We took the money — now claim the cycle. If another sweep already advanced it,
-    // refund and skip so the bill is never paid twice for one cycle.
-    if (!(await claim())) { await creditWallet(userId, bill.amount); return { bill: bill.name, status: 'skipped', amount: bill.amount }; }
-    await new WalletTransaction({ userId, type: 'withdrawal', amount: bill.amount, description: `Auto-pay: ${bill.name}`, status: 'completed' }).save();
-    await new Transaction({ userId, date: new Date(), description: `Auto-pay: ${bill.name}`, amount: -Math.abs(bill.amount), category: bill.category || 'Bills', type: 'expense' }).save();
-    await createNotification(userId, { type: 'success', title: 'Bill paid', message: `₦${bill.amount.toLocaleString()} paid for ${bill.name}.` });
-    await logActivity(userId, { type: 'bill_paid', title: 'Bill auto-paid', message: bill.name, amount: bill.amount });
-    return { bill: bill.name, status: 'paid', amount: bill.amount };
-  }
-  // Reminder-only bill: claim atomically so overlapping sweeps don't double-remind.
+  // Claim atomically so overlapping sweeps don't double-remind.
   if (!(await claim())) return { bill: bill.name, status: 'skipped', amount: bill.amount };
   const link = `bill_due_${bill._id}_${new Date().toISOString().slice(0, 10)}`;
   if (!(await Notification.findOne({ userId, link }))) {
@@ -3608,22 +3215,22 @@ app.post('/api/bills/process', auth, async (req, res) => {
   } catch (error) { console.error('[bills/process]', error.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Server-side daily sweep across ALL users so autopay runs even if nobody opens
+// Server-side daily sweep across ALL users so reminders go out even if nobody opens
 // the app. Dependency-free: interval + a short post-boot kick.
 async function sweepAllDueBills() {
   try {
     const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
     const dueBills = await RecurringBill.find({ status: 'active', nextDue: { $lte: endOfDay } });
     for (const bill of dueBills) {
-      try { await processDueBill(bill); } catch (e) { console.error('[autopay sweep] bill', String(bill._id), e.message); }
+      try { await processDueBill(bill); } catch (e) { console.error('[bill sweep] bill', String(bill._id), e.message); }
     }
-    if (dueBills.length) console.log(`[autopay sweep] processed ${dueBills.length} due bill(s)`);
-  } catch (e) { console.error('[autopay sweep]', e.message); }
+    if (dueBills.length) console.log(`[bill sweep] processed ${dueBills.length} due bill(s)`);
+  } catch (e) { console.error('[bill sweep]', e.message); }
 }
 setInterval(sweepAllDueBills, 24 * 60 * 60 * 1000);
 setTimeout(sweepAllDueBills, 30 * 1000);
 
-// Reliable external trigger for the autopay sweep. Render's free tier sleeps when
+// Reliable external trigger for the bill reminder sweep. Render's free tier sleeps when
 // idle, so the in-process interval above can miss days; point an external
 // scheduler (cron-job.org / Render cron) at this daily, guarded by CRON_SECRET.
 app.post('/api/cron/process-bills', async (req, res) => {
@@ -3631,16 +3238,14 @@ app.post('/api/cron/process-bills', async (req, res) => {
   try {
     const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
     const dueBills = await RecurringBill.find({ status: 'active', nextDue: { $lte: endOfDay } });
-    let paid = 0, insufficient = 0, reminders = 0, failed = 0;
+    let reminders = 0, failed = 0;
     for (const bill of dueBills) {
       try {
         const r = await processDueBill(bill);
-        if (r.status === 'paid') paid += 1;
-        else if (r.status === 'insufficient_funds') insufficient += 1;
-        else reminders += 1;
+        if (r.status === 'reminder') reminders += 1;
       } catch (e) { failed += 1; console.error('[cron/process-bills] bill', String(bill._id), e.message); }
     }
-    res.json({ due: dueBills.length, paid, insufficient, reminders, failed });
+    res.json({ due: dueBills.length, reminders, failed });
   } catch (e) {
     console.error('[cron/process-bills]', e.message);
     res.status(500).json({ message: 'Sweep failed' });
@@ -3700,100 +3305,6 @@ async function sweepSubscriptionReminders() {
 setInterval(sweepSubscriptionReminders, 24 * 60 * 60 * 1000);
 setTimeout(sweepSubscriptionReminders, 45 * 1000);
 
-// ── Scheduled auto-payments (built, DORMANT until the wallet launches) ───────────
-// Gated OFF by SCHEDULED_PAYMENTS_ENABLED. When on, the daily cron pulls each user's
-// enabled debt/goal/subscription scheduled payment from their WALLET on/after its day.
-// Idempotent: a 'YYYY-MM' (yearly: 'YYYY') period guard means one charge per period even
-// across overlapping runs. Atomic: debitWallet can't overspend or lose a race. Graceful:
-// low balance skips + one deduped nudge, and retries daily until the period ends. Runs
-// ONLY from /api/cron/daily (money movement stays off the flaky in-process interval).
-const scheduledPaymentsEnabled = () => process.env.SCHEDULED_PAYMENTS_ENABLED === 'true' || process.env.SCHEDULED_PAYMENTS_ENABLED === '1';
-
-// A dayOfMonth schedule is due from its day onward (so a low-funds miss retries daily
-// until month end), clamped to the month length so day-31 still fires in short months.
-function scheduleDue(dayOfMonth, now = new Date()) {
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const due = Math.min(Math.max(1, dayOfMonth || 1), daysInMonth);
-  return now.getDate() >= due;
-}
-
-async function runScheduledPayments(now = new Date()) {
-  if (!scheduledPaymentsEnabled()) return { skipped: 'disabled' };
-  const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const yearPeriod = String(now.getFullYear());
-  let paid = 0, short = 0, failed = 0;
-
-  const nudge = async (userId, name, amount) => {
-    const link = `sched_fail_${userId}_${name}_${period}`.slice(0, 120);
-    if (!(await Notification.findOne({ userId, link }))) {
-      await createNotification(userId, { type: 'danger', title: 'Scheduled payment skipped', message: `Couldn't move ₦${Math.round(amount).toLocaleString()} for ${name} — your wallet is low. Top up and we'll retry.`, link }).catch(() => {});
-    }
-  };
-
-  // Debts
-  try {
-    for (const d of await Debt.find({ 'scheduledPayment.enabled': true, balance: { $gt: 0 } })) {
-      const sp = d.scheduledPayment;
-      if (!sp?.enabled || sp.lastChargedPeriod === period || !scheduleDue(sp.dayOfMonth, now)) continue;
-      const amount = Math.min(Math.abs(sp.amount || 0), d.balance);
-      if (!(amount > 0)) continue;
-      if (!(await debitWallet(d.userId, amount))) { short += 1; await nudge(d.userId, d.name, amount); continue; }
-      try {
-        d.balance = Math.max(0, d.balance - amount); d.scheduledPayment.lastChargedPeriod = period; await d.save();
-        await new WalletTransaction({ userId: d.userId, type: 'withdrawal', amount, description: `Scheduled debt payment: ${d.name}`, status: 'completed' }).save();
-        await new Transaction({ userId: d.userId, date: now, description: `Debt payment: ${d.name}`, amount: -Math.abs(amount), category: 'Debt Repayment', type: 'expense' }).save();
-        if (d.balance <= 0) { await Debt.deleteOne({ _id: d._id }); await createNotification(d.userId, { type: 'success', title: 'Debt cleared 🎉', message: `${d.name} is fully paid off.` }).catch(() => {}); }
-        else await createNotification(d.userId, { type: 'success', title: 'Debt payment', message: `₦${Math.round(amount).toLocaleString()} paid toward ${d.name}.` }).catch(() => {});
-        paid += 1;
-      } catch (e) { await creditWallet(d.userId, amount); failed += 1; console.error('[scheduled/debt]', String(d._id), e.message); }
-    }
-  } catch (e) { console.error('[scheduled/debts]', e.message); }
-
-  // Goals
-  try {
-    for (const g of await Goal.find({ 'scheduledPayment.enabled': true })) {
-      const sp = g.scheduledPayment;
-      if (!sp?.enabled || sp.lastChargedPeriod === period || g.current >= g.target || !scheduleDue(sp.dayOfMonth, now)) continue;
-      const amount = Math.min(Math.abs(sp.amount || 0), Math.max(0, g.target - g.current));
-      if (!(amount > 0)) continue;
-      if (!(await debitWallet(g.userId, amount))) { short += 1; await nudge(g.userId, g.name, amount); continue; }
-      try {
-        g.current = Math.min(g.current + amount, g.target); g.scheduledPayment.lastChargedPeriod = period; await g.save();
-        await new WalletTransaction({ userId: g.userId, type: 'withdrawal', amount, description: `Scheduled goal payment: ${g.name}`, status: 'completed' }).save();
-        if (g.current >= g.target) await createNotification(g.userId, { type: 'success', title: 'Goal reached 🎉', message: `${g.name} is fully funded.` }).catch(() => {});
-        paid += 1;
-      } catch (e) { await creditWallet(g.userId, amount); failed += 1; console.error('[scheduled/goal]', String(g._id), e.message); }
-    }
-  } catch (e) { console.error('[scheduled/goals]', e.message); }
-
-  // Subscriptions (monthly → dayOfMonth; yearly → its nextPayment date)
-  try {
-    for (const s of await Subscription.find({ status: 'active', 'scheduledPayment.enabled': true })) {
-      const sp = s.scheduledPayment;
-      if (!sp?.enabled) continue;
-      const monthly = s.frequency !== 'yearly';
-      const pkey = monthly ? period : yearPeriod;
-      if (sp.lastChargedPeriod === pkey) continue;
-      const due = monthly ? scheduleDue(sp.dayOfMonth, now) : (s.nextPayment && now >= new Date(s.nextPayment));
-      if (!due) continue;
-      const amount = Math.abs(s.cost || 0);
-      if (!(amount > 0)) continue;
-      if (!(await debitWallet(s.userId, amount))) { short += 1; await nudge(s.userId, s.name, amount); continue; }
-      try {
-        s.scheduledPayment.lastChargedPeriod = pkey; s.lastCharge = now;
-        s.nextPayment = new Date(now.getFullYear(), now.getMonth() + (monthly ? 1 : 12), sp.dayOfMonth);
-        await s.save();
-        await new WalletTransaction({ userId: s.userId, type: 'withdrawal', amount, description: `Subscription: ${s.name}`, status: 'completed' }).save();
-        await new Transaction({ userId: s.userId, date: now, description: `${s.name} subscription`, amount: -Math.abs(amount), category: s.category || 'Subscriptions', type: 'expense' }).save();
-        paid += 1;
-      } catch (e) { await creditWallet(s.userId, amount); failed += 1; console.error('[scheduled/sub]', String(s._id), e.message); }
-    }
-  } catch (e) { console.error('[scheduled/subs]', e.message); }
-
-  if (paid || short || failed) console.log(`[scheduled-payments] paid ${paid}, low-balance ${short}, failed ${failed}`);
-  return { paid, short, failed };
-}
-
 // External scheduler trigger (Render free tier sleeps; the interval alone can miss a
 // day). Guarded by CRON_SECRET like the other crons.
 app.post('/api/cron/subscription-reminders', async (req, res) => {
@@ -3812,11 +3323,10 @@ app.post('/api/cron/daily', (req, res) => {
   // past a 30s HTTP timeout as the user base grows, and a timed-out request would look
   // like a failure. The jobs run in the background, each isolated so one can't block
   // the other. Errors surface in the server logs, not the HTTP response.
-  res.status(202).json({ ok: true, started: ['bills', 'subscription-reminders', 'scheduled-payments'] });
+  res.status(202).json({ ok: true, started: ['bills', 'subscription-reminders'] });
   (async () => {
     try { await sweepAllDueBills(); } catch (e) { console.error('[cron/daily] bills', e.message); }
     try { await sweepSubscriptionReminders(); } catch (e) { console.error('[cron/daily] subs', e.message); }
-    try { await runScheduledPayments(); } catch (e) { console.error('[cron/daily] scheduled-payments', e.message); } // no-op unless SCHEDULED_PAYMENTS_ENABLED
   })();
 });
 
@@ -4911,96 +4421,6 @@ app.post('/api/admin/senders/:key/dismiss', auth, superAdminAuth, async (req, re
   } catch (e) { console.error('[admin/senders/dismiss]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// --------------------------
-// Debts CRUD (updated to accept new fields)
-// --------------------------
-app.get('/api/debts', auth, async (req, res) => {
-  try {
-    const debts = await Debt.find({ userId: req.user._id }).sort({ createdAt: -1 });
-    res.json(debts);
-  } catch (e) { res.status(500).json({ message: 'Server error' }); }
-});
-
-app.post('/api/debts', auth, async (req, res) => {
-  try {
-    const { name, balance, interest, minPayment, scheduledPayment } = req.body;
-    if (!name || balance === undefined || !minPayment) return res.status(400).json({ message: 'Missing required fields' });
-    const debt = new Debt({
-      userId: req.user._id,
-      name,
-      balance: parseFloat(balance),
-      interest: parseFloat(interest || 0),
-      minPayment: parseFloat(minPayment),
-      scheduledPayment: {
-        enabled:    scheduledPayment?.enabled || false,
-        amount:     scheduledPayment?.amount  || 0,
-        dayOfMonth: scheduledPayment?.dayOfMonth || 1,
-      },
-    });
-    await debt.save();
-    res.status(201).json(debt);
-  } catch (e) { res.status(500).json({ message: 'Server error' }); }
-});
-
-app.put('/api/debts/:id', auth, async (req, res) => {
-  try {
-    const debt = await Debt.findOne({ _id: req.params.id, userId: req.user._id });
-    if (!debt) return res.status(404).json({ message: 'Debt not found' });
-    const { name, balance, interest, minPayment, scheduledPayment, recipient, bankName, bankCode, accountNumber, accountName } = req.body;
-    if (name !== undefined) debt.name = name;
-    if (balance !== undefined) debt.balance = parseFloat(balance);
-    if (interest !== undefined) debt.interest = parseFloat(interest);
-    if (minPayment !== undefined) debt.minPayment = parseFloat(minPayment);
-    if (recipient !== undefined) debt.recipient = recipient;
-    if (bankName !== undefined) debt.bankName = bankName;
-    if (bankCode !== undefined) debt.bankCode = bankCode;
-    if (accountNumber !== undefined) debt.accountNumber = accountNumber;
-    if (accountName !== undefined) debt.accountName = accountName;
-    if (scheduledPayment !== undefined) {
-      debt.scheduledPayment.enabled = scheduledPayment.enabled ?? debt.scheduledPayment.enabled;
-      debt.scheduledPayment.amount = scheduledPayment.amount ?? debt.scheduledPayment.amount;
-      debt.scheduledPayment.dayOfMonth = scheduledPayment.dayOfMonth ?? debt.scheduledPayment.dayOfMonth;
-    }
-    await debt.save();
-    res.json(debt);
-  } catch (e) { res.status(500).json({ message: 'Server error' }); }
-});
-
-app.delete('/api/debts/:id', auth, async (req, res) => {
-  try {
-    await Debt.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
-    res.json({ message: 'Debt deleted' });
-  } catch (e) { res.status(500).json({ message: 'Server error' }); }
-});
-
-// Make a payment toward a debt from the wallet (reduces the balance).
-app.post('/api/debts/:id/pay', auth, async (req, res) => {
-  try {
-    const amt = Number(req.body.amount);
-    if (!amt || amt <= 0) return res.status(400).json({ message: 'Invalid amount' });
-    const debt = await Debt.findOne({ _id: req.params.id, userId: req.user._id });
-    if (!debt) return res.status(404).json({ message: 'Debt not found' });
-    const wallet = await getOrCreateWallet(req.user._id);
-    if (wallet.balance < amt) return res.status(400).json({ message: 'Insufficient wallet balance' });
-    const pay = Math.min(amt, debt.balance);
-    wallet.balance -= pay; await wallet.save();
-    debt.balance = Math.max(0, debt.balance - pay);
-    await new WalletTransaction({
-      userId: req.user._id, type: 'withdrawal', amount: pay,
-      description: `Debt payment: ${debt.name}`, status: 'completed',
-    }).save();
-    const cleared = debt.balance <= 0;
-    if (cleared) {
-      await createNotification(req.user._id, { type: 'success', title: 'Debt cleared 🎉', message: `You fully paid off ${debt.name}.` });
-      await logActivity(req.user._id, { type: 'debt_cleared', title: 'Debt cleared', message: `Fully paid off ${debt.name}.`, amount: pay });
-      await debt.deleteOne();       // fully paid → remove it
-    } else {
-      await debt.save();
-    }
-    res.json({ debt: cleared ? null : debt, paid: pay, cleared, deleted: cleared, newBalance: wallet.balance });
-  } catch (e) { console.error('Debt pay error:', e.message); res.status(500).json({ message: e.message || 'Server error' }); }
-});
-
 // Subscriptions. Each row is enriched with its cancellation guide (C1), and any
 // subscription mid-cancellation is verified against the ledger — did a matching
 // charge land AFTER the cancel request (didn't take) or has it gone quiet past a
@@ -5099,7 +4519,7 @@ app.get('/api/subscriptions/detect', auth, async (req, res) => {
 });
 app.post('/api/subscriptions', auth, async (req, res) => {
   try {
-    const { name, cost, frequency, category, scheduledPayment, remindDaysBefore } = req.body;
+    const { name, cost, frequency, category, remindDaysBefore } = req.body;
     if (!name || !cost) return res.status(400).json({ message: 'Name and cost required' });
     const now = new Date();
     const freq = frequency || 'monthly';
@@ -5112,9 +4532,6 @@ app.post('/api/subscriptions', auth, async (req, res) => {
     let nextPayment;
     if (renewalDay) {
       nextPayment = computeNextRenewal({ renewalDay, frequency: freq, lastCharge }, now);
-    } else if (scheduledPayment?.enabled && scheduledPayment?.dayOfMonth) {
-      nextPayment = new Date(now.getFullYear(), now.getMonth(), scheduledPayment.dayOfMonth);
-      if (nextPayment <= now) nextPayment = new Date(now.getFullYear(), now.getMonth() + 1, scheduledPayment.dayOfMonth);
     } else {
       nextPayment = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     }
@@ -5125,7 +4542,6 @@ app.post('/api/subscriptions', auth, async (req, res) => {
       renewalDay: renewalDay || undefined,
       remindDaysBefore: remindDaysBefore != null ? Math.max(0, Math.min(30, Number(remindDaysBefore))) : 3,
       lastCharge: lastCharge && !isNaN(lastCharge) ? lastCharge : undefined,
-      scheduledPayment: { enabled: scheduledPayment?.enabled || false, dayOfMonth: scheduledPayment?.dayOfMonth || 1 },
     });
     await sub.save();
     res.status(201).json(sub);
@@ -5135,7 +4551,7 @@ app.put('/api/subscriptions/:id', auth, async (req, res) => {
   try {
     const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
     if (!sub) return res.status(404).json({ message: 'Not found' });
-    const { name, cost, frequency, category, status, scheduledPayment, recipient, bankName, bankCode, accountNumber, accountName, renewalDay, remindDaysBefore } = req.body;
+    const { name, cost, frequency, category, status, renewalDay, remindDaysBefore } = req.body;
     if (name !== undefined) sub.name = name;
     if (cost !== undefined) sub.cost = parseFloat(cost);
     if (frequency !== undefined) sub.frequency = frequency;
@@ -5146,21 +4562,6 @@ app.put('/api/subscriptions/:id', auth, async (req, res) => {
       const rd = Number(renewalDay);
       sub.renewalDay = rd >= 1 && rd <= 31 ? rd : undefined;
       if (sub.renewalDay) sub.nextPayment = computeNextRenewal(sub);
-    }
-    if (recipient !== undefined) sub.recipient = recipient;
-    if (bankName !== undefined) sub.bankName = bankName;
-    if (bankCode !== undefined) sub.bankCode = bankCode;
-    if (accountNumber !== undefined) sub.accountNumber = accountNumber;
-    if (accountName !== undefined) sub.accountName = accountName;
-    if (scheduledPayment !== undefined) {
-      sub.scheduledPayment.enabled = scheduledPayment.enabled ?? sub.scheduledPayment.enabled;
-      sub.scheduledPayment.dayOfMonth = scheduledPayment.dayOfMonth ?? sub.scheduledPayment.dayOfMonth;
-      if (sub.scheduledPayment.enabled) {
-        const now = new Date();
-        let next = new Date(now.getFullYear(), now.getMonth(), sub.scheduledPayment.dayOfMonth);
-        if (next <= now) next = new Date(now.getFullYear(), now.getMonth() + 1, sub.scheduledPayment.dayOfMonth);
-        sub.nextPayment = next;
-      }
     }
     await sub.save();
     res.json(sub);
@@ -5228,84 +4629,7 @@ app.post('/api/subscriptions/:id/keep', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// Goal scheduled payment patch
-app.patch('/api/goals/:id/scheduled-payment', auth, async (req, res) => {
-  try {
-    const goal = await Goal.findOne({ _id: req.params.id, userId: req.user._id });
-    if (!goal) return res.status(404).json({ message: 'Goal not found' });
-    const { enabled, amount, dayOfMonth } = req.body;
-    goal.scheduledPayment = {
-      enabled: enabled ?? goal.scheduledPayment?.enabled ?? false,
-      amount: amount ?? goal.scheduledPayment?.amount ?? 0,
-      dayOfMonth: dayOfMonth ?? goal.scheduledPayment?.dayOfMonth ?? 1,
-    };
-    await goal.save();
-    res.json(goal);
-  } catch (e) { res.status(500).json({ message: 'Server error' }); }
-});
-
-// Pay a user-selected set of bills/debts from the wallet (Bills page checkboxes).
-// Body: { billIds: [], debtIds: [] }. Source is the main wallet for now (paying
-// from an external bank account comes with the bank integration).
-app.post('/api/payments/pay-selected', auth, async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const { billIds = [], debtIds = [] } = req.body || {};
-    if (billIds.length === 0 && debtIds.length === 0) {
-      return res.status(400).json({ message: 'Select at least one item to pay' });
-    }
-    let totalPaid = 0;
-    const errors = [];
-    const today = new Date();
-
-    // Each item debits the wallet ATOMICALLY (funds guaranteed, no lost-update, no
-    // overspend) and is recorded immediately — so a failure partway through can't leave
-    // items "paid" while the wallet debit vanishes. If recording fails after the debit,
-    // the amount is refunded.
-    for (const id of debtIds) {
-      const debt = await Debt.findOne({ _id: id, userId });
-      if (!debt || debt.balance <= 0) continue;
-      const amount = Math.min(debt.scheduledPayment?.amount || debt.minPayment, debt.balance);
-      if (!(amount > 0)) continue;
-      const w = await debitWallet(userId, amount);
-      if (!w) { errors.push(`Insufficient funds for debt: ${debt.name}`); continue; }
-      try {
-        debt.balance = Math.max(0, debt.balance - amount);
-        await debt.save();
-        await new WalletTransaction({ userId, type: 'withdrawal', amount, description: `Debt payment: ${debt.name}`, status: 'completed' }).save();
-        totalPaid += amount;
-      } catch (e) { await creditWallet(userId, amount); errors.push(`Could not record debt payment: ${debt.name}`); }
-    }
-
-    for (const id of billIds) {
-      const bill = await RecurringBill.findOne({ _id: id, userId });
-      if (!bill) continue;
-      const amount = bill.amount;
-      if (!(amount > 0)) continue;
-      const w = await debitWallet(userId, amount);
-      if (!w) { errors.push(`Insufficient funds for bill: ${bill.name}`); continue; }
-      try {
-        if (bill.frequency === 'yearly') bill.nextDue = new Date(bill.nextDue.getFullYear() + 1, bill.nextDue.getMonth(), bill.dueDate);
-        else bill.nextDue = new Date(bill.nextDue.getFullYear(), bill.nextDue.getMonth() + 1, bill.dueDate);
-        await bill.save();
-        await new WalletTransaction({ userId, type: 'withdrawal', amount, description: `Bill payment: ${bill.name}`, status: 'completed' }).save();
-        await new Transaction({ userId, date: today, description: bill.name, amount: -Math.abs(amount), category: bill.category || 'Bills', type: 'expense' }).save();
-        totalPaid += amount;
-      } catch (e) { await creditWallet(userId, amount); errors.push(`Could not record bill payment: ${bill.name}`); }
-    }
-
-    const balance = (await getOrCreateWallet(userId)).balance;
-    res.json({
-      message: errors.length ? `Paid ${totalPaid} - some failed: ${errors.join('; ')}` : `Paid ${totalPaid} from wallet.`,
-      totalPaid, errors, balance,
-    });
-  } catch (err) {
-    console.error('Pay selected error:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Superadmin routes (unchanged)
+// Superadmin routes
 app.get('/api/admin/users', auth, superAdminAuth, async (req, res) => {
   try {
     const users = await User.find({}).select('-password -resetToken -resetTokenExpiry').sort({ createdAt: -1 });
@@ -5368,13 +4692,7 @@ app.delete('/api/admin/users/:id', auth, superAdminAuth, async (req, res) => {
     if (req.params.id === req.user._id.toString()) return res.status(400).json({ message: 'Cannot delete your own account' });
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
-    await Transaction.deleteMany({ userId: req.params.id });
-    await Budget.deleteMany({ userId: req.params.id });
-    await Wallet.deleteOne({ userId: req.params.id });
-    await Goal.deleteMany({ userId: req.params.id });
-    await SavingsRule.deleteOne({ userId: req.params.id });
-    await Debt.deleteMany({ userId: req.params.id });
-    await User.findByIdAndDelete(req.params.id);
+    await deleteUserData(user._id, user.email);
     res.json({ message: 'User and all associated data deleted' });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -5440,109 +4758,10 @@ app.post('/api/admin/setup', authLimiter, async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// --------------------------
-// Bank & Profile routes
-// --------------------------
-// NOTE: GET /api/banks is defined earlier (returns { banks: [...] } from the local
-// BANK_REGISTRY). A second, Paystack-backed /api/banks used to live here, but it was
-// shadowed by that earlier route (Express matches in registration order) and returned
-// an incompatible bare-array shape — which crashed callers that expected { banks }.
-// Removed to keep one canonical source of truth for the bank list.
-
-// Resolve account name from Paystack
-app.get('/api/bank/resolve', auth, async (req, res) => {
-  const { account_number, bank_code } = req.query;
-
-  if (!account_number || !bank_code) {
-    return res.status(400).json({ message: 'account_number and bank_code are required' });
-  }
-  if (account_number.length !== 10) {
-    return res.status(400).json({ message: 'Account number must be exactly 10 digits' });
-  }
-
-  try {
-    const response = await axios.get('https://api.paystack.co/bank/resolve', {
-      params: { account_number, bank_code },
-      headers: {
-        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-      },
-    });
-
-    if (response.data.status) {
-      return res.json({
-        account_name:   response.data.data.account_name,
-        account_number: response.data.data.account_number,
-      });
-    }
-
-    return res.status(422).json({ message: 'Could not resolve account. Please check the details.' });
-
-  } catch (err) {
-    if (err.response?.status === 422) {
-      return res.status(422).json({ message: 'Account number not found at this bank.' });
-    }
-    if (err.response?.status === 401) {
-      return res.status(500).json({ message: 'Paystack key not configured. Check PAYSTACK_SECRET_KEY in .env' });
-    }
-    console.error('Paystack resolve error:', err.response?.data || err.message);
-    return res.status(500).json({ message: 'Account verification failed. Please try again.' });
-  }
-});
-
-// --------------------------
-// Wallet funding via a dedicated NGN virtual account (Paystack DVA). Until DVA
-// is activated, a 'dummy' placeholder account is issued so the UI works; real
-// deposits begin once PAYSTACK_SECRET_KEY + DVA are live.
-// --------------------------
-const paystackConfigured = () => !!process.env.PAYSTACK_SECRET_KEY;
 const paystackHeaders = () => ({ Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' });
-const dummyAccountNumber = (userId) => {
-  let n = '';
-  for (const c of userId.toString().slice(-9)) n += (parseInt(c, 16) % 10).toString();
-  return ('90' + n).slice(0, 10).padEnd(10, '0');
-};
+const koboToNaira = (kobo) => Math.round(kobo) / 100;
 
-app.get('/api/wallet/virtual-account', auth, async (req, res) => {
-  try {
-    const va = req.user.virtualAccount;
-    if (va && va.accountNumber) {
-      const o = va.toObject ? va.toObject() : va;
-      return res.json({ ...o, dummy: o.provider === 'dummy' });
-    }
-    if (!paystackConfigured()) {
-      req.user.virtualAccount = {
-        provider: 'dummy', customerCode: '',
-        accountNumber: dummyAccountNumber(req.user._id),
-        accountName: req.user.name || 'Automonie User',
-        bankName: 'Test Bank (activation pending)', active: false,
-      };
-      await req.user.save();
-      return res.json({ ...req.user.virtualAccount.toObject(), dummy: true });
-    }
-    const [first, ...rest] = (req.user.name || 'Automonie User').split(' ');
-    const cust = await axios.post('https://api.paystack.co/customer',
-      { email: req.user.email, first_name: first, last_name: rest.join(' ') || first, phone: req.user.phone || undefined },
-      { headers: paystackHeaders(), timeout: 20000 });
-    const customerCode = cust.data?.data?.customer_code;
-    const dva = await axios.post('https://api.paystack.co/dedicated_account',
-      { customer: customerCode, preferred_bank: process.env.PAYSTACK_DVA_BANK || 'wema-bank' },
-      { headers: paystackHeaders(), timeout: 20000 });
-    const acct = dva.data?.data || {};
-    req.user.virtualAccount = {
-      provider: 'paystack', customerCode,
-      accountNumber: acct.account_number || '',
-      accountName: acct.account_name || req.user.name,
-      bankName: acct.bank?.name || 'Wema Bank', active: true,
-    };
-    await req.user.save();
-    res.json({ ...req.user.virtualAccount.toObject(), dummy: false });
-  } catch (err) {
-    console.error('[wallet/virtual-account]', err.response?.data || err.message);
-    res.status(502).json({ message: 'Could not set up your funding account. Try again.' });
-  }
-});
-
-// Paystack webhook - credits the wallet when money lands in a user's DVA.
+// Paystack webhook. Only Pro subscription charges are acted on.
 app.post('/api/paystack/webhook', async (req, res) => {
   try {
     const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -5550,118 +4769,16 @@ app.post('/api/paystack/webhook', async (req, res) => {
     const hash = crypto.createHmac('sha512', secret).update(req.rawBody || Buffer.from('')).digest('hex');
     if (!safeEqual(hash, req.headers['x-paystack-signature'])) return res.sendStatus(401);
     const event = req.body;
-    if (event?.event === 'charge.success') {
-      const d = event.data || {};
-      // Prefer the userId we stamped in metadata (Pro checkout); fall back to
-      // customer lookup (wallet DVA / card funding).
+    const d = event?.data || {};
+    if (event?.event === 'charge.success' && d.metadata?.purpose === 'pro_subscription') {
       let user = d.metadata?.userId ? await User.findById(d.metadata.userId).catch(() => null) : null;
-      const customerCode = d.customer?.customer_code;
-      if (!user && customerCode) user = await User.findOne({ 'virtualAccount.customerCode': customerCode });
       if (!user && d.customer?.email) user = await User.findOne({ email: d.customer.email });
-      if (user) {
-        if (d.metadata?.purpose === 'pro_subscription') await grantProFromCharge(user, d, 'checkout');
-        else await creditFromCharge(user, d); // wallet top-up / DVA deposit
-      }
+      if (user) await grantProFromCharge(user, d, 'checkout');
     }
     res.sendStatus(200);
   } catch (e) {
     console.error('[paystack/webhook]', e.message);
     res.sendStatus(200);
-  }
-});
-
-// --------------------------
-// Quick-add: fund the wallet with a saved Paystack card.
-// The first top-up runs a normal Paystack checkout to capture a reusable
-// authorization; later top-ups charge that authorization in one tap. We never
-// store card numbers - only Paystack's authorization_code token + safe metadata.
-// --------------------------
-const koboToNaira = (kobo) => Math.round(kobo) / 100;
-
-// Credit the wallet for a completed Paystack charge and persist a reusable card
-// authorization if present. Idempotent on reference. Shared by verify + webhook.
-async function creditFromCharge(user, data) {
-  const reference = data.reference;
-  const amount = koboToNaira(data.amount || 0);
-  if (!reference || amount <= 0) return null;
-  if (await WalletTransaction.findOne({ reference })) return null; // already processed
-  const wallet = await getOrCreateWallet(user._id);
-  wallet.balance += amount;
-  await wallet.save();
-  const viaCard = (data.channel || '') === 'card';
-  await new WalletTransaction({
-    userId: user._id, type: 'deposit', amount, reference, status: 'completed',
-    description: viaCard ? 'Wallet top-up (card)' : 'Bank transfer deposit',
-  }).save();
-  const authz = data.authorization;
-  if (authz && authz.reusable && authz.authorization_code) {
-    user.fundingCard = {
-      authorizationCode: authz.authorization_code,
-      last4: authz.last4 || '', expMonth: authz.exp_month || '', expYear: authz.exp_year || '',
-      bank: authz.bank || '', cardType: authz.card_type || '', active: true,
-    };
-    await user.save();
-  }
-  await createNotification(user._id, { type: 'success', title: 'Wallet funded', message: `₦${amount.toLocaleString()} added to your wallet.` });
-  await logActivity(user._id, { type: 'wallet_funded', title: 'Wallet funded', message: viaCard ? 'Card top-up' : 'Bank transfer', amount });
-  return { balance: wallet.balance, amount };
-}
-
-// Start a checkout to add a card and fund the wallet the first time.
-app.post('/api/wallet/fund/init', auth, async (req, res) => {
-  try {
-    if (!paystackConfigured()) return res.status(503).json({ message: 'Card funding is not available yet.' });
-    const amount = Math.round(Number(req.body.amount));
-    if (!amount || amount < 100) return res.status(400).json({ message: 'Enter an amount of at least ₦100.' });
-    const r = await axios.post('https://api.paystack.co/transaction/initialize',
-      { email: req.user.email, amount: amount * 100, metadata: { userId: req.user._id.toString(), purpose: 'wallet_fund' } },
-      { headers: paystackHeaders(), timeout: 20000 });
-    const d = r.data?.data || {};
-    res.json({ authorization_url: d.authorization_url, access_code: d.access_code, reference: d.reference });
-  } catch (err) {
-    console.error('[wallet/fund/init]', err.response?.data || err.message);
-    res.status(502).json({ message: 'Could not start card funding. Try again.' });
-  }
-});
-
-// Confirm a checkout by reference (belt-and-suspenders alongside the webhook).
-app.post('/api/wallet/fund/verify', auth, async (req, res) => {
-  try {
-    if (!paystackConfigured()) return res.status(503).json({ message: 'Card funding is not available yet.' });
-    const reference = (req.body.reference || '').toString();
-    if (!reference) return res.status(400).json({ message: 'reference is required' });
-    const r = await axios.get(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-      { headers: paystackHeaders(), timeout: 20000 });
-    const d = r.data?.data || {};
-    if (d.status !== 'success') return res.status(402).json({ message: 'Payment not completed.' });
-    await creditFromCharge(req.user, d);
-    const wallet = await getOrCreateWallet(req.user._id);
-    res.json({ balance: wallet.balance });
-  } catch (err) {
-    console.error('[wallet/fund/verify]', err.response?.data || err.message);
-    res.status(502).json({ message: 'Could not verify the payment.' });
-  }
-});
-
-// One-tap top-up: charge the saved card authorization for a preset amount.
-app.post('/api/wallet/fund/charge', auth, async (req, res) => {
-  try {
-    if (!paystackConfigured()) return res.status(503).json({ message: 'Card funding is not available yet.' });
-    const card = req.user.fundingCard;
-    if (!card || !card.active || !card.authorizationCode) return res.status(400).json({ message: 'No saved card. Add one first.' });
-    const amount = Math.round(Number(req.body.amount));
-    if (!amount || amount < 100) return res.status(400).json({ message: 'Enter an amount of at least ₦100.' });
-    const r = await axios.post('https://api.paystack.co/transaction/charge_authorization',
-      { email: req.user.email, amount: amount * 100, authorization_code: card.authorizationCode },
-      { headers: paystackHeaders(), timeout: 20000 });
-    const d = r.data?.data || {};
-    if (d.status !== 'success') return res.status(402).json({ message: 'Card charge was declined.' });
-    await creditFromCharge(req.user, d);
-    const wallet = await getOrCreateWallet(req.user._id);
-    res.json({ balance: wallet.balance, amount });
-  } catch (err) {
-    console.error('[wallet/fund/charge]', err.response?.data || err.message);
-    res.status(502).json({ message: 'Could not charge your card. Try again.' });
   }
 });
 
@@ -5697,7 +4814,7 @@ async function grantProFromCharge(user, data, kind = 'checkout') {
   await new ProPayment({ userId: user._id, reference, amount, months, kind }).save();
   try {
     await createNotification(user._id, { type: 'success', title: 'Automonie Pro active', message: `You're on Pro until ${expiry.toLocaleDateString('en-NG', { dateStyle: 'medium' })}.` });
-    await logActivity(user._id, { type: 'wallet_funded', title: 'Automonie Pro', message: kind === 'renewal' ? 'Auto-renewed' : 'Subscribed', amount });
+    await logActivity(user._id, { type: 'pro_subscribed', title: 'Automonie Pro', message: kind === 'renewal' ? 'Auto-renewed' : 'Subscribed', amount });
   } catch { /* non-fatal */ }
   return { plan: 'pro', planExpiry: expiry };
 }
@@ -5781,73 +4898,6 @@ app.post('/api/cron/renew-pro', async (req, res) => {
     }
     res.json({ renewed, failed, considered: due.length });
   } catch (e) { console.error('[renew-pro]', e.message); res.status(500).json({ message: 'Server error' }); }
-});
-
-// Saved funding card summary / removal.
-app.get('/api/wallet/card', auth, (req, res) => {
-  const c = req.user.fundingCard;
-  if (!c || !c.active || !c.last4) return res.json({ card: null });
-  res.json({ card: { last4: c.last4, expMonth: c.expMonth, expYear: c.expYear, bank: c.bank, cardType: c.cardType } });
-});
-app.delete('/api/wallet/card', auth, async (req, res) => {
-  req.user.fundingCard = { authorizationCode: '', last4: '', expMonth: '', expYear: '', bank: '', cardType: '', active: false };
-  await req.user.save();
-  res.json({ message: 'Card removed' });
-});
-
-// Get user bank details
-app.get('/api/user/bank-details', auth, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id).select('payout');
-    res.json(user.payout || { method: '', card: {}, titan: {} });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Save the user's wallet payout method (card OR Paystack-Titan account).
-// Only one method is active at a time; saving one clears the other.
-app.post('/api/user/bank-details', auth, async (req, res) => {
-  try {
-    const { method, card, titan } = req.body;
-
-    if (method === 'card') {
-      const digits = (card?.number || '').replace(/\D/g, '');
-      if (digits.length < 12) return res.status(400).json({ message: 'Enter a valid card number' });
-      if (!card?.expiry) return res.status(400).json({ message: 'Card expiry is required' });
-      await User.findByIdAndUpdate(req.user._id, {
-        payout: {
-          method: 'card',
-          // Store only the last 4 digits - never the full PAN or CVV.
-          card: { last4: digits.slice(-4), expiry: card.expiry, holderName: card.holderName || '' },
-          titan: { accountNumber: '', accountName: '', bankCode: '', bankName: 'Titan-Paystack' },
-        },
-      });
-      return res.json({ message: 'Card saved' });
-    }
-
-    if (method === 'titan') {
-      const acct = (titan?.accountNumber || '').replace(/\D/g, '');
-      if (acct.length !== 10) return res.status(400).json({ message: 'Enter a valid 10-digit account number' });
-      await User.findByIdAndUpdate(req.user._id, {
-        payout: {
-          method: 'titan',
-          card: { last4: '', expiry: '', holderName: '' },
-          titan: {
-            accountNumber: acct,
-            accountName: titan.accountName || '',
-            bankCode: titan.bankCode || '',
-            bankName: titan.bankName || 'Titan-Paystack',
-          },
-        },
-      });
-      return res.json({ message: 'Paystack-Titan account saved' });
-    }
-
-    return res.status(400).json({ message: 'Choose a payout method (card or titan)' });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error' });
-  }
 });
 
 // --------------------------
@@ -6331,277 +5381,56 @@ app.delete('/api/bank/unlink', auth, async (req, res) => {
 });
 
 // --------------------------
-// Bill payments via VTpass (Airtime, Data, TV, Electricity). Keys-pending:
-// inert until VTPASS_* env vars are set. Paid in-app from the user's wallet -
-// we reserve the amount, call VTpass, and refund automatically if it declines.
-// --------------------------
-const VTPASS_BASE = () => (process.env.VTPASS_SANDBOX === 'true' || process.env.VTPASS_SANDBOX === '1')
-  ? 'https://sandbox.vtpass.com/api'
-  : 'https://vtpass.com/api';
-const vtpassConfigured = () => !!(process.env.VTPASS_API_KEY && process.env.VTPASS_SECRET_KEY && process.env.VTPASS_PUBLIC_KEY);
-const vtpassPostHeaders = () => ({ 'api-key': process.env.VTPASS_API_KEY, 'secret-key': process.env.VTPASS_SECRET_KEY, 'Content-Type': 'application/json' });
-const vtpassGetHeaders  = () => ({ 'api-key': process.env.VTPASS_API_KEY, 'public-key': process.env.VTPASS_PUBLIC_KEY });
-
-// VTpass requires request_id to start with the current date/time in West Africa Time.
-const vtpassRequestId = () => {
-  const d = new Date(Date.now() + 60 * 60 * 1000); // shift UTC → WAT (UTC+1, no DST)
-  const p = (n) => String(n).padStart(2, '0');
-  const stamp = `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}`;
-  return `AM${stamp}${Math.random().toString(36).slice(2, 10)}`;
-};
-
-// Requery a transaction by request_id — the authoritative way to resolve an ambiguous
-// timeout (the /pay call can drop AFTER VTpass delivered). Returns the parsed data or
-// throws.
-const vtpassRequery = async (requestId) => {
-  const r = await axios.post(`${VTPASS_BASE()}/requery`, { request_id: requestId }, { headers: vtpassPostHeaders(), timeout: 20000 });
-  return r.data || null;
-};
-
-// Supported providers per bill type, with their VTpass serviceIDs. Shown in the
-// UI even before keys are set so the page is browsable.
-const BILL_PROVIDERS = {
-  airtime: [
-    { id: 'mtn', name: 'MTN' }, { id: 'glo', name: 'Glo' },
-    { id: 'airtel', name: 'Airtel' }, { id: 'etisalat', name: '9mobile' },
-  ],
-  data: [
-    { id: 'mtn-data', name: 'MTN Data' }, { id: 'glo-data', name: 'Glo Data' },
-    { id: 'airtel-data', name: 'Airtel Data' }, { id: 'etisalat-data', name: '9mobile Data' },
-  ],
-  tv: [
-    { id: 'dstv', name: 'DStv' }, { id: 'gotv', name: 'GOtv' },
-    { id: 'startimes', name: 'StarTimes' }, { id: 'showmax', name: 'Showmax' },
-  ],
-  electricity: [
-    { id: 'ikeja-electric', name: 'Ikeja Electric (IKEDC)' },
-    { id: 'eko-electric', name: 'Eko Electric (EKEDC)' },
-    { id: 'abuja-electric', name: 'Abuja Electric (AEDC)' },
-    { id: 'kano-electric', name: 'Kano Electric (KEDCO)' },
-    { id: 'portharcourt-electric', name: 'Port Harcourt Electric (PHED)' },
-    { id: 'ibadan-electric', name: 'Ibadan Electric (IBEDC)' },
-    { id: 'enugu-electric', name: 'Enugu Electric (EEDC)' },
-    { id: 'benin-electric', name: 'Benin Electric (BEDC)' },
-    { id: 'jos-electric', name: 'Jos Electric (JED)' },
-    { id: 'kaduna-electric', name: 'Kaduna Electric (KAEDCO)' },
-  ],
-};
-const BILL_CATEGORY = { airtime: 'Airtime', data: 'Data', tv: 'TV', electricity: 'Electricity' };
-
-const billPaymentSchema = new mongoose.Schema({
-  userId:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  billType:      { type: String, enum: ['airtime', 'data', 'tv', 'electricity'], required: true },
-  serviceID:     { type: String, required: true },
-  provider:      { type: String, default: '' },
-  amount:        { type: Number, required: true },
-  phone:         { type: String, default: '' },
-  billersCode:   { type: String, default: '' },
-  variationCode: { type: String, default: '' },
-  requestId:     { type: String, required: true, unique: true },
-  providerRef:   { type: String, default: '' },
-  token:         { type: String, default: '' },   // electricity prepaid token
-  status:        { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
-  message:       { type: String, default: '' },
-}, { timestamps: true });
-billPaymentSchema.index({ userId: 1, createdAt: -1 });
-const BillPayment = mongoose.model('BillPayment', billPaymentSchema);
-
-// Config + provider catalogue for the Bills page.
-app.get('/api/bills/providers', auth, async (req, res) => {
-  res.json({ enabled: vtpassConfigured(), sandbox: VTPASS_BASE().includes('sandbox'), providers: BILL_PROVIDERS });
-});
-
-// Proxy VTpass variation codes (data plans, TV bouquets, meter types).
-app.get('/api/bills/variations', auth, async (req, res) => {
-  if (!vtpassConfigured()) return res.status(503).json({ message: 'Bill payments are not configured yet.' });
-  const serviceID = (req.query.serviceID || '').trim();
-  if (!serviceID) return res.status(400).json({ message: 'serviceID is required' });
-  try {
-    const r = await axios.get(`${VTPASS_BASE()}/service-variations`, { headers: vtpassGetHeaders(), params: { serviceID }, timeout: 20000 });
-    const list = r.data?.content?.varations || r.data?.content?.variations || [];
-    const variations = list.map((v) => ({ code: v.variation_code, name: v.name, amount: Number(v.variation_amount) || 0, fixedPrice: v.fixedPrice === 'Yes' }));
-    res.json({ serviceID, variations });
-  } catch (err) {
-    console.error('[bills/variations]', err.response?.data || err.message);
-    res.status(502).json({ message: 'Could not load options. Try again.' });
-  }
-});
-
-// Verify a TV smartcard / electricity meter and return the customer name.
-app.post('/api/bills/verify', auth, async (req, res) => {
-  if (!vtpassConfigured()) return res.status(503).json({ message: 'Bill payments are not configured yet.' });
-  const { serviceID, billersCode, type } = req.body;
-  if (!serviceID || !billersCode) return res.status(400).json({ message: 'serviceID and billersCode are required' });
-  try {
-    const body = { billersCode: String(billersCode).trim(), serviceID };
-    if (type) body.type = type; // 'prepaid' | 'postpaid' for electricity
-    const r = await axios.post(`${VTPASS_BASE()}/merchant-verify`, body, { headers: vtpassPostHeaders(), timeout: 20000 });
-    const c = r.data?.content || {};
-    if (c.error || c.WrongBillersCode) return res.status(400).json({ message: c.error || 'Invalid number. Check and try again.' });
-    res.json({
-      customerName: c.Customer_Name || c.customerName || '',
-      address: c.Address || c.address || '',
-      outstanding: c.Outstanding || c.outstanding || '',
-      minAmount: Number(c.Min_Purchase_Amount) || 0,
-      dueDate: c.Due_Date || '',
-    });
-  } catch (err) {
-    console.error('[bills/verify]', err.response?.data || err.message);
-    res.status(502).json({ message: 'Could not verify. Try again.' });
-  }
-});
-
-// Pay a bill from the wallet.
-app.post('/api/bills/pay', auth, async (req, res) => {
-  if (!vtpassConfigured()) return res.status(503).json({ message: 'Bill payments are not configured yet.' });
-  const { billType, serviceID, amount, phone, billersCode, variationCode } = req.body;
-  if (!billType || !BILL_PROVIDERS[billType]) return res.status(400).json({ message: 'Invalid bill type' });
-  if (!serviceID || !BILL_PROVIDERS[billType].some((p) => p.id === serviceID)) return res.status(400).json({ message: 'Select a valid provider' });
-  const amt = Math.round(Number(amount));
-  if (!amt || amt <= 0) return res.status(400).json({ message: 'Enter a valid amount' });
-  const recipient = String(phone || '').trim();
-  if (!recipient) return res.status(400).json({ message: 'Phone number is required' });
-  if ((billType === 'data' || billType === 'tv') && !variationCode) return res.status(400).json({ message: 'Select a plan/bouquet' });
-  if ((billType === 'tv' || billType === 'electricity') && !billersCode) {
-    return res.status(400).json({ message: billType === 'tv' ? 'Smartcard number is required' : 'Meter number is required' });
-  }
-
-  const userId = req.user._id;
-  const providerName = (BILL_PROVIDERS[billType].find((p) => p.id === serviceID) || {}).name || serviceID;
-  const requestId = vtpassRequestId();
-  const label = billType === 'airtime' ? `${providerName} Airtime`
-    : billType === 'data' ? `${providerName} Data`
-    : billType === 'tv' ? `${providerName} subscription`
-    : `${providerName} (meter ${billersCode})`;
-  const descr = `${label} - ${recipient}`;
-
-  // Reserve funds ATOMICALLY (no lost-update / overspend). null → not enough balance.
-  const reserved = await debitWallet(userId, amt);
-  if (!reserved) return res.status(400).json({ message: 'Insufficient wallet balance' });
-
-  // Record the successful (or pending) purchase on the ledger. Called once we know the
-  // money actually bought something.
-  const finalizeSuccess = async (isPending) => {
-    await new WalletTransaction({ userId, type: 'withdrawal', amount: amt, description: descr, reference: requestId, status: isPending ? 'pending' : 'completed' }).save().catch(() => {});
-    await new Transaction({ userId, date: new Date(), description: descr, amount: -Math.abs(amt), category: BILL_CATEGORY[billType], type: 'expense', source: 'manual' }).save().catch(() => {});
-    await createNotification(userId, { type: 'success', title: 'Bill paid', message: `${descr} • ₦${amt.toLocaleString()}` }).catch(() => {});
-  };
-
-  let record;
-  try {
-    record = await BillPayment.create({
-      userId, billType, serviceID, provider: providerName,
-      amount: amt, phone: recipient, billersCode: billersCode || '', variationCode: variationCode || '',
-      requestId, status: 'pending',
-    });
-
-    const payload = { request_id: requestId, serviceID, amount: amt, phone: recipient };
-    if (billType === 'data' || billType === 'tv' || billType === 'electricity') payload.billersCode = String(billersCode || recipient).trim();
-    if (variationCode) payload.variation_code = variationCode;
-    if (billType === 'electricity') payload.type = req.body.meterType || 'prepaid';
-
-    const r = await axios.post(`${VTPASS_BASE()}/pay`, payload, { headers: vtpassPostHeaders(), timeout: 45000 });
-    const data = r.data || {};
-    const txn = data.content?.transactions || {};
-    const ok = data.code === '000' || txn.status === 'delivered';
-    const pending = data.code === '099' || txn.status === 'pending' || txn.status === 'initiated';
-
-    if (!ok && !pending) {
-      await creditWallet(userId, amt); // clean decline → refund the reservation
-      record.status = 'failed'; record.message = data.response_description || 'Payment declined'; await record.save();
-      return res.status(502).json({ message: 'Payment failed. You were not charged.' });
-    }
-
-    const token = txn.token || data.token || (data.purchased_code || '').toString();
-    record.status = pending ? 'pending' : 'completed';
-    record.providerRef = txn.transactionId || data.requestId || '';
-    record.token = token || '';
-    record.message = data.response_description || (pending ? 'Pending confirmation' : 'Successful');
-    await record.save();
-    await finalizeSuccess(record.status === 'pending');
-
-    const balance = (await getOrCreateWallet(userId)).balance;
-    res.json({ status: record.status, message: record.message, amount: amt, balance, token: record.token || undefined, reference: requestId, description: descr });
-  } catch (err) {
-    console.error('[bills/pay]', err.response?.data || err.message);
-    // AMBIGUOUS: the /pay request errored/timed out, but VTpass may have already
-    // delivered. Requery by request_id before deciding — a blind refund here would hand
-    // out free airtime/data on any timeout-after-delivery.
-    let q = null;
-    try { q = await vtpassRequery(requestId); } catch (e) { console.error('[bills/pay requery]', e.response?.data || e.message); }
-    const qtxn = q?.content?.transactions || {};
-    const delivered = q?.code === '000' || qtxn.status === 'delivered';
-    const qpending = q?.code === '099' || qtxn.status === 'pending' || qtxn.status === 'initiated';
-
-    if (delivered) {
-      if (record) { record.status = 'completed'; record.providerRef = qtxn.transactionId || ''; record.token = qtxn.token || ''; record.message = 'Confirmed via requery'; await record.save().catch(() => {}); }
-      await finalizeSuccess(false);
-      const balance = (await getOrCreateWallet(userId)).balance;
-      return res.json({ status: 'completed', message: 'Delivered', amount: amt, balance, reference: requestId, description: descr });
-    }
-    if (qpending || q === null) {
-      // Unknown or still pending → do NOT refund (money may be spent). Keep it reserved
-      // and mark pending for later reconciliation.
-      if (record) { record.status = 'pending'; record.message = q === null ? 'Awaiting confirmation (network error)' : 'Pending confirmation'; await record.save().catch(() => {}); }
-      await finalizeSuccess(true);
-      const balance = (await getOrCreateWallet(userId)).balance;
-      return res.status(202).json({ status: 'pending', message: "Payment is processing — your wallet was charged and we'll confirm shortly.", amount: amt, balance, reference: requestId, description: descr });
-    }
-    // Requery confirms it failed → safe to refund.
-    await creditWallet(userId, amt);
-    if (record) { record.status = 'failed'; record.message = 'Failed (confirmed via requery)'; await record.save().catch(() => {}); }
-    res.status(502).json({ message: 'Payment failed. You were not charged.' });
-  }
-});
-
-// Bill payment history.
-app.get('/api/bills/history', auth, async (req, res) => {
-  const items = await BillPayment.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(50);
-  res.json(items);
-});
-
-// --------------------------
-// Cashflow forecast: project the wallet balance forward from recurring income,
-// bills, subscriptions, debt payments and average discretionary spend.
+// Cashflow forecast: project the user's money forward from income, bills,
+// subscriptions and average day-to-day spend. We can't see a live bank balance, so
+// the starting point is what the user enters (?balance=) or, by default, what's left
+// of this month's tracked income.
 // --------------------------
 app.get('/api/cashflow/forecast', auth, async (req, res) => {
   try {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 90, 7), 180);
     const userId = req.user._id;
-    const [wallet, txns, bills, subs, debts] = await Promise.all([
-      getOrCreateWallet(userId),
+    const [txns, bills, subs] = await Promise.all([
       Transaction.find({ userId }).select('date amount type').sort({ date: -1 }).limit(3000).lean(),
       RecurringBill.find({ userId, status: { $ne: 'paused' } }).lean(),
       Subscription.find({ userId, status: 'active' }).lean(),
-      Debt.find({ userId, balance: { $gt: 0 } }).lean(),
     ]);
 
     const today = new Date(); today.setHours(0, 0, 0, 0);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const sumOf = (rows) => rows.reduce((s, t) => s + Math.abs(t.amount), 0);
 
-    // Average daily discretionary spend over the last 90 days of expenses.
+    // Average daily spend over the last 90 days of expenses.
     const winStart = new Date(today); winStart.setDate(winStart.getDate() - 90);
-    const recentExp = txns.filter((t) => t.type === 'expense' && new Date(t.date) >= winStart);
-    const dailyBurn = recentExp.reduce((s, t) => s + Math.abs(t.amount), 0) / 90;
+    const dailyBurn = sumOf(txns.filter((t) => t.type === 'expense' && new Date(t.date) >= winStart)) / 90;
 
-    // Monthly income + assumed pay day (most common day-of-month among income txns).
-    const monthlyIncome = req.user.monthlyIncome || 0;
+    // Monthly income: the stated figure, else the last 90 days' average. Pay day is
+    // the most common day-of-month among income rows.
     const incomeTxns = txns.filter((t) => t.type === 'income');
+    const monthlyIncome = req.user.monthlyIncome
+      || Math.round(sumOf(incomeTxns.filter((t) => new Date(t.date) >= winStart)) / 3);
     let payDay = 28;
     if (incomeTxns.length) {
       const counts = {};
       incomeTxns.forEach((t) => { const d = new Date(t.date).getDate(); counts[d] = (counts[d] || 0) + 1; });
       payDay = Number(Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0]) || 28;
     }
-    const subDay = (s) => s.scheduledPayment?.dayOfMonth || (s.nextPayment ? new Date(s.nextPayment).getDate() : 1);
+
+    const entered = Number(req.query.balance);
+    const hasEntered = req.query.balance !== undefined && req.query.balance !== '' && Number.isFinite(entered);
+    const thisMonth = txns.filter((t) => new Date(t.date) >= monthStart);
+    const leftThisMonth = sumOf(thisMonth.filter((t) => t.type === 'income')) - sumOf(thisMonth.filter((t) => t.type === 'expense'));
+    const start = hasEntered ? entered : leftThisMonth;
+
+    const subDay = (s) => s.renewalDay || (s.nextPayment ? new Date(s.nextPayment).getDate() : 1);
     const dayOutflow = (dom) => {
       let out = 0;
       for (const b of bills) if (b.frequency === 'monthly' && b.dueDate === dom) out += b.amount;
       for (const s of subs) if (s.frequency === 'monthly' && subDay(s) === dom) out += s.cost;
-      for (const dt of debts) if (dt.scheduledPayment?.enabled && dt.scheduledPayment.dayOfMonth === dom) out += (dt.scheduledPayment.amount || 0);
       return out;
     };
 
-    let balance = wallet.balance;
+    let balance = start;
     const series = [{ date: today.toISOString().slice(0, 10), balance: Math.round(balance) }];
     let lowest = { date: series[0].date, balance: Math.round(balance) };
     let shortfallDate = null, totalIn = 0, totalOut = 0, nextIncomeIdx = days + 1;
@@ -6620,8 +5449,8 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
       if (shortfallDate === null && balance < 0) shortfallDate = iso;
     }
 
-    // Safe to spend today = balance minus committed obligations (not discretionary
-    // burn) before the next income lands.
+    // Safe to spend today = starting money minus committed bills and subscriptions
+    // (not day-to-day spend) before the next income lands.
     let committed = 0;
     for (let i = 1; i < nextIncomeIdx && i <= days; i++) {
       const d = new Date(today); d.setDate(d.getDate() + i);
@@ -6630,10 +5459,11 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
 
     res.json({
       days,
-      currentBalance: Math.round(wallet.balance),
+      currentBalance: Math.round(start),
+      startingFrom: hasEntered ? 'entered' : 'this_month',
       dailyBurn: Math.round(dailyBurn),
       monthlyIncome, payDay,
-      safeToSpend: Math.max(0, Math.round(wallet.balance - committed)),
+      safeToSpend: Math.max(0, Math.round(start - committed)),
       projectedEnd: series[series.length - 1].balance,
       lowest, shortfallDate,
       totals: { income: Math.round(totalIn), expense: Math.round(totalOut) },
@@ -6666,14 +5496,12 @@ const buildFinancialContext = async (user) => {
   const since90 = new Date(today); since90.setDate(since90.getDate() - 90);
   const thisMonth = monthKey(today);
 
-  const [wallet, txns, budgets, goals, bills, subs, debts] = await Promise.all([
-    getOrCreateWallet(userId),
+  const [txns, budgets, goals, bills, subs] = await Promise.all([
     Transaction.find({ userId }).select('date description amount category type').sort({ date: -1 }).limit(600).lean(),
     Budget.find({ userId, month: thisMonth }).lean(),
     Goal.find({ userId }).lean(),
     RecurringBill.find({ userId, status: { $ne: 'paused' } }).lean(),
     Subscription.find({ userId, status: 'active' }).lean(),
-    Debt.find({ userId, balance: { $gt: 0 } }).lean(),
   ]);
 
   const recent = txns.filter((t) => new Date(t.date) >= since90);
@@ -6703,8 +5531,6 @@ const buildFinancialContext = async (user) => {
   if (user.monthlyIncome) lines.push(`Stated monthly income: ${naira(user.monthlyIncome)}`);
   if (user.primaryGoal) lines.push(`Primary goal: ${user.primaryGoal}`);
   lines.push('');
-  lines.push(`Wallet balance: ${naira(wallet.balance)}  |  Savings: ${naira(wallet.savingsBalance)}`);
-  lines.push('');
   lines.push(`This month (${thisMonth}): income ${naira(incomeMonth)}, expenses ${naira(expenseMonth)}, net ${naira(incomeMonth - expenseMonth)}.`);
   lines.push(`Last 90 days: income ${naira(income90)}, expenses ${naira(expense90)}, avg monthly spend ≈ ${naira(expense90 / 3)}.`);
   if (topCats.length) {
@@ -6715,7 +5541,7 @@ const buildFinancialContext = async (user) => {
   if (goals.length) {
     lines.push('Savings goals:');
     goals.forEach((g) => lines.push(
-      `  - ${g.name}: ${naira(g.current)} of ${naira(g.target)} (${g.target ? Math.round((g.current / g.target) * 100) : 0}%), due ${new Date(g.deadline).toISOString().slice(0, 10)}${g.locked ? ', LOCKED plan' : ''}`,
+      `  - ${g.name}: ${naira(g.current)} of ${naira(g.target)} (${g.target ? Math.round((g.current / g.target) * 100) : 0}%), due ${new Date(g.deadline).toISOString().slice(0, 10)}`,
     ));
   }
   if (bills.length) {
@@ -6725,10 +5551,6 @@ const buildFinancialContext = async (user) => {
   if (subs.length) {
     lines.push('Subscriptions:');
     subs.slice(0, 12).forEach((s) => lines.push(`  - ${s.name}: ${naira(s.cost)} ${s.frequency || 'monthly'}`));
-  }
-  if (debts.length) {
-    lines.push('Debts outstanding:');
-    debts.forEach((d) => lines.push(`  - ${d.name}: ${naira(d.balance)} balance${d.interestRate ? ` @ ${d.interestRate}%` : ''}`));
   }
   // A modest tail of recent transactions for "what did I spend on X" questions.
   lines.push('');
@@ -6756,8 +5578,7 @@ Rules:
 - Give general budgeting/savings guidance, but no regulated investment, tax, or legal advice; suggest a professional for those. Be encouraging and non-judgmental.`;
 
 // Tools the assistant can call. All are CREATE-only and scoped to the requesting
-// user - nothing here moves real money (no wallet debits, goal contributions, or
-// bill payments), so actions are low-risk and reversible from the UI.
+// user. Nothing here moves money, so actions are low-risk and reversible from the UI.
 const AI_TOOLS = [
   {
     name: 'create_transaction',
@@ -6852,7 +5673,6 @@ const executeAiTool = async (name, input, user) => {
         category: String(category).trim(), type, source: 'manual',
       });
       await txn.save();
-      await applySavingsRule(userId, txn.amount, txn.type);
       if (type === 'expense') checkBudgetAlert(userId, txn.category, date.toISOString().slice(0, 7));
       return { ok: true, summary: `Logged ${type} of ${naira(amount)} - ${category} (${txn.description}).`, kind: 'transaction' };
     }
@@ -6901,7 +5721,7 @@ const executeAiTool = async (name, input, user) => {
       if (nextDue < now) nextDue = new Date(now.getFullYear(), now.getMonth() + 1, dueDate);
       await new RecurringBill({
         userId, name: name2, amount, dueDate, frequency: input.frequency || 'monthly',
-        category: input.category || 'Bills', autoPay: false, nextDue, status: 'active',
+        category: input.category || 'Bills', nextDue, status: 'active',
       }).save();
       return { ok: true, summary: `Set up bill reminder "${name2}" - ${naira(amount)} due on day ${dueDate} each ${input.frequency === 'yearly' ? 'year' : 'month'}.`, kind: 'bill' };
     }
@@ -7136,8 +5956,7 @@ app.get('/api/reminders', auth, async (req, res) => {
     const userId = req.user._id;
     const today = new Date(); today.setHours(0, 0, 0, 0);
 
-    const [wallet, bills, subs, lastImport, everImported, lastTxn] = await Promise.all([
-      getOrCreateWallet(userId),
+    const [bills, subs, lastImport, everImported, lastTxn] = await Promise.all([
       RecurringBill.find({ userId, status: 'active' }).lean(),
       Subscription.find({ userId, status: 'active' }).lean(),
       Transaction.findOne({ userId, source: 'import' }).sort({ importedAt: -1 }).lean(),
@@ -7189,22 +6008,6 @@ app.get('/api/reminders', auth, async (req, res) => {
           action: { label: 'Import alerts', route: '/sms-import' },
         });
       }
-    }
-
-    // 3) Cash shortfall - committed outflows in the next 7 days vs wallet balance.
-    const in7 = new Date(today); in7.setDate(in7.getDate() + 7);
-    const dueSoon = [...bills, ...subs].reduce((s, x) => {
-      const d = x.nextDue || x.nextPayment;
-      const amt = x.amount ?? x.cost ?? 0;
-      return (d && new Date(d) >= today && new Date(d) <= in7) ? s + amt : s;
-    }, 0);
-    if (dueSoon > 0 && wallet.balance < dueSoon) {
-      reminders.push({
-        id: 'shortfall', type: 'cashflow', severity: 'high', icon: 'trending-down',
-        title: 'You may run short this week',
-        message: `${naira(dueSoon)} in payments are due soon but your wallet holds ${naira(wallet.balance)}.`,
-        action: { label: 'See cashflow', route: '/cashflow' },
-      });
     }
 
     // 4) Profile completion.
@@ -7498,17 +6301,13 @@ app.post('/api/transactions/reclassify-kinds', auth, async (req, res) => {
 app.get('/api/reports/income-summary', auth, async (req, res) => {
   try {
     const months = Math.max(1, Math.min(24, parseInt(req.query.months, 10) || 6));
-    const [txns, user, wallet] = await Promise.all([
+    const [txns, user] = await Promise.all([
       Transaction.find({ userId: req.user._id }).select('type amount date description category').lean(),
       User.findById(req.user._id).select('name').lean(),
-      Wallet.findOne({ userId: req.user._id }).select('balance').lean().catch(() => null),
     ]);
     const summary = buildIncomeSummary(txns, {
       months,
       userName: user?.name || '',
-      // Only show a balance line when it's a real, positive figure (the BaaS wallet
-      // is usually ₦0 and would just look bad on the report).
-      walletBalance: wallet && wallet.balance > 0 ? wallet.balance : null,
     });
     if ((req.query.format || '').toLowerCase() === 'html') {
       // The shareable document is the paid deliverable (C6). The JSON preview above

@@ -10,7 +10,7 @@ const FAQS = [
   { q: 'How does budgeting work?', a: 'On the Budget page, pick a month and set a spending limit per category. As your transactions for that month come in (imported or added manually), each budget shows spent vs. budgeted with progress and alerts at 80% and 100%.' },
   { q: 'Can I group and delete transactions by bank?', a: 'Yes. The Transactions page tags each transaction with its bank and upload. You can filter by month/bank, edit or delete individual rows, multi-select to batch-delete, or delete a whole imported statement in one click.' },
   { q: 'How does the category learning work?', a: 'When you correct a transaction\'s category, the app remembers that merchant and applies your choice automatically on future imports.' },
-  { q: 'How do auto-savings work?', a: 'On the Auto-Savings page, set a fixed amount to move to savings from each income, or a round-up rule on expenses. You can link it to a savings goal.' },
+  { q: 'Does Automonie move my money?', a: 'No. Automonie reads your alerts and statements to show where your money went. Goals and bills are records and reminders you keep yourself; nothing is ever paid or moved from here.' },
   { q: 'Why is the app slow on the first load?', a: 'The server sleeps after inactivity on the free tier, so the first request can take up to a minute to wake it. You\'ll see a "waking up" message - it resolves automatically.' },
   { q: 'I forgot my password - what do I do?', a: 'On the login page click "Forgot password?", enter your email, and use the reset link we send you (valid for 1 hour).' },
 ];

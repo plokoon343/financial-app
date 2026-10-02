@@ -118,7 +118,7 @@ const Login = () => {
           <div className="login-brand-inner">
             <LogoFull height={38} variant="light" />
             <h2 className="login-brand-title">Make money make sense.</h2>
-            <p className="login-brand-sub">See where your money actually went - then budget, track goals and pay bills in one place.</p>
+            <p className="login-brand-sub">See where your money actually went - then budget, track goals and stay ahead of bills in one place.</p>
             <ul className="login-brand-points">
               <li><i className="fas fa-chart-pie"></i> Budgets, goals &amp; insights</li>
               <li><i className="fas fa-file-import"></i> Import in seconds, 15+ banks</li>

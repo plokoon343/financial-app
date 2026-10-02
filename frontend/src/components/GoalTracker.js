@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-//import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
-import { FEATURES } from '../config/features';
 const GoalTracker = () => {
-  //const { darkMode } = useAuth();
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedGoalId, setSelectedGoalId] = useState(null); // open goal popup (#30)
@@ -15,7 +12,6 @@ const GoalTracker = () => {
     current: '',
     deadline: '',
     category: 'General',
-    scheduledPayment: { enabled: false, amount: '', dayOfMonth: 1 }
   });
 
   useEffect(() => {
@@ -47,33 +43,38 @@ const GoalTracker = () => {
         current: parseFloat(newGoal.current) || 0,
         deadline: newGoal.deadline,
         category: newGoal.category,
-        scheduledPayment: {
-          enabled: newGoal.scheduledPayment.enabled,
-          amount: parseFloat(newGoal.scheduledPayment.amount) || 0,
-          dayOfMonth: parseInt(newGoal.scheduledPayment.dayOfMonth, 10) || 1,
-        }
       };
       const res = await axios.post(`${API_URL}/api/goals`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGoals([res.data, ...goals]);
-      setNewGoal({ name: '', target: '', current: '', deadline: '', category: 'General', scheduledPayment: { enabled: false, amount: '', dayOfMonth: 1 } });
+      setNewGoal({ name: '', target: '', current: '', deadline: '', category: 'General' });
     } catch (err) { console.error(err); }
   };
 
-  // Contribute from wallet (replaces old updateGoalProgress)
+
+  // Goals record money the user sets aside themselves; no money moves.
   const contributeToGoal = async (id, amount) => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post(`${API_URL}/api/goals/${id}/contribute`, { amount }, {
+      await axios.post(`${API_URL}/api/goals/${id}/contribute`, { amount }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      fetchGoals(); // refresh goal list
-      // Update sidebar wallet balance using the custom event
-      window.dispatchEvent(new CustomEvent('wallet-updated', { detail: { balance: res.data.newBalance } }));
+      fetchGoals();
     } catch (err) {
-      alert(err.response?.data?.message || 'Contribution failed');
+      alert(err.response?.data?.message || 'Could not update this goal');
     }
+  };
+
+  const takeFromGoal = async (goal) => {
+    const raw = window.prompt(`How much did you take out of "${goal.name}"? (up to ${fmtNaira(goal.current)})`, String(goal.current));
+    const amount = parseFloat(raw);
+    if (!amount || amount <= 0) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_URL}/api/goals/${goal._id}/withdraw`, { amount }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchGoals();
+    } catch (err) { alert(err.response?.data?.message || 'Could not update this goal'); }
   };
 
   const removeGoal = async (id) => {
@@ -87,46 +88,6 @@ const GoalTracker = () => {
     } catch (err) { console.error(err); }
   };
 
-  // Update scheduled payment for a goal
-  const updateScheduledPayment = async (id, scheduledPayment) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.patch(`${API_URL}/api/goals/${id}/scheduled-payment`, scheduledPayment, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      fetchGoals(); // refresh to get updated data
-    } catch (err) {
-      console.error('Failed to update scheduled payment:', err);
-      alert('Could not save auto‑pay settings. Please try again.');
-    }
-  };
-
-  // Lock a goal into a committed Savings Plan (3% fee to break before deadline).
-  const lockPlan = async (goal) => {
-    if (!window.confirm(`Lock "${goal.name}" until ${new Date(goal.deadline).toLocaleDateString()}? It earns 10% a year, paid at maturity. Breaking it early forfeits the interest and charges a 3% fee.`)) return;
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post(`${API_URL}/api/goals/${goal._id}/lock`, {}, { headers: { Authorization: `Bearer ${token}` } });
-      fetchGoals();
-    } catch (err) { alert(err.response?.data?.message || 'Could not lock this plan'); }
-  };
-
-  // Withdraw a goal's funds back to the wallet (3% fee if a locked plan is broken early).
-  const withdrawGoal = async (goal) => {
-    const matured = new Date() >= new Date(goal.deadline);
-    const early = goal.locked && !matured;
-    const fee = early ? goal.current * 0.03 : 0;
-    const msg = early
-      ? `Breaking "${goal.name}" early charges a 3% fee (≈ ${fmtNaira(fee)}). You'll receive ${fmtNaira(goal.current - fee)} in your wallet. Continue?`
-      : `Move ${fmtNaira(goal.current)} from "${goal.name}" back to your wallet?`;
-    if (!window.confirm(msg)) return;
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(`${API_URL}/api/goals/${goal._id}/withdraw`, {}, { headers: { Authorization: `Bearer ${token}` } });
-      fetchGoals();
-      window.dispatchEvent(new CustomEvent('wallet-updated', { detail: { balance: res.data.newBalance } }));
-    } catch (err) { alert(err.response?.data?.message || 'Could not withdraw'); }
-  };
 
   const getGoalProgress = (goal) => {
     const progress = (goal.current / goal.target) * 100;
@@ -216,7 +177,7 @@ const GoalTracker = () => {
             <table className="goals-table">
               <thead>
                 <tr>
-                  <th>Goal</th><th>Category</th><th>Progress</th><th className="num">Target</th><th>Deadline</th>{FEATURES.autopay && <th>Autopay</th>}
+                  <th>Goal</th><th>Category</th><th>Progress</th><th className="num">Target</th><th>Deadline</th>
                 </tr>
               </thead>
               <tbody>
@@ -243,16 +204,7 @@ const GoalTracker = () => {
                       <td className="num">{fmtNaira(goal.target)}</td>
                       <td>
                         {new Date(goal.deadline).toLocaleDateString()}
-                        {goal.locked && <i className="fas fa-lock" style={{ color: 'var(--accent-primary)', marginLeft: 6 }} title="Locked Savings Plan"></i>}
                       </td>
-                      {FEATURES.autopay && (
-                        <td>
-                          <span className={`gt-autopay ${goal.scheduledPayment?.enabled ? 'on' : 'off'}`}>
-                            <i className={`fas ${goal.scheduledPayment?.enabled ? 'fa-check-circle' : 'fa-circle'}`}></i>
-                            {goal.scheduledPayment?.enabled ? 'On' : 'Off'}
-                          </span>
-                        </td>
-                      )}
                     </tr>
                   );
                 })}
@@ -266,7 +218,6 @@ const GoalTracker = () => {
       {activeGoal && (() => {
         const { progress, daysLeft, monthlyNeeded } = getGoalProgress(activeGoal);
         const isCompleted = progress >= 100;
-        const sp = activeGoal.scheduledPayment || { enabled: false, amount: 0, dayOfMonth: 1 };
         return (
           <div className="goal-modal-overlay" onClick={() => setSelectedGoalId(null)}>
             <div className="goal-modal" onClick={(e) => e.stopPropagation()}>
@@ -300,36 +251,10 @@ const GoalTracker = () => {
                 <div className="detail-item"><div className="detail-label"><i className="fas fa-wallet"></i><span>Remaining</span></div><div className="detail-value">{fmtNaira(activeGoal.target - activeGoal.current)}</div></div>
               </div>
 
-              {/* Auto-pay (#31) — gated to the wallet launch (FEATURES.autopay) */}
-              {FEATURES.autopay && (<div className="scheduled-payment-toggle">
-                <label className="schedule-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={sp.enabled || false}
-                    onChange={(e) => updateScheduledPayment(activeGoal._id, { enabled: e.target.checked, amount: sp.amount || 0, dayOfMonth: sp.dayOfMonth || 1 })}
-                  />
-                  <span>Auto‑pay from wallet</span>
-                </label>
-                {sp.enabled && (
-                  <div className="schedule-details">
-                    <div className="schedule-field">
-                      <label>Amount per payment (₦)</label>
-                      <input type="number" min="0" step="100" value={sp.amount || 0}
-                        onChange={(e) => updateScheduledPayment(activeGoal._id, { enabled: true, amount: parseFloat(e.target.value), dayOfMonth: sp.dayOfMonth || 1 })} />
-                    </div>
-                    <div className="schedule-field">
-                      <label>Day of month</label>
-                      <input type="number" min="1" max="31" value={sp.dayOfMonth || 1}
-                        onChange={(e) => updateScheduledPayment(activeGoal._id, { enabled: true, amount: sp.amount || 0, dayOfMonth: parseInt(e.target.value, 10) })} />
-                    </div>
-                    <small>Reminds you to set money aside for this goal on the chosen day</small>
-                  </div>
-                )}
-              </div>)}
 
               {!isCompleted ? (
                 <div className="goal-actions">
-                  <div className="quick-add-header"><i className="fas fa-bolt"></i><span>Quick Add Funds</span></div>
+                  <div className="quick-add-header"><i className="fas fa-bolt"></i><span>Log money set aside</span></div>
                   <div className="quick-add-buttons">
                     <button onClick={() => contributeToGoal(activeGoal._id, 100)} className="add-funds-btn"><i className="fas fa-plus"></i> ₦100</button>
                     <button onClick={() => contributeToGoal(activeGoal._id, 500)} className="add-funds-btn"><i className="fas fa-plus"></i> ₦500</button>
@@ -350,29 +275,14 @@ const GoalTracker = () => {
                 <div className="goal-completed"><i className="fas fa-trophy"></i><span>Goal Achieved!</span></div>
               )}
 
-              {/* Savings Plan: lock / break / withdraw */}
-              <div className="plan-section">
-                {activeGoal.locked ? (
-                  <>
-                    <div className="plan-locked"><i className="fas fa-lock"></i> Locked plan · matures {new Date(activeGoal.deadline).toLocaleDateString()}</div>
-                    {activeGoal.current > 0 && (
-                      <button className="plan-break-btn" onClick={() => withdrawGoal(activeGoal)}>
-                        <i className="fas fa-unlock"></i> Break &amp; withdraw {new Date() < new Date(activeGoal.deadline) ? '(3% fee)' : ''}
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <div className="plan-actions">
-                    <button className="plan-lock-btn" onClick={() => lockPlan(activeGoal)}><i className="fas fa-lock"></i> Lock as Savings Plan</button>
-                    {activeGoal.current > 0 && (
-                      <button className="plan-withdraw-btn" onClick={() => withdrawGoal(activeGoal)}><i className="fas fa-wallet"></i> Withdraw to wallet</button>
-                    )}
-                  </div>
-                )}
-                <small>Locked plans earn 10% a year, paid at maturity. Breaking a locked plan early forfeits the interest and costs a 3% fee.</small>
-              </div>
 
-              <button className="goal-modal-delete" onClick={() => removeGoal(activeGoal._id)}>
+              {activeGoal.current > 0 && (
+                <button type="button" className="goal-take-btn" onClick={() => takeFromGoal(activeGoal)}>
+                  <i className="fas fa-minus-circle"></i> Record money taken out
+                </button>
+              )}
+
+              <button type="button" className="goal-modal-delete" onClick={() => removeGoal(activeGoal._id)}>
                 <i className="fas fa-trash"></i> Delete goal
               </button>
             </div>
@@ -458,24 +368,9 @@ const GoalTracker = () => {
               </div>
             </div>
           </div>
-          {/* Scheduled payment options in add form — gated to the wallet launch */}
-          {FEATURES.autopay && (
-          <div className="scheduled-payment-option">
-            <label className="schedule-checkbox">
-              <input type="checkbox" checked={newGoal.scheduledPayment.enabled} onChange={(e) => setNewGoal({...newGoal, scheduledPayment: { ...newGoal.scheduledPayment, enabled: e.target.checked }})} />
-              <span>Schedule auto‑pay from wallet</span>
-            </label>
-            {newGoal.scheduledPayment.enabled && (
-              <div className="schedule-details">
-                <div className="schedule-field"><label>Amount per payment (₦)</label><input type="number" value={newGoal.scheduledPayment.amount} onChange={(e) => setNewGoal({...newGoal, scheduledPayment: { ...newGoal.scheduledPayment, amount: e.target.value }})} placeholder="0.00" /></div>
-                <div className="schedule-field"><label>Day of month</label><input type="number" min="1" max="31" value={newGoal.scheduledPayment.dayOfMonth} onChange={(e) => setNewGoal({...newGoal, scheduledPayment: { ...newGoal.scheduledPayment, dayOfMonth: parseInt(e.target.value, 10) }})} /></div>
-              </div>
-            )}
-          </div>
-          )}
           <div className="form-buttons">
             <button type="submit" className="btn-submit"><i className="fas fa-plus"></i> Create Goal</button>
-            <button type="button" onClick={() => setNewGoal({ name: '', target: '', current: '', deadline: '', category: 'General', scheduledPayment: { enabled: false, amount: '', dayOfMonth: 1 } })} className="btn-cancel">
+            <button type="button" onClick={() => setNewGoal({ name: '', target: '', current: '', deadline: '', category: 'General' })} className="btn-cancel">
               <i className="fas fa-times"></i> Clear
             </button>
           </div>
@@ -522,7 +417,6 @@ const GoalTracker = () => {
         .empty-state p { color: var(--text-secondary); max-width: 400px; margin: 0 auto 25px; font-size: 1.1rem; line-height: 1.6; }
         .btn-primary { padding: 14px 32px; background: var(--gradient-primary); color: white; border: none; border-radius: var(--radius-full); font-weight: 600; cursor: pointer; transition: all var(--transition-base); display: inline-flex; align-items: center; gap: 10px; font-size: 1rem; box-shadow: var(--shadow-md); }
         .btn-primary:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
-        .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px; }
 
         /* Goals table (#30) */
         .goals-table-wrap { overflow-x: auto; }
@@ -538,9 +432,6 @@ const GoalTracker = () => {
         .gt-progress { display: flex; align-items: center; gap: 8px; min-width: 120px; }
         .gt-track { flex: 1; height: 7px; border-radius: 4px; background: var(--glass-bg); overflow: hidden; }
         .gt-fill { height: 100%; border-radius: 4px; }
-        .gt-autopay { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-full); }
-        .gt-autopay.on { color: #22C55E; background: rgba(34,197,94,0.12); }
-        .gt-autopay.off { color: var(--text-secondary); background: var(--glass-bg); }
 
         /* Goal detail popup (#30) */
         .goal-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
@@ -550,20 +441,7 @@ const GoalTracker = () => {
         .goal-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 1.2rem; cursor: pointer; }
         .goal-modal-delete { margin-top: 1.25rem; width: 100%; padding: 0.8rem; border-radius: 10px; background: transparent; border: 1px solid #ef4444; color: #ef4444; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .goal-modal-delete:hover { background: rgba(239,68,68,0.1); }
-        .goal-card { background: var(--glass-bg); border-radius: var(--radius-lg); padding: 16px; transition: all var(--transition-base); border: 1px solid var(--glass-border); position: relative; overflow: hidden; }
-        .goal-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-md); }
-        .goal-card.completed { border-left: 4px solid #27ae60; }
-        .goal-card.completed::before { content: 'Completed ✓'; position: absolute; top: 10px; right: -25px; background: #27ae60; color: white; padding: 5px 25px; transform: rotate(45deg); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.5px; }
-        .goal-header { display: flex; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
-        .goal-category-badge { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; color: white; flex-shrink: 0; box-shadow: var(--shadow-sm); }
-        .goal-title { flex: 1; }
-        .goal-title h3 { font-size: 1.4rem; color: var(--text-primary); margin-bottom: 8px; font-weight: 600; }
-        .goal-meta { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; }
-        .goal-category { font-size: 0.85rem; font-weight: 600; padding: 4px 12px; border-radius: var(--radius-full); background: rgba(255, 255, 255, 0.1); }
-        .goal-date { font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 5px; }
-        .remove-goal-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 5px; border-radius: 4px; transition: all var(--transition-fast); font-size: 1.2rem; }
-        .remove-goal-btn:hover { color: #e74c3c; background: rgba(231, 76, 60, 0.1); }
-        .goal-progress-section { margin-bottom: 25px; }
+        .goal-take-btn { margin-top: 1.25rem; width: 100%; padding: 0.8rem; border-radius: 10px; background: var(--glass-bg); border: 1px solid var(--glass-border); color: var(--text-primary); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .progress-stats { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .progress-amounts { display: flex; align-items: baseline; gap: 10px; }
         .current-amount { font-family: var(--font-accent); font-size: 1.8rem; font-weight: 700; color: var(--text-primary); }
@@ -572,7 +450,6 @@ const GoalTracker = () => {
         .progress-bar-container { margin-top: 10px; }
         .progress-bar { height: 12px; background: var(--glass-bg); border-radius: var(--radius-full); overflow: hidden; position: relative; }
         .progress-fill { height: 100%; border-radius: var(--radius-full); transition: width 0.5s ease; background: inherit; }
-        .goal-details { background: rgba(255, 255, 255, 0.05); border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px; }
         .detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
         .detail-item { text-align: center; }
         .detail-label { display: flex; flex-direction: column; align-items: center; gap: 5px; margin-bottom: 8px; }
@@ -594,14 +471,6 @@ const GoalTracker = () => {
         .custom-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
         .goal-completed { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 20px; background: rgba(39, 174, 96, 0.1); border-radius: var(--radius-md); color: #27ae60; font-weight: 600; font-size: 1.2rem; }
         .goal-completed i { font-size: 1.5rem; }
-        .plan-section { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--glass-border); }
-        .plan-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-        .plan-lock-btn, .plan-withdraw-btn, .plan-break-btn { padding: 12px 18px; border-radius: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 0.95rem; }
-        .plan-lock-btn { flex: 1; background: var(--gradient-primary); color: #fff; border: none; }
-        .plan-withdraw-btn { flex: 1; background: var(--glass-bg); color: var(--text-primary); border: 1px solid var(--glass-border); }
-        .plan-break-btn { width: 100%; margin-top: 10px; background: transparent; border: 1px solid #f59e0b; color: #f59e0b; justify-content: center; }
-        .plan-break-btn:hover { background: rgba(245,158,11,0.1); }
-        .plan-locked { display: flex; align-items: center; gap: 8px; color: var(--accent-primary); font-weight: 700; }
         .add-goal-form { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 24px; }
         .form-header { text-align: center; margin-bottom: 30px; }
         .form-header h3 { font-family: var(--font-heading); font-size: 1.8rem; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 10px; }
@@ -630,48 +499,6 @@ const GoalTracker = () => {
         .tip-content p { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; }
         @media (max-width: 768px) { .overview-grid { grid-template-columns: repeat(2, 1fr); } .goals-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: repeat(2, 1fr); } .quick-add-buttons { grid-template-columns: repeat(2, 1fr); } .custom-add { grid-column: span 2; } .form-grid { grid-template-columns: 1fr; } .tips-list { grid-template-columns: 1fr; } }
         @media (max-width: 480px) { .overview-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: 1fr; } .quick-add-buttons { grid-template-columns: 1fr; } .custom-add { grid-column: span 1; } .progress-stats { flex-direction: column; align-items: flex-start; gap: 10px; } .goal-meta { flex-direction: column; align-items: flex-start; gap: 8px; } }
-       .scheduled-payment-toggle, .scheduled-payment-option {
-          margin-top: 15px;
-          padding-top: 10px;
-          border-top: 1px solid var(--glass-border);
-        }
-        .schedule-checkbox {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          cursor: pointer;
-          font-weight: 600;
-          margin-bottom: 10px;
-        }
-        .schedule-details {
-          display: flex;
-          gap: 15px;
-          flex-wrap: wrap;
-        }
-        .schedule-field {
-          flex: 1;
-          min-width: 120px;
-        }
-        .schedule-field label {
-          display: block;
-          font-size: 0.8rem;
-          margin-bottom: 4px;
-          color: var(--text-secondary);
-        }
-        .schedule-field input {
-          width: 100%;
-          padding: 8px;
-          background: var(--glass-bg);
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          color: var(--text-primary);
-        }
-        small {
-          font-size: 0.7rem;
-          color: var(--text-secondary);
-          display: block;
-          margin-top: 5px;
-        }
       `}</style>
     </div>
   );

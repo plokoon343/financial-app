@@ -1,48 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import axios from 'axios';
-import { API_URL } from '../config';
-import { fmtNaira } from '../utils/format';
 import { LogoFull } from './Logo';
-import { HIDDEN_PATHS } from '../config/features';
 const Sidebar = () => {
   const { user, logout, darkMode, toggleDarkMode } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
-  const [walletBalance, setWalletBalance] = useState(0);
-
-  // Listen for wallet updates from other components
-  useEffect(() => {
-    const handleWalletUpdate = (e) => {
-      setWalletBalance(e.detail.balance);
-    };
-    window.addEventListener('wallet-updated', handleWalletUpdate);
-    return () => window.removeEventListener('wallet-updated', handleWalletUpdate);
-  }, []);
 
   // Open the drawer when the mobile bottom-nav "Menu" button is tapped
   useEffect(() => {
     const openMenu = () => setIsOpen(true);
     window.addEventListener('finpilot:open-menu', openMenu);
     return () => window.removeEventListener('finpilot:open-menu', openMenu);
-  }, []);
-
-  // Fetch wallet balance on first mount
-  useEffect(() => {
-    const fetchWallet = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get(`${API_URL}/api/wallet`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setWalletBalance(res.data.balance);
-      } catch (err) {
-        console.error('Failed to load wallet:', err);
-      }
-    };
-    fetchWallet();
   }, []);
 
   const handleLogout = () => {
@@ -69,10 +39,6 @@ const Sidebar = () => {
       { path: '/goals', label: 'Goals', icon: 'track_changes' },
       { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
       { path: '/bills', label: 'Bills', icon: 'receipt' },
-      { path: '/pay-bills', label: 'Pay Bills', icon: 'bolt' },
-      { path: '/auto-savings', label: 'Auto‑Savings', icon: 'savings' },
-      { path: '/debt', label: 'Debt', icon: 'credit_card' },
-      { path: '/wallet', label: 'Wallet', icon: 'wallet' },
     ]},
     { title: 'Insights', items: [
       { path: '/insights', label: 'Insights', icon: 'pie_chart' },
@@ -87,10 +53,7 @@ const Sidebar = () => {
       ...((user?.role === 'superadmin' || user?.newsletterEditor) ? [{ path: '/newsletter', label: 'Newsletter', icon: 'campaign' }] : []),
       ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'shield' }] : []),
     ]},
-  ]
-    // Drop nav entries for features hidden in V1 (still routable, just not shown).
-    .map((g) => ({ ...g, items: g.items.filter((it) => !HIDDEN_PATHS.has(it.path)) }))
-    .filter((g) => g.items.length > 0);
+  ];
 
   const toggleSidebar = () => setIsOpen(!isOpen);
 
@@ -121,21 +84,6 @@ const Sidebar = () => {
     </div>
   </div>
 </Link>
-
-        {/* Wallet balance */}
-        <div className="sidebar-wallet">
-          <span className="material-symbols-outlined">account_balance_wallet</span>
-          <span>{fmtNaira(walletBalance)}</span>
-          <Link
-            to="/wallet?action=deposit"
-            className="sidebar-wallet-add"
-            title="Deposit to wallet"
-            onClick={toggleSidebar}
-            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', color: 'var(--accent-primary)' }}
-          >
-            <span className="material-symbols-outlined">add_circle</span>
-          </Link>
-        </div>
 
         <nav className="sidebar-nav">
           {navGroups.map((group) => (

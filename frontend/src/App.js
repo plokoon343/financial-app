@@ -26,13 +26,9 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const Budget = lazy(() => import('./components/Budget'));
 const InsightsHub = lazy(() => import('./components/InsightsHub'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
-const Wallet = lazy(() => import('./components/Wallet'));
 const GoalTracker = lazy(() => import('./components/GoalTracker'));
-const DebtManager = lazy(() => import('./components/DebtManager'));
 const SubscriptionManager = lazy(() => import('./components/SubscriptionManager'));
 const BillsManager = lazy(() => import('./components/BillsManager'));
-const PayBills = lazy(() => import('./components/PayBills'));
-const AutoSavings = lazy(() => import('./components/AutoSavings'));
 const AccountsHub = lazy(() => import('./components/AccountsHub'));
 const FirstInsight = lazy(() => import('./components/FirstInsight'));
 const SmartCategorize = lazy(() => import('./components/SmartCategorize'));
@@ -66,16 +62,15 @@ function App() {
 
 function AppContent() {
   const [transactions, setTransactions] = useState([]);
-  const [debts, setDebts] = useState([]);
   const [goals, setGoals] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const { darkMode } = useAuth();
 
   useEffect(() => {
+    localStorage.removeItem('debts');
     try {
       setTransactions(JSON.parse(localStorage.getItem('transactions') || '[]'));
-      setDebts(JSON.parse(localStorage.getItem('debts') || '[]'));
       setGoals(JSON.parse(localStorage.getItem('goals') || '[]'));
       setSubscriptions(JSON.parse(localStorage.getItem('subscriptions') || '[]'));
       setBudgets(JSON.parse(localStorage.getItem('budgets') || '[]'));
@@ -85,7 +80,6 @@ function AppContent() {
   }, []);
 
   useEffect(() => { localStorage.setItem('transactions', JSON.stringify(transactions)); }, [transactions]);
-  useEffect(() => { localStorage.setItem('debts', JSON.stringify(debts)); }, [debts]);
   useEffect(() => { localStorage.setItem('goals', JSON.stringify(goals)); }, [goals]);
   useEffect(() => { localStorage.setItem('subscriptions', JSON.stringify(subscriptions)); }, [subscriptions]);
   useEffect(() => { localStorage.setItem('budgets', JSON.stringify(budgets)); }, [budgets]);
@@ -102,12 +96,10 @@ function AppContent() {
         <Route path="/" element={
           <ProtectedLayout
             transactions={transactions}
-            debts={debts}
             goals={goals}
             subscriptions={subscriptions}
             budgets={budgets}
             setTransactions={setTransactions}
-            setDebts={setDebts}
             setGoals={setGoals}
             setSubscriptions={setSubscriptions}
             setBudgets={setBudgets}
@@ -128,13 +120,9 @@ function AppContent() {
           <Route path="financial-health" element={<Navigate to="/insights?tab=health" replace />} />
           <Route path="cashflow" element={<Navigate to="/insights?tab=cashflow" replace />} />
           <Route path="networth" element={<Navigate to="/insights?tab=networth" replace />} />
-          <Route path="wallet" element={<Wallet />} />
           <Route path="goals" element={<GoalTracker goals={goals} setGoals={setGoals} />} />
-          <Route path="debt" element={<DebtManager debts={debts} setDebts={setDebts} />} />
           <Route path="subscriptions" element={<SubscriptionManager subscriptions={subscriptions} setSubscriptions={setSubscriptions} />} />
           <Route path="bills" element={<BillsManager />} />
-          <Route path="pay-bills" element={<PayBills />} />
-          <Route path="auto-savings" element={<AutoSavings />} />
           {/* Banking pages folded into one "Accounts & alerts" hub; old routes
               redirect to the matching tab so deep links keep working. */}
           <Route path="accounts" element={<AccountsHub />} />

@@ -2174,6 +2174,7 @@ app.get('/api/me', auth, async (req, res) => {
     primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
     twoFactorEnabled: !!u.twoFactorEnabled,
     onboarded: !!u.onboarded, lastLogin: u.lastLogin || null,
+    trainingOptOut: !!u.trainingOptOut,
   });
 });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,15 +30,7 @@ const Settings = () => {
   // notifications + prefs
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [tipsOn, setTipsOn] = useState(tipsEnabled());
-
-  // payout
-  const [method, setMethod] = useState('card');
-  const [savingPayout, setSavingPayout] = useState(false);
-  const [resolving, setResolving] = useState(false);
-  const [card, setCard] = useState({ number: '', expiry: '', holderName: '' });
-  const [savedCardLast4, setSavedCardLast4] = useState('');
-  const [titan, setTitan] = useState({ accountNumber: '', accountName: '' });
-  const [titanBank, setTitanBank] = useState({ code: '100039', name: 'Titan-Paystack' });
+  const [trainingOptOut, setTrainingOptOut] = useState(false);
 
   // delete
   const [delPw, setDelPw] = useState('');
@@ -51,25 +43,8 @@ const Settings = () => {
         setEmail(res.data.email || '');
         setEmailAlerts(res.data.emailAlerts !== false);
         setLastLogin(res.data.lastLogin || null);
+        setTrainingOptOut(!!res.data.trainingOptOut);
       } catch { /* non-fatal */ }
-    })();
-    (async () => {
-      try {
-        const res = await axios.get(`${API_URL}/api/banks`, authHeader());
-        // /api/banks returns { banks: [...] } (tolerate a bare array too).
-        const banks = Array.isArray(res.data) ? res.data : (res.data?.banks || []);
-        const m = banks.find(b => /titan/i.test(b.name) && /paystack/i.test(b.name)) || banks.find(b => /titan/i.test(b.name));
-        if (m) setTitanBank({ code: m.code, name: m.name });
-      } catch {}
-    })();
-    (async () => {
-      try {
-        const res = await axios.get(`${API_URL}/api/user/bank-details`, authHeader());
-        const p = res.data || {};
-        if (p.method) setMethod(p.method);
-        if (p.card) { setSavedCardLast4(p.card.last4 || ''); setCard(c => ({ ...c, expiry: p.card.expiry || '', holderName: p.card.holderName || '' })); }
-        if (p.titan) setTitan({ accountNumber: p.titan.accountNumber || '', accountName: p.titan.accountName || '' });
-      } catch {}
     })();
   }, []);
 
@@ -153,8 +128,6 @@ const Settings = () => {
         (data.budgets || []).map((b) => [b.category, b.month, fmtNaira(b.amount)]));
       section('Goals', ['Name', 'Saved', 'Target', 'Deadline'],
         (data.goals || []).map((g) => [g.name, fmtNaira(g.current), fmtNaira(g.target), date(g.deadline)]));
-      section('Debts', ['Name', 'Balance', 'Min payment'],
-        (data.debts || []).map((d) => [d.name, fmtNaira(d.balance), fmtNaira(d.minPayment)]));
       section('Subscriptions', ['Name', 'Cost', 'Frequency', 'Status'],
         (data.subscriptions || []).map((s) => [s.name, fmtNaira(s.cost), s.frequency, s.status]));
       section('Recurring bills', ['Name', 'Amount', 'Due day', 'Frequency'],
@@ -181,44 +154,11 @@ const Settings = () => {
     setEmailAlerts(val);
     try { await axios.put(`${API_URL}/api/me`, { emailAlerts: val }, authHeader()); } catch { flash('Could not save preference', 'error'); }
   };
-  const toggleTips = () => { const n = !tipsOn; setTipsOn(n); setTipsEnabled(n); if (n) resetTips(); };
-
-  // payout
-  const resolveTitan = useCallback(async () => {
-    setResolving(true);
-    try {
-      const res = await axios.get(`${API_URL}/api/bank/resolve`, { params: { account_number: titan.accountNumber, bank_code: titanBank.code }, ...authHeader() });
-      setTitan(prev => ({ ...prev, accountName: res.data.account_name }));
-    } catch (err) { setTitan(prev => ({ ...prev, accountName: '' })); flash(err.response?.data?.message || 'Could not verify account', 'error'); }
-    finally { setResolving(false); }
-  }, [titan.accountNumber, titanBank.code]);
-  useEffect(() => {
-    if (method === 'titan' && titan.accountNumber.length === 10 && titanBank.code) resolveTitan();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [titan.accountNumber, titanBank.code, method]);
-
-  const fmtCard = (r) => r.replace(/\D/g, '').slice(0, 19).replace(/(.{4})/g, '$1 ').trim();
-  const fmtExp = (r) => { const d = r.replace(/\D/g, '').slice(0, 4); return d.length >= 3 ? `${d.slice(0, 2)}/${d.slice(2)}` : d; };
-
-  const savePayout = async () => {
-    setSavingPayout(true);
-    try {
-      let payload;
-      if (method === 'card') {
-        const digits = card.number.replace(/\D/g, '');
-        if (digits.length < 12) { flash('Enter a valid card number', 'error'); setSavingPayout(false); return; }
-        if (!/^\d{2}\/\d{2}$/.test(card.expiry)) { flash('Enter expiry as MM/YY', 'error'); setSavingPayout(false); return; }
-        payload = { method: 'card', card: { number: digits, expiry: card.expiry, holderName: card.holderName } };
-      } else {
-        if (titan.accountNumber.length !== 10) { flash('Enter a valid 10-digit account number', 'error'); setSavingPayout(false); return; }
-        payload = { method: 'titan', titan: { accountNumber: titan.accountNumber, accountName: titan.accountName, bankCode: titanBank.code, bankName: titanBank.name } };
-      }
-      await axios.post(`${API_URL}/api/user/bank-details`, payload, authHeader());
-      flash('Payout method saved!');
-      if (method === 'card') { setSavedCardLast4(card.number.replace(/\D/g, '').slice(-4)); setCard(c => ({ ...c, number: '' })); }
-    } catch (err) { flash(err.response?.data?.message || 'Failed to save', 'error'); }
-    finally { setSavingPayout(false); }
+  const saveTrainingOptOut = async (val) => {
+    setTrainingOptOut(val);
+    try { await axios.post(`${API_URL}/api/me/training-optout`, { optOut: val }, authHeader()); } catch { setTrainingOptOut(!val); flash('Could not save preference', 'error'); }
   };
+  const toggleTips = () => { const n = !tipsOn; setTipsOn(n); setTipsEnabled(n); if (n) resetTips(); };
 
   const Toggle = ({ on, onClick, disabled }) => (
     <button className={`switch ${on ? 'on' : ''}`} onClick={onClick} disabled={disabled}><span /></button>
@@ -228,7 +168,7 @@ const Settings = () => {
     <div className="settings-page">
       <div className="section-header">
         <h2><i className="fas fa-gear"></i> Settings</h2>
-        <p>Manage your account, security, payout and preferences</p>
+        <p>Manage your account, security and preferences</p>
       </div>
       {message && <div className={`message ${message.type}`}>{message.text}</div>}
 
@@ -270,41 +210,6 @@ const Settings = () => {
         </div>
       </div>
 
-      {/* Payout */}
-      <div className="settings-card">
-        <h3><i className="fas fa-money-bill-transfer"></i> Payout &amp; Banking</h3>
-        <div className="method-toggle">
-          <button type="button" className={method === 'card' ? 'active' : ''} onClick={() => setMethod('card')}><i className="fas fa-credit-card"></i> Card</button>
-          <button type="button" className={method === 'titan' ? 'active' : ''} onClick={() => setMethod('titan')}><i className="fas fa-building-columns"></i> Paystack-Titan</button>
-        </div>
-        {method === 'card' ? (
-          <>
-            {savedCardLast4 && <div className="saved-hint"><i className="fas fa-check-circle"></i> Saved card ending •••• {savedCardLast4}</div>}
-            <div className="form-group"><label>Card Number</label>
-              <input inputMode="numeric" value={card.number} onChange={e => setCard({ ...card, number: fmtCard(e.target.value) })} placeholder="1234 5678 9012 3456" /></div>
-            <div className="form-row">
-              <div className="form-group"><label>Expiry (MM/YY)</label>
-                <input inputMode="numeric" value={card.expiry} onChange={e => setCard({ ...card, expiry: fmtExp(e.target.value) })} placeholder="08/27" maxLength="5" /></div>
-              <div className="form-group"><label>Cardholder</label>
-                <input value={card.holderName} onChange={e => setCard({ ...card, holderName: e.target.value })} placeholder="Name on card" /></div>
-            </div>
-            <small className="hint"><i className="fas fa-lock"></i> Only the last 4 digits are stored - never the full number or CVV.</small>
-          </>
-        ) : (
-          <>
-            <div className="form-group"><label>Bank</label><input value={titanBank.name} disabled /></div>
-            <div className="form-group"><label>Account Number</label>
-              <input inputMode="numeric" value={titan.accountNumber} maxLength="10"
-                onChange={e => { const d = e.target.value.replace(/\D/g, ''); if (d.length <= 10) setTitan({ ...titan, accountNumber: d, accountName: '' }); }}
-                placeholder="10-digit account number" />
-              {resolving && <small className="hint"><i className="fas fa-spinner fa-spin"></i> Verifying…</small>}</div>
-            <div className="form-group"><label>Account Name</label>
-              <input value={titan.accountName} onChange={e => setTitan({ ...titan, accountName: e.target.value })} placeholder="Auto-filled after verification" /></div>
-          </>
-        )}
-        <button className="btn-primary" onClick={savePayout} disabled={savingPayout}>{savingPayout ? 'Saving…' : 'Save Payout Method'}</button>
-      </div>
-
       {/* Notifications */}
       <div className="settings-card">
         <h3><i className="fas fa-bell"></i> Notifications</h3>
@@ -326,6 +231,8 @@ const Settings = () => {
       {/* Data & privacy */}
       <div className="settings-card">
         <h3><i className="fas fa-database"></i> Data &amp; Privacy</h3>
+        <div className="row-between"><div><strong>Help improve Automonie</strong><span className="hint">Use my corrections (categories, amounts) to make import more accurate. Never shared outside Automonie.</span></div><Toggle on={!trainingOptOut} onClick={() => saveTrainingOptOut(!trainingOptOut)} /></div>
+        <div className="divider" />
         <div className="row-between"><div><strong>Export my data</strong><span className="hint">Download everything as a PDF report.</span></div><button className="btn-secondary" onClick={exportData}><i className="fas fa-download"></i> Export</button></div>
         <div className="divider" />
         <button className="btn-secondary" onClick={() => { logout(); navigate('/login'); }}><i className="fas fa-right-from-bracket"></i> Log out</button>
@@ -359,10 +266,6 @@ const Settings = () => {
         .row-between:last-of-type { border-bottom: none; }
         .row-between strong { display: block; font-size: 0.9rem; }
         .hint { font-size: 0.78rem; color: var(--text-secondary); display: inline-flex; gap: 6px; align-items: center; }
-        .method-toggle { display: flex; gap: 12px; margin-bottom: 18px; }
-        .method-toggle button { flex: 1; padding: 11px; border: 1px solid var(--border-color, var(--glass-border)); background: var(--glass-bg); border-radius: var(--radius-md); color: var(--text-primary); cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .method-toggle button.active { background: var(--gradient-primary); color: #fff; border-color: transparent; }
-        .saved-hint { background: rgba(56,161,105,0.1); color: #38a169; padding: 9px 12px; border-radius: var(--radius-md); margin-bottom: 14px; font-size: 0.84rem; }
         .switch { width: 46px; height: 26px; border-radius: 14px; border: none; background: var(--border-color, #cbd5e0); position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.2s; }
         .switch.on { background: var(--accent-primary, var(--accent-primary)); }
         .switch span { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left 0.2s; }

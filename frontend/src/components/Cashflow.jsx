@@ -52,13 +52,17 @@ export default function Cashflow() {
   const [days, setDays] = useState(90);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Optional starting balance the user types in. We can't see their live bank
+  // balance, so without it the forecast starts from what's left of this month.
+  const [balanceInput, setBalanceInput] = useState('');
+  const [balance, setBalance] = useState('');
 
-  const load = useCallback(async (d) => {
+  const load = useCallback(async (d, bal) => {
     setLoading(true); setError('');
     try {
       const token = localStorage.getItem('token');
       const res = await axios.get(`${API_URL}/api/cashflow/forecast`, {
-        params: { days: d }, headers: { Authorization: `Bearer ${token}` },
+        params: { days: d, ...(bal !== '' ? { balance: bal } : {}) }, headers: { Authorization: `Bearer ${token}` },
       });
       setData(res.data);
     } catch (e) {
@@ -66,7 +70,7 @@ export default function Cashflow() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(days); }, [load, days]);
+  useEffect(() => { load(days, balance); }, [load, days, balance]);
 
   // Downsample the daily series to ~40 points for the chart.
   const { vals, firstPt, lastPt } = useMemo(() => {
@@ -84,8 +88,22 @@ export default function Cashflow() {
       <div>
         <h1 style={{ margin: 0, color: 'var(--text-primary)' }}>Cashflow</h1>
         <p style={{ color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-          Where your wallet balance is heading, based on your income, bills and recent spending.
+          Where your money is heading, based on your income, bills and recent spending.
         </p>
+        <form
+          onSubmit={(e) => { e.preventDefault(); const n = parseFloat(balanceInput); setBalance(Number.isFinite(n) ? String(n) : ''); }}
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}
+        >
+          <label htmlFor="cf-balance" style={{ color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>Money you have now (₦)</label>
+          <input id="cf-balance" type="number" inputMode="decimal" value={balanceInput} onChange={(e) => setBalanceInput(e.target.value)}
+            placeholder="Optional" style={{ width: 160, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+          <button type="submit" style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--glass-bg)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer' }}>Update</button>
+        </form>
+        {data && data.startingFrom === 'this_month' && (
+          <p style={{ color: 'var(--text-faint)', fontSize: 12.5, margin: '6px 0 0' }}>
+            Starting from what's left of this month's tracked income ({fmtNaira(data.currentBalance)}). Enter what you have now for a sharper forecast.
+          </p>
+        )}
       </div>
 
       {loading && !data ? (

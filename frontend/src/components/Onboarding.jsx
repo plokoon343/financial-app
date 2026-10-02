@@ -7,7 +7,7 @@ import { API_URL } from '../config';
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
 // Read-only trust specifics (slide 2). Honest wording: Automonie can SEE the data,
-// never MOVE money — true at launch (no wallet). Web parity with mobile onboarding.tsx.
+// never MOVE money. Web parity with mobile onboarding.tsx.
 const TRUST = [
   { title: 'We never hold your bank login', sub: 'Bank connections run through licensed partners' },
   { title: 'Read-only, always', sub: 'Automonie can see it, it can’t move your money' },

@@ -3,7 +3,7 @@
 // OPay statements don't look like a normal bank PDF: dates are space-separated
 // "DD Mon YYYY HH:MM:SS", each record spans several text lines, and the money sits
 // on one glued line "<debit>|-- <credit>|-- <balance><channel>". Crucially, the
-// running BALANCE is NOT a reliable ledger here — an OWealth-funded payment debits
+// running BALANCE is NOT a reliable ledger here: an OWealth-funded payment debits
 // the account without moving the wallet balance (the money flows straight from the
 // OWealth savings pocket), so the generic balance-aware parser can't read these and
 // the old generic fallback turned timestamps into 500+ garbage rows. This parser
@@ -101,7 +101,7 @@ function parseOpayStatement(rawText = '') {
     const debit = num(am[1]);
     const credit = num(am[2]);
     const balance = num(am[3]);
-    // Exactly one side should carry a value; if not, we're unsure — flag it.
+    // Exactly one side should carry a value; if not, we're unsure: flag it.
     const clean = (debit > 0) !== (credit > 0);
     const amount = credit > 0 ? credit : debit;
     if (!amount || amount < 0.005) continue;

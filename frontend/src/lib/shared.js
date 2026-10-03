@@ -1,4 +1,4 @@
-// Shared / household expenses — track who owes whom, WITHOUT moving any money.
+// Shared / household expenses: track who owes whom, WITHOUT moving any money.
 // Purely local (your personal ledger of split costs), stored in localStorage.
 // Ported 1:1 from the mobile model (finpilot-mobile/src/lib/shared.ts).
 

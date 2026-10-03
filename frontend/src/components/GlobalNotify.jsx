@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 
-// Admin: global notification controls — (1) broadcast a one-off message to every
+// Admin: global notification controls, (1) broadcast a one-off message to every
 // user's notification bell, and (2) set/clear a site-wide dismissible banner.
 export default function GlobalNotify() {
   const headers = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };

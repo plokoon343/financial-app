@@ -252,8 +252,8 @@ const AdminDashboard = () => {
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
                   {kpi('Correction rate', `${c.overallRate}%`, rateColor(c.overallRate, false), `${c.corrected} of ${c.total} parsed rows were edited`)}
-                  {kpi('Amount fixes ⚠', `${c.amountFixRate}%`, rateColor(c.amountFixRate, false), `${c.amountFix} amount corrections — the emergency metric`)}
-                  {kpi('Statements reconciled', r.checked ? `${r.reconcileRate}%` : '—', rateColor(r.reconcileRate, true), `${r.balanced} of ${r.checked} verifiable imports balanced`)}
+                  {kpi('Amount fixes ⚠', `${c.amountFixRate}%`, rateColor(c.amountFixRate, false), `${c.amountFix} amount corrections: the emergency metric`)}
+                  {kpi('Statements reconciled', r.checked ? `${r.reconcileRate}%` : '-', rateColor(r.reconcileRate, true), `${r.balanced} of ${r.checked} verifiable imports balanced`)}
                   {kpi('Imports', `${r.imports}`, 'var(--accent-primary)', `${r.checkedRate}% had balances to verify`)}
                   {kpi('Labelled samples', `${c.total}`, '#805ad5', 'From the preview-gate correction log')}
                 </div>
@@ -273,7 +273,7 @@ const AdminDashboard = () => {
                             {td(<span style={{ color: rateColor(b.correctionRate, false), fontWeight: 700 }}>{b.correctionRate}%</span>)}
                             {td(<span style={{ color: b.amountFix > 0 ? '#e53e3e' : (textSecondary.color), fontWeight: b.amountFix > 0 ? 700 : 400 }}>{b.amountFix}{b.samples ? ` (${b.amountFixRate}%)` : ''}</span>)}
                             {td(b.imports)}
-                            {td(b.reconcileChecked ? <span style={{ color: rateColor(b.reconcileRate, true), fontWeight: 700 }}>{b.reconcileRate}%</span> : <span style={textSecondary}>—</span>)}
+                            {td(b.reconcileChecked ? <span style={{ color: rateColor(b.reconcileRate, true), fontWeight: 700 }}>{b.reconcileRate}%</span> : <span style={textSecondary}>-</span>)}
                           </tr>
                         ))}
                       </tbody>
@@ -344,7 +344,7 @@ const AdminDashboard = () => {
                           {s.status === 'promoted' && s.promotedBankName ? <div style={{ ...textSecondary, fontSize: '0.78rem' }}>{s.promotedBankName}</div> : null}
                         </td>
                         <td style={{ padding: '0.6rem 0.75rem', ...textSecondary, fontSize: '0.82rem' }}>
-                          {(s.votes || []).length === 0 ? '—' : (s.votes.slice(0, 3).map((v) => `${v.bankName || v.bankCode} (${v.votes})`).join(', '))}
+                          {(s.votes || []).length === 0 ? '-' : (s.votes.slice(0, 3).map((v) => `${v.bankName || v.bankCode} (${v.votes})`).join(', '))}
                         </td>
                         <td style={{ padding: '0.6rem 0.75rem' }}>
                           {s.status !== 'dismissed' && (

@@ -1,7 +1,7 @@
 // Tier-1 deterministic purpose classifier (spec 6.1, free/no-LLM half of the hybrid).
 // Given a candidate counterparty group (from purposeInference.buildCandidates) plus an
 // optional prior-category hint (from the user's learned categories / global consensus),
-// it proposes a purpose using keyword rules + cadence/amount/direction heuristics —
+// it proposes a purpose using keyword rules + cadence/amount/direction heuristics
 // $0, on-box, private. Conservative: returns null unless it's at least "medium" sure,
 // so the hard tail falls through to the optional LLM tier. Pure + dependency-free.
 
@@ -47,7 +47,7 @@ function classifyPurpose(candidate, priorCategory) {
   const out = c.direction === 'out';
   const income = c.direction === 'in';
 
-  // 1) Prior learned/consensus category — the strongest, cheapest signal.
+  // 1) Prior learned/consensus category: the strongest, cheapest signal.
   if (priorCategory) {
     const pid = CATEGORY_TO_PURPOSE[priorCategory.toLowerCase()];
     if (pid) return { purpose: pid, confidence: 'high', reason: 'You’ve categorised this payee before', source: 'learned' };

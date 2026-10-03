@@ -49,7 +49,7 @@ const NotificationBell = () => {
     }
     setOpen(false);
     // Only navigate to real in-app routes. Older notifications stored a dedup
-    // string (e.g. "reminder:statement:2026-09") in `link`, which is not a route —
+    // string (e.g. "reminder:statement:2026-09") in `link`, which is not a route
     // sending it to the router would blank the page. Treat those as no-ops.
     if (n.link && n.link.startsWith('/')) navigate(n.link);
   };

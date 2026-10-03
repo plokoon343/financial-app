@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor } from '../utils/categoryStore';
 
-// Cash tracking (spec C4) — web parity with the mobile /cash screen. A cash withdrawal
+// Cash tracking (spec C4): web parity with the mobile /cash screen. A cash withdrawal
 // leaves the bank as one opaque "cash_withdrawal" (excluded from spend). Here the user
 // breaks it into what the cash was actually spent on; each row becomes a categorised
 // expense linked to the withdrawal (cashParentId), so the spending is counted while

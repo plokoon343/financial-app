@@ -1,7 +1,7 @@
 // Reversal ↔ original-debit pairing (V1 categorisation). A reversal is a credit
 // that undoes an earlier charge; on its own we already keep it out of income, but
 // the original DEBIT still counts as spend. Pairing the two lets both net out to
-// zero — a refunded purchase should affect nothing.
+// zero: a refunded purchase should affect nothing.
 //
 // Deliberately conservative so we never wrongly erase a real expense: the debit
 // must be the SAME account (bank), the SAME amount (to the naira), and come BEFORE

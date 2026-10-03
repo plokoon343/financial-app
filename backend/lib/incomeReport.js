@@ -1,10 +1,10 @@
 // Verified income & financial report (spec C6). Turns a user's own transactions
-// into a clean, professional, printable summary — the kind people need for visa,
+// into a clean, professional, printable summary: the kind people need for visa,
 // rent, loan and japa applications. Pure + dependency-free so it can be unit-tested;
 // server.js loads the user's data and serves buildSummary() as JSON or the rendered
 // HTML (which the mobile app prints to PDF and the web app prints directly).
 //
-// Framing note: this is a summary GENERATED FROM the user's own data — NOT a bank
+// Framing note: this is a summary GENERATED FROM the user's own data, NOT a bank
 // statement or a certified document. renderReportHTML() states this explicitly.
 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -133,7 +133,7 @@ function renderReportHTML(s, { brand = 'Automonie' } = {}) {
       <span class="bar-val">${naira(e.amount)}</span></div>`).join('') || '<p class="muted">No expenses recorded.</p>';
 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Financial Summary — ${esc(s.userName || 'Report')}</title>
+<title>Financial Summary: ${esc(s.userName || 'Report')}</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #10221c; margin: 0; padding: 32px; background: #fff; font-size: 13px; line-height: 1.5; }

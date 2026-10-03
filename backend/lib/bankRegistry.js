@@ -1,4 +1,4 @@
-// Bank registry + identification cascade (spec Addendum A) — backend port of the
+// Bank registry + identification cascade (spec Addendum A): backend port of the
 // mobile lib, so email forwarding, web SMS-paste and statements resolve banks the
 // same way. Nigerian sender IDs are aggressively abbreviated ("PREMIUMTRST" = Premium
 // Trust); resolveBank runs exact/contains → domain → fuzzy(sender only) and returns

@@ -1,4 +1,4 @@
-// LLM statement extractor — the sustainability layer. When no deterministic parser
+// LLM statement extractor: the sustainability layer. When no deterministic parser
 // recognises a statement's layout, we send its raw text to Gemini (same config as the
 // purpose/alert tiers) and get structured rows back.
 // This is what lets a brand-new bank/fintech format import with ZERO per-bank code.

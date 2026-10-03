@@ -1,7 +1,7 @@
-# Automonie — Cashflow / Monetization Map
+# Automonie: Cashflow / Monetization Map
 
 A working list of every revenue source Automonie could realistically have, grouped by
-revenue model and sorted into release phases. Edit freely — tick items as you commit to them.
+revenue model and sorted into release phases. Edit freely: tick items as you commit to them.
 
 **Compliance weight:** ✅ already built · 🟢 low · 🟡 moderate / needs a partner (PSP, insurer) · 🔴 licensed / CBN / SEC / NDPR
 **Phase:** 1 = launch revenue (low friction) · 2 = recurring + light fintech · 3 = credit & B2B · 4 = neobank
@@ -11,23 +11,23 @@ revenue model and sorted into release phases. Edit freely — tick items as you 
 ## A. Transaction & commission revenue (usage-based)
 | ✓ | Source | How it earns | Phase | Weight |
 |---|---|---|---|---|
-| ☑ | Bills commission — airtime / data | Reseller margin from VTpass (telco commissions) | 1 | ✅🟢 |
-| ☑ | Bills commission — TV & electricity | Per-transaction commission | 1 | ✅🟢 |
-| ☐ | More VAS — betting funding, gift cards, intl airtime, eSIM | Aggregator commission per txn | 1–2 | 🟢 |
+| ☑ | Bills commission: airtime / data | Reseller margin from VTpass (telco commissions) | 1 | ✅🟢 |
+| ☑ | Bills commission: TV & electricity | Per-transaction commission | 1 | ✅🟢 |
+| ☐ | More VAS: betting funding, gift cards, intl airtime, eSIM | Aggregator commission per txn | 1–2 | 🟢 |
 | ☐ | Education pins (WAEC / JAMB / NECO), scratch cards | Fixed margin per pin | 1 | 🟢 |
 | ☐ | Wallet funding fee | Small markup over PSP card/bank-funding cost | 2 | 🟡 |
 | ☐ | Withdrawal / payout fee | Flat fee on wallet → bank transfers | 2 | 🟡 |
 | ☐ | Virtual-account / collection fee | Per-inflow fee on dedicated accounts | 2 | 🟡 |
 | ☐ | External transfer markup | Margin on send-to-bank | 2 | 🟡 |
 
-## B. Subscription / SaaS (recurring — most durable revenue)
+## B. Subscription / SaaS (recurring: most durable revenue)
 | ✓ | Source | How it earns | Phase | Weight |
 |---|---|---|---|---|
-| ☐ | **Pro plan** — unlimited imports, advanced reports, tax/PDF export, priority support | Monthly / annual sub | 1 | 🟢 |
-| ☐ | **AI tier** — natural-language actions, auto-categorization, coaching | Higher sub or add-on (cost = Claude API) | 2 | 🟢 |
+| ☐ | **Pro plan**: unlimited imports, advanced reports, tax/PDF export, priority support | Monthly / annual sub | 1 | 🟢 |
+| ☐ | **AI tier**: natural-language actions, auto-categorization, coaching | Higher sub or add-on (cost = LLM API usage) | 2 | 🟢 |
 | ☐ | Family / household plan | Multi-member sub | 2 | 🟢 |
-| ☐ | Business / SME tier — cashflow, multi-user, invoicing | Higher sub | 3 | 🟢 |
-| ☐ | White-label / B2B — cooperatives, employers, payroll-linked savings | Per-seat licensing | 3 | 🟡 |
+| ☐ | Business / SME tier: cashflow, multi-user, invoicing | Higher sub | 3 | 🟢 |
+| ☐ | White-label / B2B: cooperatives, employers, payroll-linked savings | Per-seat licensing | 3 | 🟡 |
 
 ## C. Float / treasury / interest spread (balance-based)
 | ✓ | Source | How it earns | Phase | Weight |
@@ -38,7 +38,7 @@ revenue model and sorted into release phases. Edit freely — tick items as you 
 | ☐ | Premium / locked high-yield products | Management cut on yield | 3 | 🔴 |
 | ☐ | Dormancy / maintenance fee on inactive balances | Periodic fee | 2 | 🟡 |
 
-## D. Lending & credit (later — licensed or via partner)
+## D. Lending & credit (later: licensed or via partner)
 | ✓ | Source | How it earns | Phase | Weight |
 |---|---|---|---|---|
 | ☐ | Loan / insurance **referral** commission | Affiliate fee, no license needed | 1 | 🟢 |
@@ -82,19 +82,19 @@ revenue model and sorted into release phases. Edit freely — tick items as you 
 
 ## Phase rollup (by build effort × compliance)
 
-**Phase 1 — Launch revenue (now, low friction)**
+**Phase 1: Launch revenue (now, low friction)**
 Bills/VAS commissions (✅), more VAS + education pins, early-break fee (✅), Pro plan v1,
 referral commissions (loans/insurance), paid tax export.
 
-**Phase 2 — Recurring + light fintech (PSP / partner)**
+**Phase 2: Recurring + light fintech (PSP / partner)**
 AI tier, family plan, wallet funding/withdrawal/virtual-account fees, insurance & cashback
 marketplace, lead-gen, float interest margin (via partner), dormancy fee.
 
-**Phase 3 — Credit & B2B (licensed / partner)**
+**Phase 3: Credit & B2B (licensed / partner)**
 Salary advance / BNPL / overdraft, SME tier, investment distribution, credit-scoring-as-a-service,
 white-label.
 
-**Phase 4 — Neobank ("if we become a bank")**
+**Phase 4: Neobank ("if we become a bank")**
 Card issuance + interchange, account/transfer fees, FX/USD cards, acquiring/POS.
 
 ---

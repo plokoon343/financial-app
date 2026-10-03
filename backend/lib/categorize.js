@@ -43,8 +43,8 @@ const categorizeTransaction = (description, typeOrAmount) => {
     { for: 'expense', keywords: ['amazon', 'jumia', 'konga', 'slot', 'purchase', 'boutique', 'fashion', 'clothing', 'shopping', 'mall', 'aliexpress', 'temu', 'shein'], category: 'Shopping' },
     { for: 'expense', keywords: ['cinema', 'bet9ja', 'nairabet', 'sportybet', '1xbet', 'betking', 'merrybet', 'gaming', 'event', 'ticket', 'lounge', 'concert', 'movie'], category: 'Entertainment' },
     { for: 'expense', keywords: ['piggyvest', 'cowrywise', 'risevest', 'target savings', ' ajo', 'esusu', 'thrift', 'vault'], category: 'Savings' },
-    // POS / ATM. Nigerian banks abbreviate point-of-sale purchases aggressively —
-    // GTBank writes "POS PUR", others "PURCHASE/POS", "WEB PUR", "VPOS" — so match the
+    // POS / ATM. Nigerian banks abbreviate point-of-sale purchases aggressively
+    // GTBank writes "POS PUR", others "PURCHASE/POS", "WEB PUR", "VPOS", so match the
     // abbreviations, not just the spelled-out "pos purchase".
     { for: 'expense', keywords: ['atm withdrawal', 'atm cash', 'cash withdrawal', ' atm ', 'atm/', 'pos pur', 'pos/', 'pos debit', 'pos withdrawal', ' pos ', 'point of sale', 'vpos', 'web pur', 'card pur', 'purchase pos'], category: 'ATM/POS' },
     { for: 'expense', keywords: ['stamp dut', 'stamp duty', 'vat', 'bank fee', 'transfer fee', 'nip fee', 'maintenance fee', 'account maintenance', 'amf', 'emtl', 'e-levy', 'electronic money transfer levy', 'sms alert', 'commission', 'cot', 'levy', 'atm charge', 'card fee', 'charge'], category: 'Bank Charges' },

@@ -256,7 +256,7 @@ const userSchema = new mongoose.Schema({
   // Expo push tokens for this user's devices (spending-insight notifications).
   pushTokens:    { type: [String], default: [] },
   notifyInsights: { type: Boolean, default: true },   // daily witty insight pushes (mutable)
-  // Days (YYYY-MM-DD) the user checked in — powers the "clarity streak". Stored
+  // Days (YYYY-MM-DD) the user checked in: powers the "clarity streak". Stored
   // server-side so the streak survives a reinstall / new device.
   checkinDays:   { type: [String], default: [] },
   // Email forwarding (B1): a unique high-entropy inbound address token so the user
@@ -320,7 +320,7 @@ const User = mongoose.model('User', userSchema);
 const PRO_PRICE_NAIRA = Number(process.env.PRO_PRICE_NAIRA) || 1500;
 const PRO_FEATURES = [
   'Export your income & financial report as a shareable PDF',
-  'Guided subscription cancellation — and we confirm the charge stopped',
+  'Guided subscription cancellation, and we confirm the charge stopped',
   'AI money assistant',
   'Faster automatic bank sync',
 ];
@@ -334,11 +334,11 @@ const isPro = (user) => !!user && (
 const upgradeRequired = (feature) => ({ upgrade: true, feature, priceNaira: PRO_PRICE_NAIRA, features: PRO_FEATURES, message: 'This is an Automonie Pro feature.' });
 
 // Pro checkout stays OFF until BOTH the Paystack key is set AND it's explicitly
-// switched on — so it can be fully built and deployed without going live. Flip
+// switched on, so it can be fully built and deployed without going live. Flip
 // PRO_CHECKOUT_ENABLED=true to launch.
 const proCheckoutReady = () => !!process.env.PAYSTACK_SECRET_KEY && process.env.PRO_CHECKOUT_ENABLED === 'true';
 
-// One row per successful Pro payment — makes granting idempotent (unique reference)
+// One row per successful Pro payment: makes granting idempotent (unique reference)
 // and doubles as billing history.
 const proPaymentSchema = new mongoose.Schema({
   userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
@@ -372,7 +372,7 @@ const transactionSchema = new mongoose.Schema({
   category: { type: String, required: true },
   // 'internal_transfer' = moving money between own banks (Spec 3). The other
   // non-discretionary kinds (cash_withdrawal / loan_in / debt_repayment / reversal
-  // / failed) come from lib/txnKinds — all excluded from spending/income math the
+  // / failed) come from lib/txnKinds: all excluded from spending/income math the
   // same way (they are neither 'income' nor 'expense', so aggregations skip them).
   type: { type: String, enum: ['income', 'expense', 'internal_transfer', 'cash_withdrawal', 'loan_in', 'debt_repayment', 'reversal', 'failed'], required: true },
   // Origin tracking so transactions can be grouped/deleted by bank statement.
@@ -436,8 +436,8 @@ const UserAccount = mongoose.model('UserAccount', userAccountSchema);
 
 // People & Family ledger. Every person/business the user sends to or receives from,
 // built from transfer counterparties (lib/counterparty). Aggregated stats let us show
-// "who you send the most to", suggest family by shared surname, and — once the user
-// labels a contact (relationship + optional category) — auto-categorise their
+// "who you send the most to", suggest family by shared surname, and: once the user
+// labels a contact (relationship + optional category): auto-categorise their
 // transfers. User-set fields (relationship/label/category) are never overwritten by
 // re-aggregation. Keyed by account number when known, else normalised name.
 const contactSchema = new mongoose.Schema({
@@ -477,7 +477,7 @@ const unknownSenderSchema = new mongoose.Schema({
 }, { timestamps: true });
 const UnknownSender = mongoose.model('UnknownSender', unknownSenderSchema);
 
-// One user's answer to "which bank is this sender?" — their own resolution AND a vote
+// One user's answer to "which bank is this sender?": their own resolution AND a vote
 // toward promoting the sender globally. Unique per (user, sender).
 const senderTagSchema = new mongoose.Schema({
   userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -535,7 +535,7 @@ const globalCategorySchema = new mongoose.Schema({
 });
 const GlobalCategory = mongoose.model('GlobalCategory', globalCategorySchema);
 
-// Parse-correction log — every review through the import gate (accepted OR edited)
+// Parse-correction log: every review through the import gate (accepted OR edited)
 // is a labelled training example: the raw source text, what we parsed, and what
 // the user finalised it to. This is the proprietary dataset that later trains a
 // real categoriser. Written fire-and-forget; never blocks a save. Deleted with the
@@ -572,7 +572,7 @@ const parseCorrectionSchema = new mongoose.Schema({
 const ParseCorrection = mongoose.model('ParseCorrection', parseCorrectionSchema);
 
 // Reconciliation outcome per statement import (spec A5/A7). Powers the accuracy
-// dashboard's "% of imports that reconcile" — the single best measure of parser
+// dashboard's "% of imports that reconcile": the single best measure of parser
 // health, tracked per bank. One row per upload that produced transactions.
 const reconLogSchema = new mongoose.Schema({
   userId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
@@ -693,7 +693,7 @@ const waitlistSchema = new mongoose.Schema({
 const Waitlist = mongoose.model('Waitlist', waitlistSchema);
 
 // A sent newsletter, kept for history/audit. We never store recipient emails here,
-// only counts — the audience is always the current waitlist at send time.
+// only counts: the audience is always the current waitlist at send time.
 const newsletterSchema = new mongoose.Schema({
   subject:   { type: String, required: true },
   html:      { type: String, default: '' },
@@ -787,7 +787,7 @@ const subscriptionSchema = new mongoose.Schema({
   category:  { type: String, default: 'Entertainment' },
   // 'cancelling' = the user started the assisted cancel flow; we watch the ledger to
   // confirm the charge actually stops (C1). cancelRequestedAt is the verification
-  // baseline — any matching charge dated after it means the cancellation didn't take.
+  // baseline: any matching charge dated after it means the cancellation didn't take.
   status:    { type: String, enum: ['active', 'cancelling', 'cancelled'], default: 'active' },
   cancelRequestedAt: { type: Date },
   nextPayment: { type: Date },
@@ -800,7 +800,7 @@ const subscriptionSchema = new mongoose.Schema({
   lastCharge:   { type: Date },
   // Renewal reminders: the day of the month it bills (inferred from the last charge
   // when tracked from a detection, or set by the user), and how many days ahead to
-  // nudge. No money moves — this only powers a "renews soon" notification.
+  // nudge. No money moves: this only powers a "renews soon" notification.
   renewalDay:       { type: Number, min: 1, max: 31 },
   remindDaysBefore: { type: Number, default: 3, min: 0, max: 30 },
 }, { timestamps: true });
@@ -1128,8 +1128,8 @@ const genericToISO = (token) => {
 
 // GTBank/GTCO (and similar) statements print an "Originating Branch" column
 // (e.g. "635 AKIN ADESOLA") between the running balance and the free-text
-// "Remarks". Because the balance parser flattens each row, that branch — plus the
-// leading Reference token — gets glued to the front of every description, pushing
+// "Remarks". Because the balance parser flattens each row, that branch, plus the
+// leading Reference token: gets glued to the front of every description, pushing
 // the meaningful remarks out of view. The branch is IDENTICAL on every row, so we
 // find it as the longest common prefix of each row's "<3-digit code> ..." tail and
 // strip it (and anything before it), leaving the Remarks as the description. Bails
@@ -1176,7 +1176,7 @@ const parseStatementByBalance = (rawText) => {
   // Opening + closing balance read straight from the statement's labelled summary
   // ("Opening Balance ..." / "Closing Balance ..."). The opening seeds the running-
   // balance derivation below; the closing is the independent anchor for reconciliation
-  // (A5) — opening + credits - debits must equal it, or a row was lost/misread.
+  // (A5): opening + credits - debits must equal it, or a row was lost/misread.
   const { openingBalance, closingBalance } = extractBalances(rawText);
   let prevBalance = openingBalance != null ? openingBalance : null;
 
@@ -1213,7 +1213,7 @@ const parseStatementByBalance = (rawText) => {
 
     let type, amount, confidenceLevel;
     if (prevBalance !== null && Math.abs(balance - prevBalance) > 0.005) {
-      // Derive amount + direction from how the running balance moved — the balance
+      // Derive amount + direction from how the running balance moved: the balance
       // column validates both, so this is our high-confidence path (A6).
       amount = Math.abs(balance - prevBalance);
       type = balance >= prevBalance ? 'income' : 'expense';
@@ -1265,7 +1265,7 @@ const parseStatementByBalance = (rawText) => {
   transactions.openingBalance = openingBalance;
   transactions.closingBalance = closingBalance;
   // A statement is one account: fingerprint it once and stamp every row so the
-  // import can attribute all of them to (bankCode, accountMask) — Addendum A slice 2.
+  // import can attribute all of them to (bankCode, accountMask): Addendum A slice 2.
   const acct = fingerprintAccount(rawText);
   transactions.bankCode = acct.bankCode;
   transactions.accountMask = acct.accountMask;
@@ -1343,7 +1343,7 @@ const parsePDF = async (filePath, password = '') => {
     return balanceParsed;
   }
 
-  // Hybrid LLM fallback — the sustainability layer. When NO deterministic strategy
+  // Hybrid LLM fallback: the sustainability layer. When NO deterministic strategy
   // recognises the layout (a bank/fintech format we haven't hand-coded), ask the
   // configured model to extract the rows. It's validated the same way as everything
   // else: the reconciliation oracle re-checks the ledger, so a hallucinated amount
@@ -1470,7 +1470,7 @@ const parsePDF = async (filePath, password = '') => {
         category: categorizeTransaction(description, type),
         reference: null,
         balance: null,
-        confidenceLevel: 'low', // speculative line-pair guess — flag for the user (A6)
+        confidenceLevel: 'low', // speculative line-pair guess: flag for the user (A6)
       });
 
       i++; // skip the next line since we used it
@@ -1480,7 +1480,7 @@ const parsePDF = async (filePath, password = '') => {
   console.log(`[parsePDF] Parsed ${transactions.length} transactions`);
   transactions.bank = detectBank(rawText);
   // Even on the generic path, reconcile against any labelled opening/closing balance
-  // in the text — it's the check that catches a dropped row on an unfamiliar format.
+  // in the text: it's the check that catches a dropped row on an unfamiliar format.
   const { openingBalance, closingBalance } = extractBalances(rawText);
   transactions.openingBalance = openingBalance;
   transactions.closingBalance = closingBalance;
@@ -1489,10 +1489,10 @@ const parsePDF = async (filePath, password = '') => {
   // SAFETY GATE: the generic strategies are best-effort guesses (they once turned an
   // OPay statement's timestamps into 500+ bogus rows). If the statement gave us a
   // real opening AND closing balance and this parse provably does NOT balance, the
-  // ledger is wrong — returning nothing (→ the upload route asks the user to try
+  // ledger is wrong: returning nothing (→ the upload route asks the user to try
   // pasting alerts) is far safer than importing garbage the user might trust.
   if (transactions.reconciliation.checked && transactions.reconciliation.ok === false) {
-    console.warn(`[parsePDF] Generic parse rejected — does not reconcile (off by ${transactions.reconciliation.difference}). Refusing ${transactions.length} untrusted rows.`);
+    console.warn(`[parsePDF] Generic parse rejected: does not reconcile (off by ${transactions.reconciliation.difference}). Refusing ${transactions.length} untrusted rows.`);
     const rejected = [];
     rejected.bank = transactions.bank;
     rejected.rejectedReason = 'unreadable';
@@ -1533,9 +1533,9 @@ const deriveCategoryKey = (description) => {
 };
 
 // Auto-link a recognised subscription so it shows on the Subscriptions page no matter
-// how it entered — import, email forwarding, SMS scan, or a manual recategorise.
+// how it entered: import, email forwarding, SMS scan, or a manual recategorise.
 // Triggered when a transaction's category is 'Subscriptions': upsert a Subscription
-// keyed by the merchant signature. Never clobbers a user's edits — only auto-detected
+// keyed by the merchant signature. Never clobbers a user's edits: only auto-detected
 // rows are kept current from the ledger. Fire-and-forget safe.
 async function maybeLinkSubscription(userId, { description, amount, category, date, bankName, bankCode }) {
   if ((category || '').toString().trim().toLowerCase() !== 'subscriptions') return;
@@ -1791,7 +1791,7 @@ const detectBank = (text = '') => {
 
 // Account fingerprint from an alert/statement (spec Addendum A, slice 2): the
 // registry bank code + name (so multiple sender-ID spellings collapse to one code)
-// and the masked account tail. Returns empty strings when unknown — never guesses.
+// and the masked account tail. Returns empty strings when unknown: never guesses.
 // An explicit sender ID (SMS address / email from) is fed to the resolver's fuzzy
 // path and, when the bank is still unknown, kept as senderKey for the learn-unknown
 // -senders flywheel (Addendum A slice 3).
@@ -2223,7 +2223,7 @@ app.patch('/api/admin/feedback/:id', auth, superAdminAuth, async (req, res) => {
 });
 
 // Pro / billing status for the client paywall. checkoutAvailable is false until
-// Paystack subscription billing is wired — the gate is real regardless, and flips
+// Paystack subscription billing is wired: the gate is real regardless, and flips
 // the moment a user's plan becomes 'pro'.
 app.get('/api/billing/status', auth, (req, res) => {
   const ps = req.user.proSub || {};
@@ -2621,7 +2621,7 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
     await txn.save();
     if (categoryChanged) {
       await learnCategories(req.user._id, [{ description: txn.description, category: txn.category }]);
-      // "or any other way" — a manual recategorise to Subscriptions also surfaces it.
+      // "or any other way": a manual recategorise to Subscriptions also surfaces it.
       await maybeLinkSubscription(req.user._id, { description: txn.description, amount: txn.amount, category: txn.category, date: txn.date, bankName: txn.bank });
     }
     res.json(txn);
@@ -2942,7 +2942,7 @@ app.get('/api/admin/parse-corrections/stats', auth, superAdminAuth, async (req, 
 });
 
 // The ingestion accuracy dashboard (spec A7). Combines the correction log (how often
-// users fix a parsed field, per bank/source/field — amount + direction fixes are the
+// users fix a parsed field, per bank/source/field: amount + direction fixes are the
 // emergencies) with the reconciliation log (what % of statement imports balance, per
 // bank). One glance answers: which bank is failing my users right now?
 app.get('/api/admin/ingestion/accuracy', auth, superAdminAuth, async (req, res) => {
@@ -3320,7 +3320,7 @@ app.post('/api/cron/subscription-reminders', async (req, res) => {
 // exist if you'd rather schedule them separately.
 app.post('/api/cron/daily', (req, res) => {
   if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
-  // Respond immediately (202) so the scheduler never waits on the sweep — it can grow
+  // Respond immediately (202) so the scheduler never waits on the sweep: it can grow
   // past a 30s HTTP timeout as the user base grows, and a timed-out request would look
   // like a failure. The jobs run in the background, each isolated so one can't block
   // the other. Errors surface in the server logs, not the HTTP response.
@@ -3439,11 +3439,11 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
     const existingKeys = new Set(existing.map(t => `${new Date(t.date).toISOString().split('T')[0]}|${Math.abs(t.amount)}|${t.description}`));
     const tagged = transactions.map(t => ({ ...t, duplicate: existingKeys.has(`${t.date}|${t.amount}|${t.description}`) }));
     const dupCount = tagged.filter(t => t.duplicate).length;
-    // How many rows we're not fully sure about (A6) — drives a "give these a look" hint.
+    // How many rows we're not fully sure about (A6): drives a "give these a look" hint.
     const uncertainCount = tagged.filter(t => t.confidenceLevel === 'medium' || t.confidenceLevel === 'low').length;
     const warnings = dupCount > 0 ? [`${dupCount} transaction(s) already exist and are pre‑marked.`] : [];
     if (reconciliation.checked && reconciliation.ok === false) {
-      warnings.unshift(`This statement doesn't balance — ${reconciliation.reason}. Review carefully before saving.`);
+      warnings.unshift(`This statement doesn't balance: ${reconciliation.reason}. Review carefully before saving.`);
     }
     return res.json({
       transactions: tagged,
@@ -3457,7 +3457,7 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
 });
 
 // Best-effort SMS/alert parser for the WEB paste box. This is deliberately a
-// review-gate DRAFT — the canonical, corpus-tested parser lives in the mobile app;
+// review-gate DRAFT: the canonical, corpus-tested parser lives in the mobile app;
 // here we reuse the server's amount/date/type/category helpers to seed the review
 // table. What matters for accuracy is that the RAW text + the values the user
 // finalises are logged (source 'sms'), so they grow the golden corpus.
@@ -3466,11 +3466,11 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
 // figure. Groups 1|2|3 hold the number.
 const SMS_MONEY_RE = /(?:ngn|naira|₦)\s*([\d,]+(?:\.\d{1,2})?)|\bn(\d[\d,]*(?:\.\d{1,2})?)|\b([\d,]+\.\d{2})\b/gi;
 // detectDirection (tiered credit/debit inference) + parseLabeledAlert (structured
-// "Label : Value" alerts like GTBank GeNS) live in lib/alertParse — pure + corpus-
+// "Label : Value" alerts like GTBank GeNS) live in lib/alertParse: pure + corpus-
 // tested against real bank emails.
 const SMS_DATE_RE = /\b(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/i;
 
-// Stage 1.3 — "is this even a transaction?" Drop OTP/promo/login/balance-enquiry/
+// Stage 1.3: "is this even a transaction?" Drop OTP/promo/login/balance-enquiry/
 // card notices before parsing (mirrors the mobile parser's ignoreReason). Conservative:
 // a message with a real debit/credit signature is never ignored.
 const ALERT_DIRECTION_RE = /\b(debit(?:ed)?|credit(?:ed)?|dr|cr|withdraw(?:n|al)?|deposit(?:ed)?|received|transfer(?:red)?|pos\b|reversal)\b/i;
@@ -3498,7 +3498,7 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
   if (alertIgnoreReason(raw)) return null; // Stage 1.3: not a transaction → drop
 
   // Fast path: structured "Label : Value" alerts (GTBank GeNS et al.) state the
-  // amount + direction explicitly, so parse the fields directly — far more reliable
+  // amount + direction explicitly, so parse the fields directly: far more reliable
   // than inferring from free text. Falls through to the generic path when it's not
   // a labelled alert.
   const labeled = parseLabeledAlert(raw);
@@ -3581,7 +3581,7 @@ async function llmRescueRow(rawText, source = 'sms', sender = '') {
 
 // LLM statement fallback (hybrid architecture): extract a WHOLE statement's rows when
 // no deterministic strategy recognised its layout. Validated by the reconciliation
-// oracle — if the statement gave a real opening AND closing balance and the LLM's
+// oracle: if the statement gave a real opening AND closing balance and the LLM's
 // ledger doesn't balance, we reject it (return null) rather than import a wrong
 // ledger. Returns a parser-shaped array (or null), never throws.
 async function llmParseStatement(rawText) {
@@ -3595,7 +3595,7 @@ async function llmParseStatement(rawText) {
     const recon = reconcile({ transactions: rows, openingBalance, closingBalance });
     // Same safety gate as every other parser: a provably-wrong ledger is refused.
     if (recon.checked && recon.ok === false) {
-      console.warn(`[llmParseStatement] rejected — does not reconcile (off by ${recon.difference}).`);
+      console.warn(`[llmParseStatement] rejected: does not reconcile (off by ${recon.difference}).`);
       return null;
     }
     const out = rows.map((r) => ({
@@ -3645,7 +3645,7 @@ function aggregateCounterparties(txns, holderName) {
   return agg;
 }
 
-// Incremental fold after an import (fresh rows only) — adds to existing totals and
+// Incremental fold after an import (fresh rows only): adds to existing totals and
 // never touches the user's own relationship/label/category.
 async function foldContactsIncremental(userId, txns, holderName) {
   const agg = aggregateCounterparties(txns, holderName);
@@ -3666,7 +3666,7 @@ async function foldContactsIncremental(userId, txns, holderName) {
   return ops.length;
 }
 
-// Full rebuild from ALL of the user's transactions — resets the stats but preserves
+// Full rebuild from ALL of the user's transactions: resets the stats but preserves
 // the user's own labels/relationship/category across the rebuild.
 async function rebuildContacts(userId, holderName) {
   const txns = await Transaction.find({ userId }, { description: 1, amount: 1, type: 1, date: 1 }).lean();
@@ -3812,7 +3812,7 @@ app.post('/api/inbound-email/gmail-verification/clear', auth, async (req, res) =
 
 // Ingest one parsed email alert: dedupe (±1 day, any source), resolve/learn the bank
 // (Addendum A slice 3), and save. Returns 1 if a transaction was created, else 0.
-// Called once per alert — a digest email (spec 3.6) drives this several times; each
+// Called once per alert: a digest email (spec 3.6) drives this several times; each
 // call re-queries so rows created earlier in the same digest also dedupe.
 async function ingestEmailAlert(user, parsed) {
   const when = new Date(parsed.date);
@@ -3850,7 +3850,7 @@ async function ingestEmailAlert(user, parsed) {
 // SMS/email (parseOneAlert), dedupe it against recent rows, and return candidate(s) +
 // confidence + a dedupe verdict. We do NOT save here: the client shows a confirm sheet
 // and persists via POST /api/transactions with source:'share'. Raw shared text is
-// transient — parsed, then never persisted or logged (it holds full account details).
+// transient: parsed, then never persisted or logged (it holds full account details).
 const shareIdemp = new Map(); // clientIdempotencyKey -> { at, body }  (double-submit guard)
 function shareDedupeCheck(existing, parsed) {
   const fp = fingerprint({ amount: parsed.amount, type: parsed.type, date: parsed.date, bank: parsed.bank, description: parsed.description });
@@ -3877,7 +3877,7 @@ app.post('/api/ingest/share', auth, async (req, res) => {
     const segments = inboundEmail.splitEmailAlerts(text);
     const rows = [];
     for (const seg of segments) {
-      const parsed = parseOneAlert(seg, 'share'); // deterministic only — no LLM gap-fill for amount/direction
+      const parsed = parseOneAlert(seg, 'share'); // deterministic only: no LLM gap-fill for amount/direction
       if (parsed && parsed.amount > 0) rows.push(parsed);
     }
     if (rows.length === 0) return res.status(422).json({ error: 'no_transaction', message: "Couldn't find a transaction here." });
@@ -3904,7 +3904,7 @@ app.post('/api/ingest/share', auth, async (req, res) => {
 });
 
 // Inbound providers (SendGrid Inbound Parse, Mailgun routes) POST the email as
-// multipart/form-data, which express.json/urlencoded don't parse — so we run a
+// multipart/form-data, which express.json/urlencoded don't parse, so we run a
 // dedicated multer pass on the webhook to populate req.body with the text fields.
 // Attachments are accepted into memory and ignored; a parse error never fails the
 // webhook (we'd rather 200/ignore than make the provider retry-storm).
@@ -3929,7 +3929,7 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     // Collect EVERY possible recipient field into one string for extractToken to
     // scan. Critical for forwarded mail: Gmail auto-forward keeps the user's own
     // address in the To header and puts our <token>@in.automonie.com address only in
-    // the envelope recipient — Postmark surfaces that as `OriginalRecipient` (Mailgun:
+    // the envelope recipient: Postmark surfaces that as `OriginalRecipient` (Mailgun:
     // `recipient`). Without it, every forwarded alert is dropped as "no-token".
     const recipient = [
       b.OriginalRecipient, b.recipient, b.To, b.to,
@@ -3947,7 +3947,7 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     if (!user) return res.json({ ok: true, skipped: 'unknown-recipient' });
 
     // Gmail forwarding confirmation (spec 3.4): Google's one-time verify mail isn't a
-    // bank, so it would be dropped below — capture its code/link first and surface it
+    // bank, so it would be dropped below: capture its code/link first and surface it
     // to the onboarding screen so the user can finish enabling forwarding.
     if (inboundEmail.isGmailForwardingVerification(from)) {
       const v = inboundEmail.extractGmailVerification({ subject, text, html });
@@ -3972,7 +3972,7 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     user.inboundEmailLastAt = new Date();
 
     // Digest emails (spec 3.6): one mail may cover several transactions. Split the
-    // body into per-transaction segments — a single alert yields exactly one — and
+    // body into per-transaction segments, a single alert yields exactly one, and
     // ingest each. Only for a single alert do we parse the subject-bearing text (banks
     // often put the amount/direction there); a digest's subject is a generic summary.
     const segments = inboundEmail.splitEmailAlerts(resolved.bodyOnly);
@@ -4009,10 +4009,10 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     const bankLabel = (bank || '').toString().trim();
 
     // De-duplicate in two layers:
-    //  1) intra-batch exact (day + |amount| + description) — repeated rows in a
+    //  1) intra-batch exact (day + |amount| + description): repeated rows in a
     //     single scan collapse, as before.
     //  2) cross-source fuzzy vs everything already saved in the ±1 day window (ANY
-    //     source, so a manual entry or a prior statement/SMS import is caught) —
+    //     source, so a manual entry or a prior statement/SMS import is caught)
     //     drop only near-certain duplicates (matchScore >= 85, amount exact +
     //     direction mandatory). Ambiguous rows are kept, so a real transaction is
     //     never deleted. This is what makes SMS + statement + Mono not triple-count.
@@ -4073,7 +4073,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       const amount = t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount);
       const kind = classifyKind({ type: t.type, description: t.description, category: t.category });
       // A parser-flagged internal move (e.g. OPay OWealth churn / own-account
-      // transfer) becomes an internal_transfer — sign already set above — so it's
+      // transfer) becomes an internal_transfer, sign already set above, so it's
       // excluded from spend/income math without losing the row.
       const finalType = t.internal ? 'internal_transfer' : (kind || t.type);
       const contactCat = contactCatMap.get(cpKeyOf.get(t)) || '';
@@ -4083,7 +4083,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
         // Prefer a per-transaction bank (an SMS scan can span several banks),
         // falling back to the batch-level label.
         source: 'import', bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
-        // Account fingerprint (Addendum A slice 2) — carried through from the parse.
+        // Account fingerprint (Addendum A slice 2): carried through from the parse.
         bankCode: (t.bankCode || '').toString().toLowerCase().slice(0, 24),
         accountMask: (t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4),
         senderKey: (t.senderKey || '').toString().slice(0, 24), // unresolved sender (slice 3)
@@ -4300,12 +4300,12 @@ app.get('/api/banks', auth, (req, res) => {
   res.json({ banks: BANK_REGISTRY.map((b) => ({ code: b.code, name: b.name })) });
 });
 
-// Senders on the user's own transactions we couldn't map to a bank — they can tag
+// Senders on the user's own transactions we couldn't map to a bank: they can tag
 // each one so those (and future) alerts resolve. Grouped, with a sample + count.
 app.get('/api/senders/unknown', auth, async (req, res) => {
   try {
     const rows = await Transaction.aggregate([
-      // Must be a NON-EMPTY STRING — `$ne: ''` alone also matches null/missing
+      // Must be a NON-EMPTY STRING: `$ne: ''` alone also matches null/missing
       // senderKey (older rows predating the field), which collapse into a phantom
       // untaggable "unknown sender". Require an actual sender id.
       { $match: { userId: new mongoose.Types.ObjectId(req.user._id), senderKey: { $type: 'string', $ne: '' } } },
@@ -4423,7 +4423,7 @@ app.post('/api/admin/senders/:key/dismiss', auth, superAdminAuth, async (req, re
 });
 
 // Subscriptions. Each row is enriched with its cancellation guide (C1), and any
-// subscription mid-cancellation is verified against the ledger — did a matching
+// subscription mid-cancellation is verified against the ledger: did a matching
 // charge land AFTER the cancel request (didn't take) or has it gone quiet past a
 // billing cycle (confirmed stopped)? Confirmed ones are promoted to 'cancelled'.
 app.get('/api/subscriptions', auth, async (req, res) => {
@@ -4438,7 +4438,7 @@ app.get('/api/subscriptions', auth, async (req, res) => {
     const pro = isPro(req.user);
     const promote = [];
     const out = subs.map((s) => {
-      // Free users get a locked guide stub (name/method only) — the steps + tracking
+      // Free users get a locked guide stub (name/method only): the steps + tracking
       // are the Pro deliverable (C1). Pro users get the full playbook.
       const full = cancelGuideFor(s.name);
       const guide = pro ? full : { name: full.name, method: full.method, matched: full.matched, steps: [], url: '', locked: true };
@@ -4593,7 +4593,7 @@ app.post('/api/subscriptions/dismiss-detected', auth, async (req, res) => {
   }
 });
 
-// C1 — start the assisted cancellation: mark it 'cancelling', stamp the baseline we
+// C1: start the assisted cancellation: mark it 'cancelling', stamp the baseline we
 // verify against, and hand back the step-by-step guide for this provider.
 app.post('/api/subscriptions/:id/start-cancel', auth, async (req, res) => {
   try {
@@ -4618,7 +4618,7 @@ app.post('/api/subscriptions/:id/mark-cancelled', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// Undo — the user decided to keep the subscription after all.
+// Undo: the user decided to keep the subscription after all.
 app.post('/api/subscriptions/:id/keep', auth, async (req, res) => {
   try {
     const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
@@ -4820,7 +4820,7 @@ async function grantProFromCharge(user, data, kind = 'checkout') {
   return { plan: 'pro', planExpiry: expiry };
 }
 
-// Start Pro checkout — returns the Paystack authorization_url to open.
+// Start Pro checkout: returns the Paystack authorization_url to open.
 app.post('/api/billing/checkout', auth, async (req, res) => {
   try {
     if (!proCheckoutReady()) return res.status(503).json({ message: 'Pro checkout is not available yet.' });
@@ -5818,18 +5818,18 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
 });
 
 // --------------------------
-// AI counterparty -> purpose inference (spec 6.1) — turn generic "Transfer" rows into
+// AI counterparty -> purpose inference (spec 6.1): turn generic "Transfer" rows into
 // real purposes (rent / savings / family / salary…). STAGED, keys-pending: the model
-// only runs when ANTHROPIC_API_KEY is set; it PROPOSES, lib/purposeInference validates
+// only runs when the Gemini key is set; it PROPOSES, lib/purposeInference validates
 // against a closed allow-list, and the user CONFIRMS before anything is written.
 // Pro-gated (an AI feature, like the assistant / C6 / C1).
 // --------------------------
 
-// The generic-transfer groups worth asking about — deterministic, no model call, so
+// The generic-transfer groups worth asking about: deterministic, no model call, so
 // the UI can show the work up front. `available` says whether inference is live.
 // Tier-1 hint: the category the user has already taught for a counterparty (their
 // own LearnedCategory rules). Returned as candidate.key -> category. Global consensus
-// isn't consulted here — it already stamps categories at import time, so those rows
+// isn't consulted here: it already stamps categories at import time, so those rows
 // aren't generic candidates any more.
 async function purposeHints(userId, candidates) {
   const hints = new Map();
@@ -5851,7 +5851,7 @@ async function tier2Propose(residual, cfg) {
   return purposeInf.validateProposals(raw, residual).map((p) => ({ ...p, source: 'ai' }));
 }
 
-// The generic-transfer groups worth asking about — deterministic, no model call. The
+// The generic-transfer groups worth asking about: deterministic, no model call. The
 // feature ALWAYS works (Tier-1 is free/on-box); `booster` names the LLM tail provider
 // when one is configured, else null.
 app.get('/api/ai/purpose/candidates', auth, async (req, res) => {
@@ -5882,7 +5882,7 @@ app.post('/api/ai/purpose/infer', auth, async (req, res) => {
     const candidates = purposeInf.buildCandidates(txns);
     if (!candidates.length) return res.json({ available: true, proposals: [], tiers: { rules: 0, ai: 0 } });
 
-    // Tier-1 — deterministic, free.
+    // Tier-1: deterministic, free.
     const hints = await purposeHints(req.user._id, candidates);
     const proposals = [];
     const residual = [];
@@ -5892,7 +5892,7 @@ app.post('/api/ai/purpose/infer', auth, async (req, res) => {
     }
     const rulesCount = proposals.length;
 
-    // Tier-2 — the ambiguous tail only, if an LLM provider is configured + keyed.
+    // Tier-2: the ambiguous tail only, if an LLM provider is configured + keyed.
     let aiCount = 0;
     const cfg = llmConfig();
     if (residual.length && cfg) {
@@ -6130,7 +6130,7 @@ app.post('/api/transactions/confirm-transfer', auth, async (req, res) => {
 });
 
 // Manually mark ONE transaction as a transfer between the user's own accounts
-// ("Move between my accounts") — excludes it from spending/income math. This is the
+// ("Move between my accounts"): excludes it from spending/income math. This is the
 // reliable fallback for self-transfers auto-detection misses: a cross-bank move where
 // only one side was imported, or a pair that scored too low (e.g. done across days
 // with no bank name in the narration). We still TRY to pair the opposite side when
@@ -6217,7 +6217,7 @@ app.post('/api/transactions/:id/unmark-transfer', auth, async (req, res) => {
 // Cash withdrawals are excluded from spending (the money left the bank but we don't
 // know where it went). This lets the user break a withdrawal down into what the cash
 // was actually spent on, turning the biggest blind spot in Nigerian finance into real,
-// categorised spending — without double-counting (the withdrawal stays excluded).
+// categorised spending: without double-counting (the withdrawal stays excluded).
 app.get('/api/cash/pending', auth, async (req, res) => {
   try {
     const uid = req.user._id;
@@ -6255,7 +6255,7 @@ app.post('/api/transactions/:id/allocate-cash', auth, async (req, res) => {
   } catch (e) { console.error('[allocate-cash]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// "Don't track this one" — mark a withdrawal handled so it stops prompting, without
+// "Don't track this one": mark a withdrawal handled so it stops prompting, without
 // creating any spending rows.
 app.post('/api/transactions/:id/skip-cash', auth, async (req, res) => {
   try {
@@ -6328,9 +6328,9 @@ app.get('/api/reports/income-summary', auth, async (req, res) => {
 
 // Record a daily check-in and return the current streak. Server-side so the
 // streak survives a reinstall / new device. Accepts optional `days` (local
-// history) to merge — so a first sync after reinstall restores the run.
+// history) to merge, so a first sync after reinstall restores the run.
 // Clarity streak with forgiveness (Gen-Z spec): consecutive check-in days ending
-// today, but a single missed day is bridged by a free "freeze" — at most one per
+// today, but a single missed day is bridged by a free "freeze": at most one per
 // calendar month. Today itself is never frozen (no live streak until you check in).
 // Returns { streak, frozen: [YYYY-MM-DD bridged] }. Pure + deterministic from the
 // day set, so client and server agree.
@@ -6354,7 +6354,7 @@ function streakWithFreeze(days, today = new Date()) {
     }
     d.setDate(d.getDate() - 1);
   }
-  // Trailing pending freezes (before the earliest check-in) bridged nothing — drop them.
+  // Trailing pending freezes (before the earliest check-in) bridged nothing: drop them.
   return { streak, frozen: confirmed };
 }
 

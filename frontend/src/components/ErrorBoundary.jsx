@@ -3,7 +3,7 @@ import React from 'react';
 // App-wide safety net. Without this, any uncaught render error (a bad parse
 // shape, an undefined field, a lazy-chunk failure) unmounts the whole React
 // tree and the user just sees a blank white screen. This catches it and shows a
-// recoverable card instead — with a way to retry, reload, or go home.
+// recoverable card instead: with a way to retry, reload, or go home.
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -49,7 +49,7 @@ class ErrorBoundary extends React.Component {
           </h2>
           <p style={{ margin: '0 0 1.25rem', fontSize: '0.92rem', color: 'var(--text-secondary, #718096)', lineHeight: 1.55 }}>
             {isChunkError
-              ? 'The app was updated while this page was open. Reload to get the latest version — your data is safe.'
+              ? 'The app was updated while this page was open. Reload to get the latest version: your data is safe.'
               : 'This screen hit an unexpected error. Your data is safe. Try again, or head back to your dashboard.'}
           </p>
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'center', flexWrap: 'wrap' }}>

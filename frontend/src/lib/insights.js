@@ -282,7 +282,7 @@ export function detectSalary(all, monthlyIncome) {
   return { id: `${top.date}-${Math.round(amt)}`, date: top.date, amount: amt, lastMonthSpentPct };
 }
 
-// "Better than last month" (C5) — the category where the user spent LESS so far this
+// "Better than last month" (C5): the category where the user spent LESS so far this
 // month than in the same elapsed stretch last month, framed positively. Same-window
 // comparison so a partial month isn't unfairly flattering. Mirrors the mobile lib.
 export function betterThanLastMonth(all, now = new Date()) {

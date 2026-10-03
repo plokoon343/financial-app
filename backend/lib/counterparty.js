@@ -1,5 +1,5 @@
 // Counterparty extraction for the People & Family ledger. Pulls the other party out
-// of a transfer narration — their name, and where possible their bank + account — so
+// of a transfer narration, their name, and where possible their bank + account, so
 // person-to-person transfers can be grouped into contacts, family can be suggested by
 // shared surname, and labelled contacts can auto-categorise future transfers.
 //
@@ -9,7 +9,7 @@
 
 'use strict';
 
-// Words that mean "this is a biller/utility/airtime, not a person" — never a contact.
+// Words that mean "this is a biller/utility/airtime, not a person": never a contact.
 const NON_PERSON = /\b(airtime|data|electricity|prepaid|token|dstv|gotv|startimes|betting|bet9ja|sportybet|owealth|auto-?save|stamp duty|vat|levy|commission|reversal|refund|interest earned)\b/i;
 // Rail/verb noise to strip from a captured name.
 const RAIL_NOISE = /\b(nip|neft|rtgs|mobile|web|ussd|trf|transfer|instant|payment|outward|inward|to|from|pay|via|ref|vnd|gtb|opay|paystack|checkout|mobile trf)\b/gi;
@@ -93,7 +93,7 @@ function familySignal(holderName, contactName) {
 
 // Is this counterparty the account holder themselves (a transfer between their own
 // accounts)? True only when EVERY significant token of the holder's name appears in
-// the contact's name (order-independent — Nigerian names get reordered across banks),
+// the contact's name (order-independent: Nigerian names get reordered across banks),
 // and both have at least two significant tokens. Stricter than familySignal (which
 // needs just one shared surname), so a real family member is never mistaken for self.
 function isSelf(holderName, contactName) {

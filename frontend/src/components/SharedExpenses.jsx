@@ -3,7 +3,7 @@ import { fmtNaira } from '../utils/format';
 import { loadShared, saveShared, balances, settleWith } from '../lib/shared';
 
 // Shared expenses (web parity with the mobile /shared screen). Split a cost with
-// roommates/family/friends and keep a running tally of who owes whom. No money moves —
+// roommates/family/friends and keep a running tally of who owes whom. No money moves
 // it's a personal ledger stored in localStorage. "Settle up" squares a balance.
 
 export default function SharedExpenses() {
@@ -49,7 +49,7 @@ export default function SharedExpenses() {
     <div className="sh-page">
       <div className="sh-head">
         <h2><i className="fas fa-people-arrows"></i> Shared expenses</h2>
-        <p>Splitting a cost with someone? Log who paid and who shares it, and we keep a running tally of who owes whom. It only tracks — no money moves here.</p>
+        <p>Splitting a cost with someone? Log who paid and who shares it, and we keep a running tally of who owes whom. It only tracks: no money moves here.</p>
       </div>
 
       {toast && <div className="sh-toast">{toast}</div>}

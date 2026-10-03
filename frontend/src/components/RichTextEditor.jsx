@@ -16,7 +16,7 @@ const FONTS = [
   { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
   { label: 'Courier', value: "'Courier New', Courier, monospace" },
 ];
-// Named colours only — no black / white / automatic (per request).
+// Named colours only: no black / white / automatic (per request).
 const COLORS = [
   { name: 'Teal', value: '#139DA0' },
   { name: 'Green', value: '#0f6e56' },
@@ -116,7 +116,7 @@ export default function RichTextEditor({ value, onChange, disabled, uploadImage 
         suppressContentEditableWarning
         onInput={emit}
         onBlur={emit}
-        data-placeholder="Write your newsletter here — use the toolbar to format."
+        data-placeholder="Write your newsletter here: use the toolbar to format."
       />
 
       <style>{`

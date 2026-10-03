@@ -30,7 +30,7 @@ export async function verifyPendingPro() {
     try { localStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
     return !!data.isPro;
   } catch {
-    // A non-success (e.g. 402 not completed) — clear so we don't retry forever.
+    // A non-success (e.g. 402 not completed): clear so we don't retry forever.
     try { localStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
     return false;
   }

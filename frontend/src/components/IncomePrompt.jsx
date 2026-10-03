@@ -7,7 +7,7 @@ const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('
 const DISMISS_KEY = 'income_prompt_seen';
 
 // Progressive profiling (onboarding spec): ask for monthly income ONCE, and only
-// AFTER the user has data to look at — it's the most sensitive question, so it waits
+// AFTER the user has data to look at: it's the most sensitive question, so it waits
 // until the product has already given value. Powers safe-to-spend. Web parity with
 // mobile IncomePrompt.tsx. Renders nothing unless it's the right moment.
 const IncomePrompt = ({ hasData }) => {

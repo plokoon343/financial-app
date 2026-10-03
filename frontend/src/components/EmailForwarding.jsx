@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 
-// Email forwarding setup (spec B1) — web parity with the mobile screen. Shows the
+// Email forwarding setup (spec B1): web parity with the mobile screen. Shows the
 // user's unique inbound address, how to point their bank alerts at it, and a live
 // "we're receiving your alerts" status.
 
@@ -11,7 +11,7 @@ const STEPS = [
   { title: 'Open Gmail on the web', body: 'Settings → Filters and Blocked Addresses → Create a new filter.' },
   { title: 'Match your bank', body: 'In “From”, enter your bank’s alert address (e.g. alerts@gtbank.com). Create filter.' },
   { title: 'Forward to your address', body: 'Tick “Forward it to” and paste your address. Gmail sends a one-time confirmation.' },
-  { title: 'Done', body: 'New bank emails now import themselves — nothing to open.' },
+  { title: 'Done', body: 'New bank emails now import themselves: nothing to open.' },
 ];
 
 export default function EmailForwarding() {
@@ -35,7 +35,7 @@ export default function EmailForwarding() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Poll status until the first alert lands, then flip to "receiving ✓" — and pick up
+  // Poll status until the first alert lands, then flip to "receiving ✓", and pick up
   // Gmail's forwarding confirmation the moment it arrives during setup (spec 3.4).
   useEffect(() => {
     if (!data || data.receiving) return;
@@ -69,7 +69,7 @@ export default function EmailForwarding() {
     <div className="ef-page">
       <div className="ef-head">
         <h2><i className="fas fa-envelope-open-text"></i> Email forwarding</h2>
-        <p>Forward your bank’s alert emails to your private address and they import themselves — no scanning, no uploads.</p>
+        <p>Forward your bank’s alert emails to your private address and they import themselves: no scanning, no uploads.</p>
       </div>
 
       {loading ? <div className="ef-card">Loading…</div> : error ? <div className="ef-card ef-err">{error}</div> : (
@@ -85,7 +85,7 @@ export default function EmailForwarding() {
           {(data.gmailVerification?.code || data.gmailVerification?.link) && (
             <div className="ef-verify">
               <div className="ef-verify-head"><i className="fas fa-shield-halved"></i> Gmail sent a confirmation</div>
-              <p className="ef-verify-body">Finish turning on forwarding — confirm the request Gmail just sent.</p>
+              <p className="ef-verify-body">Finish turning on forwarding: confirm the request Gmail just sent.</p>
               {data.gmailVerification.code && (
                 <button className="ef-code" onClick={copyCode}>
                   <span className="ef-code-label">CONFIRMATION CODE</span>
@@ -97,18 +97,18 @@ export default function EmailForwarding() {
                   <i className="fas fa-external-link-alt"></i> Confirm forwarding
                 </a>
               )}
-              <button className="ef-verify-dismiss" onClick={dismissVerification}>I’ve done this — dismiss</button>
+              <button className="ef-verify-dismiss" onClick={dismissVerification}>I’ve done this: dismiss</button>
             </div>
           )}
 
           {data.receiving ? (
-            <div className="ef-status ef-ok"><i className="fas fa-circle-check"></i> Receiving your alerts{data.count ? ` — ${data.count} imported so far` : ''}.</div>
+            <div className="ef-status ef-ok"><i className="fas fa-circle-check"></i> Receiving your alerts{data.count ? `: ${data.count} imported so far` : ''}.</div>
           ) : (
             <div className="ef-status ef-wait"><i className="fas fa-clock"></i> Waiting for your first forwarded email…</div>
           )}
 
           {!data.active && (
-            <div className="ef-note"><i className="fas fa-circle-info"></i> Forwarding goes live shortly — your address is reserved and won’t change.</div>
+            <div className="ef-note"><i className="fas fa-circle-info"></i> Forwarding goes live shortly: your address is reserved and won’t change.</div>
           )}
 
           <div className="ef-card">
@@ -121,7 +121,7 @@ export default function EmailForwarding() {
             </a>
           </div>
 
-          <p className="ef-privacy">We only accept mail from known banks — anything else is ignored. Your address is private to you.</p>
+          <p className="ef-privacy">We only accept mail from known banks: anything else is ignored. Your address is private to you.</p>
         </>
       )}
 

@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor } from '../utils/categoryStore';
 
-// People & Family ledger — everyone you send to or receive from, built from your
+// People & Family ledger: everyone you send to or receive from, built from your
 // transfer counterparties. Tag a contact as family/friend/business (or set a category)
 // and their transfers get categorised automatically, now and going forward.
 
@@ -50,7 +50,7 @@ export default function People() {
       const { data } = await axios.patch(`${API_URL}/api/contacts/${c.id}`, { ...body, applyToPast: true }, headers);
       flash(note + (data.recategorized ? ` · ${data.recategorized} transfer${data.recategorized !== 1 ? 's' : ''} recategorised` : ''));
       await load();
-    } catch { flash('Could not save — try again'); }
+    } catch { flash('Could not save: try again'); }
     finally { setBusy(''); }
   };
 
@@ -90,7 +90,7 @@ export default function People() {
           {suggestedCount > 0 && (
             <div className="ppl-suggest">
               <i className="fas fa-wand-magic-sparkles" />
-              <span><strong>{suggestedCount}</strong> {suggestedCount === 1 ? 'contact shares' : 'contacts share'} your surname — possibly family. Tap “Family” to confirm.</span>
+              <span><strong>{suggestedCount}</strong> {suggestedCount === 1 ? 'contact shares' : 'contacts share'} your surname: possibly family. Tap “Family” to confirm.</span>
             </div>
           )}
 

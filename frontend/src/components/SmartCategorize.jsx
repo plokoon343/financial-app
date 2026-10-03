@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import ProPaywall from './ProPaywall';
 
-// AI counterparty -> purpose inference (spec 6.1) — web parity with the mobile
+// AI counterparty -> purpose inference (spec 6.1): web parity with the mobile
 // /smart-categorize screen. Lists recurring transfers stuck on a generic label and,
 // when the server's model key is live, suggests a purpose per counterparty (rent /
 // savings / family…) that the user confirms. STAGED: shows the list + "coming soon"
@@ -73,7 +73,7 @@ export default function SmartCategorize() {
       <div className="sc-head">
         <h2><i className="fas fa-tags"></i> Smart categorise</h2>
         <p>{available
-          ? 'These recurring transfers don’t have a real category yet. Let Automonie suggest what each is for — you confirm before anything changes.'
+          ? 'These recurring transfers don’t have a real category yet. Let Automonie suggest what each is for: you confirm before anything changes.'
           : 'These recurring transfers don’t have a category yet. Smart suggestions are coming soon; here’s what we’ll help you sort.'}</p>
       </div>
 
@@ -93,7 +93,7 @@ export default function SmartCategorize() {
                 </button>
               )}
               {!available && (
-                <div className="sc-soon"><i className="fas fa-clock"></i> AI suggestions aren’t switched on yet — your list is ready for when they are.</div>
+                <div className="sc-soon"><i className="fas fa-clock"></i> AI suggestions aren’t switched on yet: your list is ready for when they are.</div>
               )}
 
               {/* Proposals (after analysis) */}
@@ -116,7 +116,7 @@ export default function SmartCategorize() {
               ))}
 
               {analyzed && proposals.length === 0 && (
-                <p className="sc-note">No confident suggestions — the rest are too unclear to guess. You can still categorise them by hand from the transactions list.</p>
+                <p className="sc-note">No confident suggestions: the rest are too unclear to guess. You can still categorise them by hand from the transactions list.</p>
               )}
 
               {/* Candidate preview (before analysis, or keys-pending) */}
@@ -137,7 +137,7 @@ export default function SmartCategorize() {
           )}
 
           {error && <div className="sc-card sc-err">{error}</div>}
-          <p className="sc-privacy">We only send a payee name (with account numbers removed), the amounts and how often — never your full statement.</p>
+          <p className="sc-privacy">We only send a payee name (with account numbers removed), the amounts and how often: never your full statement.</p>
         </>
       )}
 

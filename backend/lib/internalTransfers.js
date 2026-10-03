@@ -1,6 +1,6 @@
 // Internal-transfer detection (Spec 3). Finds pairs of transactions that are the
-// user moving money between their OWN bank accounts — a debit from bank A matched
-// to a credit into bank B — so they can be excluded from spending/income math.
+// user moving money between their OWN bank accounts: a debit from bank A matched
+// to a credit into bank B, so they can be excluded from spending/income math.
 // Pure and dependency-free so it can be unit-tested; server.js applies the DB
 // changes. A fee (when the debited and credited amounts differ) becomes a real
 // Bank Charges expense.

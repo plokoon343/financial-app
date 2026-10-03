@@ -1,6 +1,6 @@
 // Tier-2 LLM extraction fallback for bank alerts (spec 6.1 hybrid, applied to the
-// PARSER). Only the ambiguous tail the deterministic layer can't handle — unknown
-// banks / unstructured wording — is sent here. The model PROPOSES a structured
+// PARSER). Only the ambiguous tail the deterministic layer can't handle: unknown
+// banks / unstructured wording: is sent here. The model PROPOSES a structured
 // transaction; validateExtract checks it against the raw text so a hallucinated
 // amount/direction is rejected. Uses the same Gemini config as the purpose tier.
 // Pure except the injected fetch, so it unit-tests.

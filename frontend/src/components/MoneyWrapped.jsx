@@ -4,7 +4,7 @@ import { API_URL } from '../config';
 import { prettyMerchant, computeArchetype } from '../lib/insights';
 
 // Money Wrapped (web parity with the mobile /wrapped screen). A year-in-review story
-// computed entirely client-side from the user's own transactions — never shows a
+// computed entirely client-side from the user's own transactions: never shows a
 // naira figure on the shareable slides, so it's safe for the group chat. Rendered as
 // a full-bleed gradient carousel (arrows / dots / keyboard / swipe).
 
@@ -92,13 +92,13 @@ export default function MoneyWrapped() {
     const noSpend = Math.max(0, elapsed - spentDays.size);
 
     const out = [];
-    out.push({ key: 'intro', colors: ['#0e9f6e', '#0e7f82'], fa: 'fa-wand-magic-sparkles', eyebrow: 'AUTOMONIE', big: `Your ${year},\nwrapped.`, sub: 'A year of your money, as a story — swipe →' });
+    out.push({ key: 'intro', colors: ['#0e9f6e', '#0e7f82'], fa: 'fa-wand-magic-sparkles', eyebrow: 'AUTOMONIE', big: `Your ${year},\nwrapped.`, sub: 'A year of your money, as a story: swipe →' });
     out.push({ key: 'vol', colors: ['#6d28d9', '#4c1d95'], fa: 'fa-receipt', eyebrow: 'THE NUMBERS', big: `${expenses.length}\ntransactions`, sub: `across ${monthsActive} month${monthsActive === 1 ? '' : 's'} · ${MONTHS[busiest]} was your busiest` });
     if (topM) out.push({ key: 'merch', colors: ['#0ea5e9', '#0369a1'], fa: 'fa-heart', eyebrow: 'RIDE OR DIE', big: topM[0], sub: `${topM[1]} visits this year. Loyalty like this is rare.` });
     if (distinct.length > 1) out.push({ key: 'journey', colors: ['#f59e0b', '#b45309'], fa: 'fa-arrow-trend-up', eyebrow: 'THE GLOW-UP', big: distinct.map((a) => a.name.replace('The ', '')).join('  →  '), sub: 'You shape-shifted through the year. Character development.' });
     if (dominant) out.push({ key: 'era', colors: [dominant.color, dominant.color], sym: dominant.icon, eyebrow: `YOUR ${year} ERA`, big: dominant.name, sub: dominant.tagline });
     if (noSpend >= 5) out.push({ key: 'discipline', colors: ['#139DA0', '#0f766e'], fa: 'fa-shield-halved', eyebrow: 'IRON WILL', big: `${noSpend} days`, sub: 'you spent absolutely nothing. Monk behaviour, respect.' });
-    out.push({ key: 'share', colors: ['#ec4899', '#9d174d'], fa: 'fa-share-nodes', eyebrow: 'THAT’S A WRAP', big: 'Share your\nmoney era', sub: 'Personality only — never your figures. Safe for the group chat.', share: true });
+    out.push({ key: 'share', colors: ['#ec4899', '#9d174d'], fa: 'fa-share-nodes', eyebrow: 'THAT’S A WRAP', big: 'Share your\nmoney era', sub: 'Personality only: never your figures. Safe for the group chat.', share: true });
     return out;
   }, [all, year]);
 
@@ -135,7 +135,7 @@ export default function MoneyWrapped() {
     }
     try {
       if (navigator.share) await navigator.share({ text });
-      else { await navigator.clipboard.writeText(text); flash('Copied — paste it anywhere'); }
+      else { await navigator.clipboard.writeText(text); flash('Copied: paste it anywhere'); }
     } catch { /* cancelled */ }
   };
 

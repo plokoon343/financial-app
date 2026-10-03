@@ -71,7 +71,7 @@ check('gmail link from href (entity decoded)', v2 && v2.link.includes('vf-') && 
 check('gmail extractor null when absent', extractGmailVerification({ subject: 'hi', text: 'nothing here', html: '' }) === null);
 
 // --- digest email splitting (spec 3.6) ---
-// A single alert (even with a balance line) stays one segment — never over-split.
+// A single alert (even with a balance line) stays one segment: never over-split.
 const single = 'Debit Alert\nAmount: NGN5,000.00\nBalance: NGN12,000.00\nDate: 03/09/2026';
 check('single alert -> 1 segment', splitEmailAlerts(single).length === 1);
 const singleInline = 'You paid NGN5,000 to SHOPRITE on 03-Sep-2026. Bal: NGN12,000.';

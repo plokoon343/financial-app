@@ -11,7 +11,7 @@ import { FeatureTip, InfoTip } from './FeatureTip';
 import { fmtNaira } from '../utils/format';
 
 // A small round leading avatar for a transaction row (Addendum C): a bundled merchant
-// logo, a person's initial, or the category icon — never a fetched favicon.
+// logo, a person's initial, or the category icon: never a fetched favicon.
 function TxnAvatar({ category, description }) {
   const a = avatarFor(category, description);
   return (
@@ -213,7 +213,7 @@ const Transactions = () => {
     try {
       await axios.post(`${API_URL}/api/transactions/${t._id}/unmark-transfer`, {}, auth());
       await fetchAll();
-      flash('Restored — counted again');
+      flash('Restored: counted again');
     } catch { flash('Could not undo the transfer', 'error'); }
   };
 
@@ -435,7 +435,7 @@ const Transactions = () => {
                 <td className="nowrap">{t.bank || '-'}</td>
                 <td className="row-actions">
                   {t.type === 'internal_transfer' ? (
-                    <button className="icon-btn" onClick={() => unmarkTransfer(t)} title="Not a transfer — count it again"><i className="fas fa-rotate-left"></i></button>
+                    <button className="icon-btn" onClick={() => unmarkTransfer(t)} title="Not a transfer: count it again"><i className="fas fa-rotate-left"></i></button>
                   ) : !isExcludedKind(t.type) ? (
                     <button className="icon-btn" onClick={() => markTransfer(t)} title="Transfer between my own accounts"><i className="fas fa-right-left"></i></button>
                   ) : null}

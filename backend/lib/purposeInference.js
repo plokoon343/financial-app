@@ -10,7 +10,7 @@
 'use strict';
 
 // The purposes the model may choose from, each mapped to the category we'd apply.
-// A closed set so a proposal can be validated deterministically — anything off it is
+// A closed set so a proposal can be validated deterministically: anything off it is
 // rejected. Kept human-readable so it reads well in the ledger and insights.
 const PURPOSES = [
   { id: 'rent', label: 'Rent', category: 'Rent & Housing' },
@@ -28,7 +28,7 @@ const PURPOSES = [
 const PURPOSE_IDS = PURPOSES.map((p) => p.id);
 const purposeById = (id) => PURPOSES.find((p) => p.id === id) || null;
 
-// Categories we treat as "not really categorised" — a transfer whose real purpose is
+// Categories we treat as "not really categorised": a transfer whose real purpose is
 // unknown. These are the rows worth asking the model about.
 const GENERIC_CATEGORIES = new Set(['', 'other', 'others', 'transfer', 'transfers', 'uncategorized', 'uncategorised', 'miscellaneous', 'misc']);
 const isGenericCategory = (c) => GENERIC_CATEGORIES.has((c || '').toString().trim().toLowerCase());
@@ -121,10 +121,10 @@ function buildCandidates(txns, { minCount = 1, maxGroups = 25 } = {}) {
 function buildInferencePrompt(candidates, nairaFmt = (n) => `NGN ${n}`) {
   const lines = candidates.map((c, i) => {
     const dir = c.direction === 'in' ? 'received from' : 'sent to';
-    return `#${i} — ${dir} "${c.counterparty}" · ${c.count}x · ${c.cadence} · avg ${nairaFmt(c.avgAmount)} · total ${nairaFmt(c.totalAmount)}`;
+    return `#${i}: ${dir} "${c.counterparty}" · ${c.count}x · ${c.cadence} · avg ${nairaFmt(c.avgAmount)} · total ${nairaFmt(c.totalAmount)}`;
   });
   return [
-    "These are recurring money movements a Nigerian user hasn't categorised (mostly bank transfers). For EACH ref, infer the most likely purpose from the allowed list, using the counterparty name, amount and how often it happens. If you are not reasonably sure, use 'other'. Never invent a purpose to be helpful — 'other' is expected for unclear ones.",
+    "These are recurring money movements a Nigerian user hasn't categorised (mostly bank transfers). For EACH ref, infer the most likely purpose from the allowed list, using the counterparty name, amount and how often it happens. If you are not reasonably sure, use 'other'. Never invent a purpose to be helpful: 'other' is expected for unclear ones.",
     '',
     ...lines,
   ].join('\n');

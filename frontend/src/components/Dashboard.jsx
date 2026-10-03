@@ -205,7 +205,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
     setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, category } : t)));
 
   // Edit the amount on the review screen (highest-stakes field). Lets the user fix a
-  // low-confidence parse before importing — the correction is then logged (A2/A6).
+  // low-confidence parse before importing: the correction is then logged (A2/A6).
   const updateTxAmount = (idx, value) => {
     const amt = Math.abs(parseFloat(String(value).replace(/,/g, ''))) || 0;
     setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, amount: amt, needsReview: amt <= 0 } : t)));
@@ -213,7 +213,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
   const updateTxType = (idx, type) =>
     setTransactions((prev) => prev.map((t, i) => (i === idx ? { ...t, type } : t)));
 
-  // Addendum B — indices that auto-accept (confident, not duplicate) vs need review.
+  // Addendum B: indices that auto-accept (confident, not duplicate) vs need review.
   const confidentIdx = transactions.map((_, i) => i).filter((i) => !transactions[i].duplicate && transactions[i].confidenceLevel !== 'low' && transactions[i].confidenceLevel !== 'medium');
   const flaggedCount = transactions.filter((t) => !t.duplicate && (t.confidenceLevel === 'low' || t.confidenceLevel === 'medium')).length;
 
@@ -312,7 +312,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
               <textarea
                 value={smsText}
                 onChange={(e) => setSmsText(e.target.value)}
-                placeholder={'Paste your bank alert(s) here — e.g.\n\n"Acct GTBank debited NGN5,000.00 on 03-Jul-2026 to SHOPRITE. Bal NGN12,000.00"\n\nSeparate multiple alerts with a blank line.'}
+                placeholder={'Paste your bank alert(s) here: e.g.\n\n"Acct GTBank debited NGN5,000.00 on 03-Jul-2026 to SHOPRITE. Bal NGN12,000.00"\n\nSeparate multiple alerts with a blank line.'}
                 rows={7}
                 style={{
                   width: '100%', padding: '0.85rem 1rem', backgroundColor: theme.inputBg,
@@ -520,12 +520,12 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                 : <i className="fas fa-triangle-exclamation" style={{ color: '#f59e0b', marginTop: 2, flexShrink: 0 }} aria-hidden="true"></i>}
               <div>
                 <div style={{ fontWeight: 700, color: theme.labelColor, fontSize: '0.86rem' }}>
-                  {meta.reconciliation.ok ? 'Balances with your statement' : "Doesn't balance — review carefully"}
+                  {meta.reconciliation.ok ? 'Balances with your statement' : "Doesn't balance: review carefully"}
                 </div>
                 <div style={{ color: theme.labelColor, opacity: 0.8, fontSize: '0.78rem', marginTop: 2, lineHeight: 1.5 }}>
                   {meta.reconciliation.ok
                     ? `Opening ${fmtNaira(meta.reconciliation.openingBalance || 0)} + ${fmtNaira(meta.reconciliation.credits)} in − ${fmtNaira(meta.reconciliation.debits)} out = closing ${fmtNaira(meta.reconciliation.closingBalance || 0)}.`
-                    : `We read a closing balance of ${fmtNaira(meta.reconciliation.closingBalance || 0)} but the transactions add up to ${fmtNaira(meta.reconciliation.computedClosing || 0)} (off by ${fmtNaira(Math.abs(meta.reconciliation.difference || 0))}). A transaction may be missing or misread${meta.reconciliation.firstDivergenceIndex != null ? ` — starting around row ${meta.reconciliation.firstDivergenceIndex + 1}` : ''}.`}
+                    : `We read a closing balance of ${fmtNaira(meta.reconciliation.closingBalance || 0)} but the transactions add up to ${fmtNaira(meta.reconciliation.computedClosing || 0)} (off by ${fmtNaira(Math.abs(meta.reconciliation.difference || 0))}). A transaction may be missing or misread${meta.reconciliation.firstDivergenceIndex != null ? `: starting around row ${meta.reconciliation.firstDivergenceIndex + 1}` : ''}.`}
                 </div>
               </div>
             </div>
@@ -555,7 +555,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                       {tx.internal && <span title={tx.internalReason || "Won't count as income or spending"} style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(19, 157, 160,0.15)', color: '#139DA0', padding: '1px 5px', borderRadius: '4px' }}>🔁 Internal</span>}
                       {tx.duplicate && <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>Dup</span>}
                       {!tx.duplicate && (tx.confidenceLevel === 'low' || tx.confidenceLevel === 'medium') && (
-                        <span title="We weren't fully sure of this row — please check it" style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>⚠ check</span>
+                        <span title="We weren't fully sure of this row: please check it" style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>⚠ check</span>
                       )}
                     </td>
                     <td style={{ padding: '0.5rem 0.7rem', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
@@ -563,7 +563,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                         value={tx.amount === 0 ? 0 : (tx.amount || '')}
                         onChange={(v) => updateTxAmount(idx, v)}
                         placeholder="0.00"
-                        title={(tx.needsReview || tx.confidenceLevel === 'low') ? 'We were unsure of this amount — please check it' : 'Edit amount'}
+                        title={(tx.needsReview || tx.confidenceLevel === 'low') ? 'We were unsure of this amount: please check it' : 'Edit amount'}
                         style={{
                           width: '92px', padding: '3px 6px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, textAlign: 'right',
                           color: tx.type === 'income' ? '#16a34a' : '#e53e3e',

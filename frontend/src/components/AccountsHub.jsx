@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Loader } from './Logo';
 import { useServerFeatures } from '../lib/useServerFeatures';
 
-// "Accounts & alerts" hub — folds the three former Banking pages (My Accounts,
+// "Accounts & alerts" hub: folds the three former Banking pages (My Accounts,
 // Email Forwarding, Connect Bank) into one tabbed page, so setting up where your
 // transactions come from lives in a single place. The old /connect-bank and
 // /email-forwarding routes redirect here with the matching ?tab=. Email is given

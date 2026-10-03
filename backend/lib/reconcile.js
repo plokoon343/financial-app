@@ -1,12 +1,12 @@
-// Balance reconciliation (spec A5) — the correctness oracle for statement imports.
+// Balance reconciliation (spec A5): the correctness oracle for statement imports.
 //
 // A statement gives an opening balance, a closing balance, and every transaction
 // between. Therefore:
 //
 //     opening + Σ(credits) − Σ(debits)  ==  closing
 //
-// If that equation doesn't hold, the import is untrustworthy — a row was dropped,
-// duplicated, or misparsed — and we know it WITHOUT a human checking. This is the
+// If that equation doesn't hold, the import is untrustworthy: a row was dropped,
+// duplicated, or misparsed, and we know it WITHOUT a human checking. This is the
 // single most valuable accuracy tool for statements, and it works even for a bank
 // whose format we've never seen: the balance math validates the import regardless.
 //
@@ -41,7 +41,7 @@ function reconcile({ transactions = [], openingBalance = null, closingBalance = 
     reason: 'not enough balance information on the statement to verify',
   };
 
-  // The equation check — the strong, independent test. Needs BOTH an opening and a
+  // The equation check: the strong, independent test. Needs BOTH an opening and a
   // closing balance that were read from the statement (not from the rows we parsed).
   if (isNum(openingBalance) && isNum(closingBalance)) {
     const computed = round2(openingBalance + net);
@@ -52,10 +52,10 @@ function reconcile({ transactions = [], openingBalance = null, closingBalance = 
     result.ok = Math.abs(diff) < 0.01;
     result.reason = result.ok
       ? 'balanced: opening + credits − debits = closing'
-      : `off by ${diff.toFixed(2)} — a transaction is likely missing, duplicated, or misread`;
+      : `off by ${diff.toFixed(2)}: a transaction is likely missing, duplicated, or misread`;
   }
 
-  // Error localisation — walk the running balance row by row against each row's own
+  // Error localisation: walk the running balance row by row against each row's own
   // stated balance; the first mismatch points at (or just before) the bad row. Only
   // meaningful when we have an opening balance and every row carries a balance.
   if (isNum(openingBalance)) {

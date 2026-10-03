@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import RichTextEditor from './RichTextEditor';
 
-// Newsletter composer — usable standalone (route /newsletter, for a scoped
+// Newsletter composer: usable standalone (route /newsletter, for a scoped
 // newsletter-editor) or embedded in the Admin dashboard. Visual editor, live audience
 // count, test-to-self, confirmed send-to-all, and recent-sends history.
 export default function NewsletterComposer({ embedded = false }) {
@@ -32,7 +32,7 @@ export default function NewsletterComposer({ embedded = false }) {
     setBusy('test');
     try {
       const { data } = await axios.post(`${API_URL}/api/admin/newsletter/test`, { subject, html: body }, headers);
-      flash(`Test sent to ${data.to} — check your inbox.`);
+      flash(`Test sent to ${data.to}: check your inbox.`);
     } catch (e) { flash(e.response?.data?.message || 'Test send failed.', 'error'); }
     finally { setBusy(''); }
   };
@@ -48,7 +48,7 @@ export default function NewsletterComposer({ embedded = false }) {
       const fd = new FormData(); fd.append('file', file);
       const { data } = await axios.post(`${API_URL}/api/admin/newsletter/import-docx`, fd, { headers: { Authorization: headers.headers.Authorization } });
       setBody(data.html || '');
-      flash('Word doc imported — review and tidy it up below, then send.');
+      flash('Word doc imported: review and tidy it up below, then send.');
     } catch (e2) { flash(e2.response?.data?.message || 'Could not import that document.', 'error'); }
     finally { setBusy(''); }
   };
@@ -85,7 +85,7 @@ export default function NewsletterComposer({ embedded = false }) {
       {!embedded && (
         <div className="nl-head">
           <h2><i className="fas fa-paper-plane"></i> Newsletter</h2>
-          <p>Write an update and send it to everyone on the Automonie waitlist. Format it like a document — no code needed. Always send yourself a test first.</p>
+          <p>Write an update and send it to everyone on the Automonie waitlist. Format it like a document: no code needed. Always send yourself a test first.</p>
         </div>
       )}
 
@@ -108,7 +108,7 @@ export default function NewsletterComposer({ embedded = false }) {
         <input ref={docxRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: 'none' }} onChange={importDocx} />
       </div>
       <RichTextEditor value={body} onChange={setBody} disabled={!!busy} uploadImage={uploadImage} />
-      <div className="nl-hint">Tip: use the image button to add graphics. Some fonts (like Poppins) fall back to a standard font in Gmail/Outlook — that&apos;s normal for email. Every email includes an unsubscribe link automatically.</div>
+      <div className="nl-hint">Tip: use the image button to add graphics. Some fonts (like Poppins) fall back to a standard font in Gmail/Outlook: that&apos;s normal for email. Every email includes an unsubscribe link automatically.</div>
 
       <div className="nl-actions">
         <button className="nl-test" onClick={sendTest} disabled={!!busy || !ready}>

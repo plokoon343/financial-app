@@ -1,7 +1,7 @@
 'use strict';
 
 // Cross-source dedupe scoring (Spec 2). Different sources describe the same
-// transaction differently, so we can't match on exact IDs — we build a fuzzy
+// transaction differently, so we can't match on exact IDs: we build a fuzzy
 // fingerprint and score candidate pairs.
 //
 //   matchScore(fingerprint(a), fingerprint(b)) -> 0..110
@@ -42,7 +42,7 @@ function normalizeCounterparty(raw) {
 
 const dayDiff = (a, b) => Math.abs(Math.round((new Date(a) - new Date(b)) / 86400000));
 
-// Jaro-Winkler similarity (0..1) — no dependency.
+// Jaro-Winkler similarity (0..1): no dependency.
 function jaroWinkler(s1, s2) {
   if (s1 === s2) return 1;
   if (!s1 || !s2) return 0;
@@ -90,7 +90,7 @@ function matchScore(a, b) {
   if (a.direction !== b.direction) return 0;
   // Date is near-mandatory: copies of the same transaction land on the same day or
   // within a day or two (posting vs value date). Beyond a few days it's a distinct
-  // transaction that merely shares an amount — never merge those.
+  // transaction that merely shares an amount: never merge those.
   const dd = (a.date && b.date) ? dayDiff(a.date, b.date) : 99;
   if (dd > 3) return 0;
   let score = 60; // 50 amount + 10 direction

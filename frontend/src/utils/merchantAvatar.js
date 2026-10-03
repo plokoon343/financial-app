@@ -1,4 +1,4 @@
-// Merchant / category / P2P avatars (spec Addendum C) — web mirror of the mobile
+// Merchant / category / P2P avatars (spec Addendum C): web mirror of the mobile
 // txnDisplay avatar system. A recognisable leading visual for a transaction row
 // WITHOUT fetching any third-party favicon at runtime (the addendum's hard rule):
 // a bundled merchant registry (brand colour + a FontAwesome glyph we already ship),

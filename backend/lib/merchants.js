@@ -50,8 +50,8 @@ const MERCHANTS = [
 
   // ── Savings & investing platforms ──
   [b('piggyvest|piggy ?vest|cowrywise|cowry ?wise|risevest|rise ?vest|bamboo|trove|chaka|owealth|palmpay ?cashbox|target ?savings|ajo|esusu|thrift'), 'Savings', 'Savings/Investing'],
-  // (Loans/BNPL like OKash, FairMoney, Carbon are handled as transaction KINDS —
-  //  loan_in / debt_repayment — by lib/txnKinds, not as a spending category.)
+  // (Loans/BNPL like OKash, FairMoney, Carbon are handled as transaction KINDS
+  //  loan_in / debt_repayment: by lib/txnKinds, not as a spending category.)
 
   // ── Healthcare & pharmacy ──
   [b('medplus|med ?plus|healthplus|health ?plus|pharmacy|chemist|hospital|clinic|hmo|reddington|lagoon ?hospital|synlab|clinix'), 'Healthcare', 'Healthcare'],
@@ -67,7 +67,7 @@ const MERCHANTS = [
 ];
 
 // Returns { category, merchant } for the first matching known merchant/biller, or
-// null. Direction-agnostic — the caller decides whether to apply it (merchants are
+// null. Direction-agnostic: the caller decides whether to apply it (merchants are
 // overwhelmingly expense-side).
 function matchMerchant(description = '') {
   const d = (description || '').toString();

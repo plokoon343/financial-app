@@ -217,7 +217,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
         </button>
       </div>
 
-      {/* Better than last month (C5) — only when earned */}
+      {/* Better than last month (C5): only when earned */}
       {monthWin && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 16, padding: '14px 16px' }}>
           <i className="fas fa-arrow-trend-down" style={{ color: '#10b981' }} aria-hidden="true"></i>
@@ -239,7 +239,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
           <div>
             <strong style={{ color: 'var(--text-primary)' }}>{fmtNaira(bankCharges.total)} in bank charges this month</strong>
             <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 2 }}>
-              {bankCharges.count} fee{bankCharges.count === 1 ? '' : 's'} — SMS alerts, transfer charges, stamp duty and the like.
+              {bankCharges.count} fee{bankCharges.count === 1 ? '' : 's'}: SMS alerts, transfer charges, stamp duty and the like.
             </div>
           </div>
         </div>
@@ -257,7 +257,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
         {freezeSaved && (
           <span style={{ ...chipStyle, color: '#10b981', borderColor: '#10b981' }}>
             <i className="fas fa-snowflake" style={{ fontSize: 16, color: '#10b981' }} aria-hidden="true"></i>
-            Streak saved — free freeze used
+            Streak saved: free freeze used
           </span>
         )}
         <span style={chipStyle}>

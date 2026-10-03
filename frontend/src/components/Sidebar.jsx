@@ -22,7 +22,7 @@ const Sidebar = () => {
     navigate('/login');
   };
 
-  // Grouped navigation — the five intents (web parity with the mobile 5-tab nav:
+  // Grouped navigation: the five intents (web parity with the mobile 5-tab nav:
   // Home / Money / Grow / Insights / You). Tools that will later fold into a hub as
   // tabs (Smart Categorise, Track Cash, the Insights analyses, the account/alert
   // pages) are grouped under their destination now so the sidebar already reads that
@@ -45,7 +45,7 @@ const Sidebar = () => {
     { title: 'Insights', items: [
       { path: '/insights', label: 'Insights', icon: 'fa-chart-pie' },
       { path: '/recap', label: 'Recaps', icon: 'fa-film' },
-      // Money Wrapped is a year-in-review — only surface it in December.
+      // Money Wrapped is a year-in-review: only surface it in December.
       ...(new Date().getMonth() === 11 ? [{ path: '/wrapped', label: 'Money Wrapped', icon: 'fa-champagne-glasses' }] : []),
     ]},
     { title: 'You', items: [

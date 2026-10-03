@@ -10,7 +10,7 @@ import { startProCheckout } from '../lib/pro';
 
 const HEADLINES = {
   report: { title: 'Export your financial report', sub: 'Download a clean, shareable PDF for visa, rent or loan applications.' },
-  cancel: { title: 'Cancel subscriptions with guidance', sub: "Get exact cancellation steps for each provider — and we'll confirm the charge actually stops." },
+  cancel: { title: 'Cancel subscriptions with guidance', sub: "Get exact cancellation steps for each provider, and we'll confirm the charge actually stops." },
   default: { title: 'Automonie Pro', sub: 'Unlock the tools that turn insight into action.' },
 };
 
@@ -34,7 +34,7 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
     'Faster automatic bank sync',
   ];
   const onUpgrade = async () => {
-    if (!status?.checkoutAvailable) { alert("Pro is launching soon — we'll let you know the moment it's live."); return; }
+    if (!status?.checkoutAvailable) { alert("Pro is launching soon: we'll let you know the moment it's live."); return; }
     setBusy(true);
     try { await startProCheckout(1); } // redirects to Paystack
     catch { alert('Could not start checkout. Try again.'); setBusy(false); }
@@ -50,7 +50,7 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
           {features.map((f) => <li key={f}><i className="fas fa-circle-check"></i> {f}</li>)}
         </ul>
         <button className="pro-cta" onClick={onUpgrade} disabled={busy}>
-          {busy ? 'Starting…' : status?.priceNaira ? `Get Pro — ${fmtNaira(status.priceNaira)}/mo` : 'Get Pro'}
+          {busy ? 'Starting…' : status?.priceNaira ? `Get Pro: ${fmtNaira(status.priceNaira)}/mo` : 'Get Pro'}
         </button>
         <button className="pro-later" onClick={onClose}>Maybe later</button>
       </div>

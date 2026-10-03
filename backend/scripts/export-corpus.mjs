@@ -1,11 +1,11 @@
 /*
  * Correction-log → golden-corpus exporter (spec A2: "every correction logged in the
- * preview gate is a labelled example — that's exactly what a corpus entry is").
+ * preview gate is a labelled example: that's exactly what a corpus entry is").
  *
  * Reads ParseCorrection rows (real SMS/email alerts the user reviewed, with the
  * fields they finalised) and appends them as new cases to the mobile corpus at
  * finpilot-mobile/corpus/sms/<bank>.jsonl. Deduplicates against what's already there
- * by exact raw text, so it's safe to re-run — it only ever adds genuinely new cases.
+ * by exact raw text, so it's safe to re-run: it only ever adds genuinely new cases.
  * After running, `npm run parser:accuracy` in the mobile repo validates the parser
  * against the grown corpus, and you commit the corpus changes.
  *

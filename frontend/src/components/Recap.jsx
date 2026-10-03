@@ -4,7 +4,7 @@ import { API_URL } from '../config';
 import { prettyMerchant, computeArchetype } from '../lib/insights';
 
 // Recaps (web parity with the mobile /recap screen). Spotify-style period "stories"
-// — daily / weekly / monthly / yearly — computed client-side from the user's own
+//, daily / weekly / monthly / yearly, computed client-side from the user's own
 // transactions, gated by the server release config (/api/recaps/config). A hub lists
 // the recaps that are live right now; opening one plays the same gradient carousel as
 // Money Wrapped. Never shows a naira figure on the shareable slides.
@@ -98,7 +98,7 @@ function buildSlides(all, meta) {
     else if (spentDays.size >= 5 && win !== 'day') out.push({ key: 'active', colors: ['#f97316', '#c2410c'], fa: 'fa-bolt', eyebrow: 'BUSY BEE', big: `${spentDays.size} spending days`, sub: 'Your card saw the streets this period.' });
   }
 
-  out.push({ key: 'share', colors: ['#ec4899', '#9d174d'], fa: 'fa-share-nodes', eyebrow: 'THAT’S A WRAP', big: 'Share this\nrecap', sub: 'Personality only — never your figures. Safe for the group chat.', share: true });
+  out.push({ key: 'share', colors: ['#ec4899', '#9d174d'], fa: 'fa-share-nodes', eyebrow: 'THAT’S A WRAP', big: 'Share this\nrecap', sub: 'Personality only: never your figures. Safe for the group chat.', share: true });
   return { heading, slides: out };
 }
 
@@ -123,7 +123,7 @@ function RecapPlayer({ all, meta, onClose }) {
       : `My ${heading} on Automonie → automonie.com`;
     try {
       if (navigator.share) await navigator.share({ text });
-      else { await navigator.clipboard.writeText(text); flash('Copied — paste it anywhere'); }
+      else { await navigator.clipboard.writeText(text); flash('Copied: paste it anywhere'); }
     } catch { /* cancelled */ }
   };
 
@@ -180,7 +180,7 @@ export default function Recap() {
     <div className="rc-page">
       <div className="rc-head">
         <h2><i className="fas fa-clapperboard"></i> Your recaps</h2>
-        <p>Spotify-style stories of your money — your standout merchant, where it went, your spending personality. Personality only, never your figures.</p>
+        <p>Spotify-style stories of your money: your standout merchant, where it went, your spending personality. Personality only, never your figures.</p>
       </div>
 
       {loading ? (

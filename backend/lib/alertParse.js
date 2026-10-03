@@ -1,9 +1,9 @@
 // Bank-alert parsing helpers (spec: "perfect SMS + statement/email ingestion").
 // Two pieces, both pure + dependency-free so they can be corpus-tested:
-//   1) parseLabeledAlert — structured "Label : Value" alerts (GTBank GeNS and any
+//   1) parseLabeledAlert: structured "Label : Value" alerts (GTBank GeNS and any
 //      bank that lists Amount/Description/direction as fields). Near-100% reliable
 //      because the direction and amount are stated explicitly, not inferred.
-//   2) detectDirection — tiered credit/debit inference for free-text alerts, where
+//   2) detectDirection: tiered credit/debit inference for free-text alerts, where
 //      the direction has to be read from wording. Strong signals win; the noisy
 //      generics only break a tie, so an email footer can't flip a real credit.
 

@@ -47,7 +47,7 @@ const SubscriptionManager = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  // Assisted cancellation is Pro-gated (C1) — know upfront, and finalise any Pro
+  // Assisted cancellation is Pro-gated (C1): know upfront, and finalise any Pro
   // checkout the user just returned from.
   useEffect(() => {
     const fetchStatus = () => axios.get(`${API_URL}/api/billing/status`, authHeaders()).then((r) => setIsPro(!!r.data.isPro)).catch(() => {});
@@ -109,13 +109,13 @@ const SubscriptionManager = () => {
     }
   };
 
-  // C1 — assisted cancellation. Start records the baseline we verify against; the
+  // C1: assisted cancellation. Start records the baseline we verify against; the
   // guide modal shows the exact steps; then we watch the ledger to confirm it stopped.
   const startCancel = async (s) => {
     setCancelBusy(true);
     try {
       await axios.post(`${API_URL}/api/subscriptions/${s._id}/start-cancel`, {}, authHeaders());
-      flash("Tracking it — we'll confirm the charge stops.");
+      flash("Tracking it: we'll confirm the charge stops.");
       setCancelSub(null); load();
     } catch (err) {
       if (err.response?.status === 402) { setCancelSub(null); setPaywall(true); return; }
@@ -326,7 +326,7 @@ const SubscriptionManager = () => {
         )}
       </div>
 
-      {/* C1 — cancellation guide modal */}
+      {/* C1: cancellation guide modal */}
       {cancelSub && cancelSub.guide && (
         <div className="cancel-overlay" onClick={() => setCancelSub(null)}>
           <div className="cancel-modal" onClick={(e) => e.stopPropagation()}>
@@ -336,7 +336,7 @@ const SubscriptionManager = () => {
             </div>
             <span className="cancel-method">{methodLabel(cancelSub.guide.method)}</span>
             {!cancelSub.guide.matched && (
-              <p className="cancel-note">We don't have exact steps for this one, so here's the reliable general way — the last step stops it even if the provider makes cancelling hard.</p>
+              <p className="cancel-note">We don't have exact steps for this one, so here's the reliable general way: the last step stops it even if the provider makes cancelling hard.</p>
             )}
             <ol className="cancel-steps">
               {cancelSub.guide.steps.map((step, i) => <li key={i}>{step}</li>)}
@@ -349,9 +349,9 @@ const SubscriptionManager = () => {
             <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 14 }}
               disabled={cancelBusy}
               onClick={() => (cancelSub.status === 'cancelling' ? setCancelSub(null) : startCancel(cancelSub))}>
-              {cancelBusy ? 'Starting…' : cancelSub.status === 'cancelling' ? 'Done — close' : "I've done these — track it"}
+              {cancelBusy ? 'Starting…' : cancelSub.status === 'cancelling' ? 'Done, close' : "I've done these, track it"}
             </button>
-            <p className="cancel-foot">After you cancel, we'll watch your transactions and tell you if it charges again — so you know it actually stopped.</p>
+            <p className="cancel-foot">After you cancel, we'll watch your transactions and tell you if it charges again, so you know it actually stopped.</p>
           </div>
         </div>
       )}

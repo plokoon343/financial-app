@@ -4,7 +4,7 @@
 // into the share API candidate here.
 //
 // NON-NEGOTIABLE: amount and debit/credit direction come ONLY from the deterministic
-// parse. This module never invents either — if the parse didn't produce a clean
+// parse. This module never invents either: if the parse didn't produce a clean
 // amount, toCandidate returns null (→ the endpoint answers 422 "no transaction").
 
 'use strict';
@@ -34,7 +34,7 @@ function toCandidate(parsed) {
 
 // Confidence tier for the confirm sheet. 'high' = clean deterministic parse (one-tap);
 // otherwise 'low' so the sheet opens with the uncertain fields flagged for the user.
-// (Anything below a fully-confident deterministic parse is 'low' — the AI never fills
+// (Anything below a fully-confident deterministic parse is 'low': the AI never fills
 // the gap.)
 function confidenceTier(parsed) {
   return parsed && parsed.confidence === 'high' && Number(parsed.amount) > 0 ? 'high' : 'low';

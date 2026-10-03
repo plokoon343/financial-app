@@ -3,7 +3,7 @@ import { useSearchParams, useOutletContext } from 'react-router-dom';
 import { Loader } from './Logo';
 import { FEATURES } from '../config/features';
 
-// "Insights" hub — folds the former standalone analysis pages (Spending insights,
+// "Insights" hub: folds the former standalone analysis pages (Spending insights,
 // Financial Health, Cashflow, Net Worth) into one tabbed page. The old routes
 // redirect here with the matching ?tab=. Read-only analysis in one place.
 const Insights = lazy(() => import('./Insights'));

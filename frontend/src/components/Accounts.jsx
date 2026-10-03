@@ -4,7 +4,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { useAccountScope, scopeKey } from '../contexts/AccountScope';
 
-// Bank accounts (spec Addendum A, slices 2 & 3) — web parity with the mobile screen.
+// Bank accounts (spec Addendum A, slices 2 & 3): web parity with the mobile screen.
 // Names the accounts we fingerprinted from imports/alerts, and lets the user tag any
 // sender the parser couldn't map to a bank (the learn-unknown-senders flywheel).
 
@@ -70,7 +70,7 @@ export default function Accounts() {
     try {
       const { data } = await axios.post(`${API_URL}/api/senders/tag`, { senderKey, bankCode }, headers);
       setUnknown((prev) => prev.filter((u) => u.senderKey !== senderKey));
-      flash(data.updated ? `Tagged — ${data.updated} transaction(s) updated` : 'Tagged');
+      flash(data.updated ? `Tagged: ${data.updated} transaction(s) updated` : 'Tagged');
       const ac = await axios.get(`${API_URL}/api/accounts`, headers).catch(() => null);
       if (ac) { setAccounts(ac.data.accounts || []); setDrafts((d) => ({ ...Object.fromEntries((ac.data.accounts || []).map((a) => [a.id, a.label])), ...d })); }
     } catch { setError('Could not tag that sender.'); }
@@ -161,15 +161,15 @@ export default function Accounts() {
         <>
           {unnamed.length > 0 && (
             <>
-              <h3 className="ac-section">New — name {unnamed.length === 1 ? 'this account' : 'these accounts'}</h3>
+              <h3 className="ac-section">New: name {unnamed.length === 1 ? 'this account' : 'these accounts'}</h3>
               {unnamed.map((a) => <AccountCard key={a.id} a={a} prompt />)}
             </>
           )}
 
           {unknown.length > 0 && (
             <>
-              <h3 className="ac-section">Unknown banks — help us learn</h3>
-              <p className="ac-sub">We couldn’t tell which bank these alerts came from. Tag one and every alert from it — past and future — sorts itself out.</p>
+              <h3 className="ac-section">Unknown banks: help us learn</h3>
+              <p className="ac-sub">We couldn’t tell which bank these alerts came from. Tag one and every alert from it, past and future, sorts itself out.</p>
               {unknown.map((u) => (
                 <div key={u.senderKey} className="ac-card ac-unknown">
                   <div className="ac-top">
@@ -181,7 +181,7 @@ export default function Accounts() {
                   </div>
                   {u.suggestion && (
                     <button className="ac-suggest" disabled={busy === u.senderKey} onClick={() => tagSender(u.senderKey, u.suggestion.bankCode)}>
-                      <i className="fas fa-wand-magic-sparkles"></i> Others say this is {u.suggestion.bankName} — use it
+                      <i className="fas fa-wand-magic-sparkles"></i> Others say this is {u.suggestion.bankName}: use it
                     </button>
                   )}
                   <div className="ac-actions">

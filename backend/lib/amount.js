@@ -1,6 +1,6 @@
 'use strict';
 
-// Amount normalisation — the single source of truth for turning any human/parsed
+// Amount normalisation: the single source of truth for turning any human/parsed
 // amount string into a number. Used by every input path (voice, SMS, statement,
 // manual) so a "5,000" never becomes "50,000".
 //
@@ -8,7 +8,7 @@
 //
 // Rules: strips currency (₦, N, NGN, naira); applies k/m/b (and word) multipliers;
 // understands English number words incl. compounds ("two thousand five hundred");
-// strips thousands separators; NEVER guesses on ambiguity — returns value:null so
+// strips thousands separators; NEVER guesses on ambiguity: returns value:null so
 // the caller can send the field back to the user empty.
 
 const MULT = { k: 1e3, thousand: 1e3, m: 1e6, million: 1e6, b: 1e9, billion: 1e9 };
@@ -78,7 +78,7 @@ function parseNumeric(raw) {
   if (!hasComma && dots === 1) {
     const [i, d] = s.split('.');
     if (!/^\d+$/.test(i) || !/^\d+$/.test(d)) return { reason: 'malformed' };
-    // "1.500": three trailing digits with no comma anywhere is ambiguous — could be
+    // "1.500": three trailing digits with no comma anywhere is ambiguous, could be
     // 1500 (dot as a thousands sep) or 1.5. Don't guess.
     if (d.length === 3) return { reason: 'ambiguous_dot_thousands' };
     return { value: parseFloat(s) };

@@ -15,7 +15,7 @@ const TRUST = [
 ];
 
 // The "What brings you here?" options → stored as primaryGoal, which shapes the first
-// screen. NOT income — that's asked later, after the first insight lands (IncomePrompt).
+// screen. NOT income: that's asked later, after the first insight lands (IncomePrompt).
 const REASONS = [
   { key: 'See where my money goes', icon: 'fa-eye' },
   { key: 'Stop overspending', icon: 'fa-arrow-trend-down' },
@@ -64,7 +64,7 @@ const Onboarding = () => {
   };
 
   // Finish first-run: save the answer, then hand off to the import flow so the first
-  // thing the user does is see their own money — never a blank dashboard.
+  // thing the user does is see their own money: never a blank dashboard.
   const finish = async (primaryGoal) => {
     setSaving(true);
     await persist(primaryGoal);

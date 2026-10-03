@@ -160,8 +160,8 @@ function unwrapForwarded(rawBody) {
 // Handles both auto-forward/direct (envelope From is already the bank) and a manual
 // Forward (From is the user; the bank is inside the quoted forwarded header). Returns
 // { sender, fullText, bodyOnly } for an allowed bank, or null to drop the mail.
-//   fullText — parse input for a single alert (subject kept: banks put amounts there)
-//   bodyOnly — no subject, for the digest splitter
+//   fullText: parse input for a single alert (subject kept: banks put amounts there)
+//   bodyOnly: no subject, for the digest splitter
 function resolveBankEmail({ subject = '', text = '', html = '', from = '' } = {}, extra = []) {
   if (isAllowedSender(from, extra)) {
     return { sender: from, fullText: emailToText({ subject, text, html }), bodyOnly: emailBodyText({ text, html }) };
@@ -179,7 +179,7 @@ function resolveBankEmail({ subject = '', text = '', html = '', from = '' } = {}
 }
 
 // Best plain-text body from a provider payload (prefer text, fall back to HTML),
-// with the quoted tail stripped. Includes the subject — bank alerts often put the
+// with the quoted tail stripped. Includes the subject: bank alerts often put the
 // amount/direction in the subject line.
 function emailToText({ subject = '', text = '', html = '' } = {}) {
   return [(subject || '').trim(), emailBodyText({ text, html })].filter(Boolean).join('\n').trim();
@@ -197,24 +197,24 @@ const DIRECTION_ANY = /\b(debit|credit|debited|credited|dr|cr|withdrawn|withdraw
 function splitEmailAlerts(bodyText) {
   const text = (bodyText || '').trim();
   if (!text) return [];
-  // 1) Blank-line blocks — each block that carries money AND a direction/date cue is
+  // 1) Blank-line blocks: each block that carries money AND a direction/date cue is
   //    its own transaction (banks that stack full alert paragraphs in one mail).
   const blocks = text.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
   const richBlocks = blocks.filter((b) => MONEY_ANY.test(b) && (DIRECTION_ANY.test(b) || DATE_ANY.test(b)));
   if (richBlocks.length >= 2) return richBlocks;
-  // 2) Table rows — a statement/digest puts one transaction per line. Count lines that
+  // 2) Table rows: a statement/digest puts one transaction per line. Count lines that
   //    have money AND a date or direction; if two or more, each such line is a row.
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const txnLines = lines.filter((l) => MONEY_ANY.test(l) && (DATE_ANY.test(l) || DIRECTION_ANY.test(l)));
   if (txnLines.length >= 2) return txnLines;
-  // Single alert (or nothing splittable) — hand back the whole body unchanged.
+  // Single alert (or nothing splittable): hand back the whole body unchanged.
   return [text];
 }
 
 // ── Gmail forwarding confirmation (spec 3.4) ──
 // When a user points Gmail's "Forward a copy" at their inbound address, Gmail sends a
 // one-time confirmation from forwarding-noreply@google.com with a code + a verify
-// link. That mail isn't from a bank, so the allowlist would drop it — instead we
+// link. That mail isn't from a bank, so the allowlist would drop it: instead we
 // detect it and surface the code/link so the user can finish setup without hunting.
 
 // Is this the Gmail forwarding confirmation email?

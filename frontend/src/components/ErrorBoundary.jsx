@@ -59,7 +59,7 @@ class ErrorBoundary extends React.Component {
             <button onClick={() => window.location.reload()} style={btn('solid')}>Reload app</button>
             <button onClick={() => { window.location.href = '/'; }} style={btn('ghost')}>Go to dashboard</button>
           </div>
-          {process.env.NODE_ENV !== 'production' && this.state.error && (
+          {import.meta.env.DEV && this.state.error && (
             <pre style={{
               marginTop: '1.25rem', textAlign: 'left', fontSize: '0.72rem', color: '#e53e3e',
               background: 'rgba(229,62,62,0.08)', padding: '0.75rem', borderRadius: 10, overflow: 'auto', maxHeight: 160,

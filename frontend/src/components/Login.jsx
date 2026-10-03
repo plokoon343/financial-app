@@ -25,7 +25,7 @@ const Login = () => {
   const { login, verifyLoginOtp, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const timedOut = new URLSearchParams(window.location.search).get('timeout') === '1';
-  const googleClientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+  const googleClientId = import.meta.env.REACT_APP_GOOGLE_CLIENT_ID;
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));

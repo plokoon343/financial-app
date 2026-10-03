@@ -6,8 +6,6 @@ import { API_URL } from '../config';
 import { tipsEnabled, setTipsEnabled, resetTips } from '../utils/tips';
 import BetaCard from './BetaCard';
 import { fmtNaira } from '../utils/format';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
@@ -81,7 +79,11 @@ const Settings = () => {
 
   const exportData = async () => {
     try {
-      const { data } = await axios.get(`${API_URL}/api/me/export`, authHeader());
+      const [{ data }, { jsPDF }, { default: autoTable }] = await Promise.all([
+        axios.get(`${API_URL}/api/me/export`, authHeader()),
+        import('jspdf'),
+        import('jspdf-autotable'),
+      ]);
       const doc = new jsPDF();
       const date = (d) => (d ? new Date(d).toLocaleDateString('en-NG') : '');
       let y = 16;

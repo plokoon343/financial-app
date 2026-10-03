@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Pie } from 'react-chartjs-2';
-import { Chart, registerables } from 'chart.js';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { FeatureTip } from './FeatureTip';
 import { fmtNaira as fmtMoney } from '../utils/format';
-Chart.register(...registerables);
+// Category slice colours, led by the brand teal.
+const SLICE_COLORS = ['#139DA0', '#1DD3A8', '#44BC7E', '#f59e0b', '#f97316', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#84cc16', '#ef4444', '#64748b'];
 
 const Budget = () => {
   const currentMonth = new Date().toISOString().slice(0, 7);
@@ -167,60 +167,7 @@ const Budget = () => {
   const totalSpent = budgetData.reduce((sum, b) => sum + b.actualSpent, 0);
   const totalRemaining = totalBudget - totalSpent;
 
-  // Chart.js renders to canvas and can't read CSS variables, so resolve a real
-  // readable color for the current theme.
-  const chartTextColor =
-    (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light')
-      ? '#1a365d' : '#e2e8f0';
-
-  const chartData = {
-    labels: budgetData.map(b => b.category),
-    datasets: [
-      {
-        label: 'Actual Spending',
-        data: budgetData.map(b => b.actualSpent),
-        backgroundColor: [
-          '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
-          '#9966FF', '#FF9F40', '#C9CBCF', '#77DD77',
-          '#FF6961', '#84B6F4', '#FDFD96', '#AEC6CF'
-        ],
-        borderWidth: 2,
-        borderColor: 'rgba(255, 255, 255, 0.8)'
-      }
-    ]
-  };
-
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'bottom',
-        labels: {
-          padding: 20,
-          font: {
-            size: 12,
-            family: 'Inter, sans-serif'
-          },
-          color: chartTextColor
-        }
-      },
-      title: {
-        display: true,
-        text: 'Spending by Category',
-        font: {
-          size: 18,
-          family: 'Poppins, sans-serif',
-          weight: '600'
-        },
-        color: chartTextColor,
-        padding: {
-          top: 10,
-          bottom: 30
-        }
-      }
-    }
-  };
+  const pieData = budgetData.filter((b) => b.actualSpent > 0).map((b) => ({ name: b.category, value: b.actualSpent }));
 
   return (
     <div className="budget-page">
@@ -261,12 +208,12 @@ const Budget = () => {
       {!loading && budgets.length === 0 && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-between',
-          background: 'linear-gradient(135deg, rgba(0,135,81,0.10), rgba(99,102,241,0.08))',
-          border: '1px solid rgba(0,135,81,0.25)', borderRadius: 16, padding: '1.1rem 1.25rem', margin: '0 0 1.25rem',
+          background: 'linear-gradient(135deg, rgba(19, 157, 160,0.10), rgba(19, 157, 160,0.08))',
+          border: '1px solid rgba(19, 157, 160,0.25)', borderRadius: 16, padding: '1.1rem 1.25rem', margin: '0 0 1.25rem',
         }}>
           <div style={{ maxWidth: '46ch' }}>
             <h3 style={{ margin: '0 0 0.35rem', fontSize: '1.05rem', color: 'var(--text-primary, #1a365d)' }}>
-              <i className="fas fa-graduation-cap" style={{ marginRight: 8, color: '#008751' }}></i>
+              <i className="fas fa-graduation-cap" style={{ marginRight: 8, color: '#139DA0' }}></i>
               New corper? Start with the ₦77k allawee budget
             </h3>
             <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary, #5b6b82)', lineHeight: 1.5 }}>
@@ -405,10 +352,19 @@ const Budget = () => {
       )}
 
       {/* Chart Section */}
-      {budgetData.length > 0 && (
+      {pieData.length > 0 && (
         <div className="budget-chart-section">
           <div className="chart-container glass-effect">
-            <Pie data={chartData} options={chartOptions} />
+            <h3 className="budget-chart-title">Spending by category</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="80%" paddingAngle={2}>
+                  {pieData.map((d, i) => <Cell key={d.name} fill={SLICE_COLORS[i % SLICE_COLORS.length]} stroke="none" />)}
+                </Pie>
+                <Tooltip formatter={(v) => fmtMoney(v)} />
+                <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: 12 }} />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         </div>
       )}
@@ -551,7 +507,7 @@ const Budget = () => {
         </div>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         /* Budget detail/edit popup */
         .budget-modal-overlay {
           position: fixed; inset: 0; background: rgba(0,0,0,0.6);
@@ -592,7 +548,7 @@ const Budget = () => {
           margin: 0 auto;
         }
         
-        .page-header {
+        .budget-page .page-header {
           text-align: center;
           margin-bottom: 24px;
           padding: 18px 14px;
@@ -654,31 +610,7 @@ const Budget = () => {
           outline: none;
         }
 
-        /* Button Base Styles */
-        .btn-primary {
-          background: var(--gradient-primary);
-          color: white;
-          border: none;
-          border-radius: var(--radius-md);
-          font-weight: 600;
-          cursor: pointer;
-          transition: all var(--transition-base);
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          font-size: 1rem;
-          font-family: var(--font-body);
-          position: relative;
-          overflow: hidden;
-        }
-        
-        .btn-primary:hover {
-          transform: translateY(-2px);
-          box-shadow: var(--shadow-lg);
-        }
-        
-        /* Add Budget Button */
+/* Add Budget Button */
         .add-budget-btn {
           padding: 14px 28px;
           background: var(--gradient-primary);
@@ -746,10 +678,10 @@ const Budget = () => {
         
         @keyframes pulseGlow {
           0%, 100% { 
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3); 
+            box-shadow: 0 10px 30px rgba(19, 157, 160, 0.3); 
           }
           50% { 
-            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.6); 
+            box-shadow: 0 10px 40px rgba(19, 157, 160, 0.6); 
           }
         }
         
@@ -799,7 +731,7 @@ const Budget = () => {
         }
         
         .summary-icon.total-remaining {
-          background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+          background: linear-gradient(135deg, #44BC7E 0%, #1DD3A8 100%);
         }
         
         .summary-content h3 {
@@ -821,7 +753,7 @@ const Budget = () => {
         }
         
         .summary-amount.positive {
-          color: #43e97b;
+          color: #44BC7E;
         }
         
         /* Budget Form Styles */
@@ -837,12 +769,12 @@ const Budget = () => {
           animation: slideInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        .form-header {
+        .budget-page .form-header {
           text-align: center;
           margin-bottom: 30px;
         }
         
-        .form-header h3 {
+        .budget-page .form-header h3 {
           font-family: var(--font-heading);
           font-size: 1.8rem;
           margin-bottom: 8px;
@@ -853,34 +785,16 @@ const Budget = () => {
           gap: 10px;
         }
         
-        .form-header p {
+        .budget-page .form-header p {
           color: var(--text-secondary);
           font-size: 0.95rem;
         }
-        
-        .form-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-          gap: 20px;
-          margin-bottom: 30px;
-        }
-        
-        .form-group label {
-          display: block;
-          margin-bottom: 8px;
-          font-weight: 600;
-          color: var(--text-primary);
-          font-size: 0.95rem;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        
-        .input-with-icon {
+
+.budget-page .input-with-icon {
           position: relative;
         }
         
-        .input-icon {
+        .budget-page .input-icon {
           position: absolute;
           left: 15px;
           top: 50%;
@@ -935,56 +849,14 @@ const Budget = () => {
         input[type="number"].form-control {
           -moz-appearance: textfield;
         }
-        
-        /* Form Buttons */
-        .form-buttons {
-          display: flex;
-          gap: 15px;
-          justify-content: flex-end;
-          margin-top: 20px;
-        }
-        
-        .btn-submit, .btn-cancel {
-          padding: 14px 28px;
-          border: none;
-          border-radius: var(--radius-md);
-          font-weight: 600;
-          cursor: pointer;
-          transition: all var(--transition-base);
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 1rem;
-          font-family: var(--font-body);
-        }
-        
-        .btn-submit {
-          background: var(--gradient-success);
-          color: white;
-        }
-        
-        .btn-submit:hover {
-          transform: translateY(-2px);
-          box-shadow: var(--shadow-md);
-        }
-        
-        .btn-cancel {
-          background: var(--glass-bg);
-          color: var(--text-primary);
-          border: 1px solid var(--glass-border);
-        }
-        
-        .btn-cancel:hover {
-          background: var(--glass-bg);
-          transform: translateY(-2px);
-        }
-        
-        /* Chart Section */
+
+/* Chart Section */
+        .budget-chart-title { text-align: center; color: var(--text-primary); font-size: 1.1rem; margin-bottom: 8px; }
         .budget-chart-section {
           margin: 40px 0;
         }
         
-        .chart-container {
+        .budget-page .chart-container {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
           border-radius: var(--radius-lg);
@@ -1000,7 +872,7 @@ const Budget = () => {
           margin-top: 40px;
         }
         
-        .section-title {
+        .budget-page .section-title {
           font-family: var(--font-heading);
           font-size: 1.8rem;
           margin-bottom: 25px;
@@ -1096,34 +968,8 @@ const Budget = () => {
         .budget-progress {
           margin-bottom: 20px;
         }
-        
-        .progress-bar {
-          height: 10px;
-          background: var(--glass-bg);
-          border-radius: var(--radius-full);
-          overflow: hidden;
-          margin-bottom: 8px;
-        }
-        
-        .progress-fill {
-          height: 100%;
-          border-radius: var(--radius-full);
-          transition: width 0.5s ease;
-        }
-        
-        .progress-fill.normal {
-          background: var(--gradient-success);
-        }
-        
-        .progress-fill.warning {
-          background: var(--gradient-warning);
-        }
-        
-        .progress-fill.over {
-          background: linear-gradient(135deg, #ff6b8b 0%, #ff0000 100%);
-        }
-        
-        .progress-text {
+
+.progress-text {
           display: flex;
           justify-content: space-between;
           font-size: 0.9rem;
@@ -1171,7 +1017,7 @@ const Budget = () => {
         }
         
         .amount-value.positive {
-          color: #43e97b;
+          color: #44BC7E;
         }
         
         .budget-warning {
@@ -1190,72 +1036,8 @@ const Budget = () => {
           background: rgba(255, 166, 46, 0.1);
           color: #ffa62e;
         }
-        
-        /* Loading and Empty States */
-        .loading-container {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 60px 20px;
-          text-align: center;
-        }
-        
-        .loading-spinner {
-          width: 50px;
-          height: 50px;
-          border: 3px solid var(--glass-border);
-          border-top: 3px solid var(--income-color);
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin-bottom: 20px;
-        }
-        
-        .empty-state {
-          text-align: center;
-          padding: 60px 40px;
-          background: var(--glass-bg);
-          border-radius: var(--radius-lg);
-          margin: 20px 0;
-          backdrop-filter: blur(20px);
-          border: 1px solid var(--glass-border);
-          transition: all var(--transition-base);
-        }
-        
-        .empty-state:hover {
-          transform: translateY(-5px);
-          box-shadow: var(--shadow-lg);
-        }
-        
-        .empty-state-icon {
-          font-size: 80px;
-          margin-bottom: 20px;
-          opacity: 0.8;
-          color: var(--text-secondary);
-          transition: all var(--transition-base);
-        }
-        
-        .empty-state:hover .empty-state-icon {
-          transform: scale(1.1);
-          opacity: 1;
-        }
-        
-        .empty-state h3 {
-          font-family: var(--font-heading);
-          font-size: 1.8rem;
-          margin-bottom: 10px;
-          color: var(--text-primary);
-        }
-        
-        .empty-state p {
-          color: var(--text-secondary);
-          max-width: 400px;
-          margin: 0 auto 30px;
-          font-size: 1.1rem;
-          line-height: 1.6;
-        }
-        
-        /* Responsive Design */
+
+/* Responsive Design */
         @media (max-width: 768px) {
           .budget-page {
             padding: 15px;
@@ -1277,42 +1059,13 @@ const Budget = () => {
             grid-template-columns: 1fr;
             gap: 10px;
           }
-          
-          .form-grid {
-            grid-template-columns: 1fr;
-          }
-          
-          .form-buttons {
-            flex-direction: column;
-          }
-          
-          .btn-submit, .btn-cancel {
-            width: 100%;
-            justify-content: center;
-          }
-          
-          .chart-container {
+
+.budget-page .chart-container {
             height: 300px;
             padding: 20px;
           }
-          
-          .empty-state {
-            padding: 40px 20px;
-          }
-          
-          .empty-state-icon {
-            font-size: 60px;
-          }
-          
-          .empty-state h3 {
-            font-size: 1.5rem;
-          }
-          
-          .empty-state p {
-            font-size: 1rem;
-          }
-          
-          .create-budget-btn {
+
+.create-budget-btn {
             padding: 14px 30px;
             font-size: 1rem;
           }
@@ -1342,16 +1095,8 @@ const Budget = () => {
           .budget-form {
             padding: 20px;
           }
-          
-          .empty-state {
-            padding: 18px 12px;
-          }
-          
-          .empty-state-icon {
-            font-size: 50px;
-          }
-          
-          .create-budget-btn {
+
+.create-budget-btn {
             width: 100%;
             justify-content: center;
           }

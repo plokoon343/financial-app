@@ -1,8 +1,8 @@
 // Web port of the mobile "identity engine" (finpilot-mobile/src/lib/*): the
 // Voice, spending Archetypes, the clarity streak + season, and salary-day
 // detection. All pure and on-device - computed from the user's own transactions,
-// nothing leaves the browser, no AI cost. Icons are material-symbols names (the
-// web app's icon font); no emoji. Keep this in sync with the mobile libs.
+// nothing leaves the browser, nothing to pay for. Icons are FontAwesome classes;
+// no emoji. Keep this in sync with the mobile libs.
 
 // ---------------------------------------------------------------------------
 // prettyMerchant - turn a raw (often bank-imported) description into a friendly
@@ -32,7 +32,7 @@ export function prettyMerchant(raw) {
 // ---------------------------------------------------------------------------
 // Archetypes - a month's pattern as a shareable money personality. Never shows a
 // naira figure, so it's safe to screenshot. Ported from archetype.ts (Ionicons
-// glyphs swapped for material-symbols names).
+// glyphs swapped for FontAwesome classes).
 // ---------------------------------------------------------------------------
 const LIFESTYLE = new Set(['Food', 'Shopping', 'Entertainment', 'Subscriptions']);
 const UNTRACEABLE = new Set(['Transfer', 'Other', 'ATM/POS']);
@@ -65,35 +65,35 @@ export function computeArchetype(all, income, monthKey) {
 
   let a;
   if (untraceableShare >= 0.5) {
-    a = { key: 'ghost', name: 'The Ghost Spender', icon: 'visibility_off', color: '#6b7280',
+    a = { key: 'ghost', name: 'The Ghost Spender', icon: 'fa-eye-slash', color: '#6b7280',
       tagline: 'Money enter, money disappear. No receipts, no memory.',
       blurb: 'Most of your spending vanished into transfers and untracked cash.' };
   } else if (lastWeek >= 0.5) {
-    a = { key: 'detonator', name: 'The Last-Week Detonator', icon: 'local_fire_department', color: '#ef4444',
+    a = { key: 'detonator', name: 'The Last-Week Detonator', icon: 'fa-fire', color: '#ef4444',
       tagline: "Three weeks of calm, then the last week said 'hold my drink.'",
       blurb: 'Half your month’s spending detonated in the final seven days.' };
   } else if (subShare >= 0.15 || subCount >= 4) {
-    a = { key: 'subs', name: 'The Subscription Collector', icon: 'repeat', color: '#8b5cf6',
+    a = { key: 'subs', name: 'The Subscription Collector', icon: 'fa-repeat', color: '#8b5cf6',
       tagline: 'You’re funding apps you forgot you married.',
       blurb: 'A big slice of your money goes to recurring subscriptions.' };
   } else if (savingsRate >= 0.25 || savingsShare >= 0.15) {
-    a = { key: 'ajo', name: 'The Ajo Loyalist', icon: 'verified_user', color: '#0ea5e9',
+    a = { key: 'ajo', name: 'The Ajo Loyalist', icon: 'fa-user-shield', color: '#0ea5e9',
       tagline: 'Discipline na your middle name. Small small, consistently.',
       blurb: 'You put a healthy chunk away before spending. Steady hands.' };
   } else if (lifestyleShare >= 0.4 && savingsRate > 0) {
-    a = { key: 'softlife', name: 'The Soft-Life Economist', icon: 'diamond', color: '#f59e0b',
+    a = { key: 'softlife', name: 'The Soft-Life Economist', icon: 'fa-gem', color: '#f59e0b',
       tagline: 'Soft life, but the maths still maths. Enjoyment with sense.',
       blurb: 'You enjoy the finer things - and still finished the month in the green.' };
   } else if (expenseToIncome > 1) {
-    a = { key: 'sapa', name: 'The Sapa Survivor', icon: 'fitness_center', color: '#f97316',
+    a = { key: 'sapa', name: 'The Sapa Survivor', icon: 'fa-dumbbell', color: '#f97316',
       tagline: 'You stretched the last change into a full week. Legend.',
       blurb: 'You spent more than came in - but you’re surviving on strategy.' };
   } else if (expenseToIncome >= 0.9 && lifestyleShare >= 0.25) {
-    a = { key: 'detty', name: 'The Detty Prophet', icon: 'auto_awesome', color: '#ec4899',
+    a = { key: 'detty', name: 'The Detty Prophet', icon: 'fa-wand-magic-sparkles', color: '#ec4899',
       tagline: 'You planned to save. You spent. No regrets, prophet.',
       blurb: 'Nearly everything that came in went back out - and you enjoyed it.' };
   } else {
-    a = { key: 'steady', name: 'The Steady Hand', icon: 'workspace_premium', color: '#14b8a6',
+    a = { key: 'steady', name: 'The Steady Hand', icon: 'fa-award', color: '#139DA0',
       tagline: 'No drama, no chaos - just a balanced month.',
       blurb: 'Your spending was spread out and under control. Quietly winning.' };
   }

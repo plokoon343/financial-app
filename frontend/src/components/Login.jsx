@@ -122,7 +122,7 @@ const Login = () => {
             <ul className="login-brand-points">
               <li><i className="fas fa-chart-pie"></i> Budgets, goals &amp; insights</li>
               <li><i className="fas fa-file-import"></i> Import in seconds, 15+ banks</li>
-              <li><i className="fas fa-bolt"></i> Airtime, data, TV &amp; electricity</li>
+              <li><i className="fas fa-bell"></i> Reminders before bills and renewals</li>
             </ul>
           </div>
         </aside>

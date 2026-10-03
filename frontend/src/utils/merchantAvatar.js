@@ -71,13 +71,13 @@ const CAT = {
   'Rent & Housing': { color: '#a855f7', icon: 'fas fa-house' },
   Utilities: { color: '#06b6d4', icon: 'fas fa-lightbulb' },
   'Bills & Utilities': { color: '#06b6d4', icon: 'fas fa-lightbulb' },
-  'Airtime & Data': { color: '#14b8a6', icon: 'fas fa-mobile-screen' },
+  'Airtime & Data': { color: '#139DA0', icon: 'fas fa-mobile-screen' },
   Shopping: { color: '#ec4899', icon: 'fas fa-bag-shopping' },
   Healthcare: { color: '#ef4444', icon: 'fas fa-kit-medical' },
   Entertainment: { color: '#8b5cf6', icon: 'fas fa-gamepad' },
   Subscriptions: { color: '#8b5cf6', icon: 'fas fa-repeat' },
   Education: { color: '#3b82f6', icon: 'fas fa-graduation-cap' },
-  Insurance: { color: '#14b8a6', icon: 'fas fa-shield-halved' },
+  Insurance: { color: '#139DA0', icon: 'fas fa-shield-halved' },
   'Bank Charges': { color: '#64748b', icon: 'fas fa-credit-card' },
   'ATM/POS': { color: '#64748b', icon: 'fas fa-money-bill' },
   Transfer: { color: '#f97316', icon: 'fas fa-right-left' },
@@ -85,7 +85,7 @@ const CAT = {
   'Family & Friends': { color: '#ec4899', icon: 'fas fa-users' },
   Salary: { color: '#10b981', icon: 'fas fa-briefcase' },
   'Salary & Wages': { color: '#10b981', icon: 'fas fa-briefcase' },
-  Business: { color: '#14b8a6', icon: 'fas fa-building' },
+  Business: { color: '#139DA0', icon: 'fas fa-building' },
   'Loan Repayment': { color: '#f59e0b', icon: 'fas fa-hand-holding-dollar' },
   Freelance: { color: '#3b82f6', icon: 'fas fa-laptop' },
   Investment: { color: '#a855f7', icon: 'fas fa-arrow-trend-up' },
@@ -97,7 +97,7 @@ function categoryMeta(category) {
   return (category && CAT[category]) || { color: '#64748b', icon: 'fas fa-tag' };
 }
 
-const AVATAR_COLORS = ['#f97316', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+const AVATAR_COLORS = ['#f97316', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#139DA0', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 function hueFor(name) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;

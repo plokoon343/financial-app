@@ -43,7 +43,7 @@ const NotificationBell = () => {
 
   const openItem = async (n) => {
     if (!n.read) {
-      try { await axios.patch(`${API_URL}/api/notifications/${n._id}/read`, {}, auth()); } catch {}
+      try { await axios.patch(`${API_URL}/api/notifications/${n._id}/read`, {}, auth()); } catch { /* best effort */ }
       setItems(prev => prev.map(x => x._id === n._id ? { ...x, read: true } : x));
       setUnread(u => Math.max(0, u - 1));
     }
@@ -55,7 +55,7 @@ const NotificationBell = () => {
   };
 
   const markAllRead = async () => {
-    try { await axios.post(`${API_URL}/api/notifications/read-all`, {}, auth()); } catch {}
+    try { await axios.post(`${API_URL}/api/notifications/read-all`, {}, auth()); } catch { /* best effort */ }
     setItems(prev => prev.map(x => ({ ...x, read: true })));
     setUnread(0);
   };
@@ -92,7 +92,7 @@ const NotificationBell = () => {
         </div>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         .nb-wrap { position: fixed; top: 1rem; right: 1rem; z-index: 1100; }
         .nb-btn { position: relative; width: 44px; height: 44px; border-radius: 12px; background: var(--card-bg);
           border: 1px solid var(--glass-border); color: var(--text-primary); font-size: 1.2rem; cursor: pointer;
@@ -108,7 +108,7 @@ const NotificationBell = () => {
         .nb-empty { padding: 28px 14px; text-align: center; color: var(--text-secondary); font-size: 0.88rem; }
         .nb-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: none;
           border: none; border-bottom: 1px solid var(--border-color, var(--glass-border)); padding: 12px 14px; cursor: pointer; color: var(--text-primary); }
-        .nb-item.unread { background: rgba(0,135,81,0.08); }
+        .nb-item.unread { background: rgba(19, 157, 160,0.08); }
         .nb-item:hover { background: var(--bg-input, var(--glass-bg)); }
         .nb-ic { color: var(--accent-primary, var(--accent-primary)); margin-top: 2px; }
         .nb-text { display: flex; flex-direction: column; gap: 2px; flex: 1; }

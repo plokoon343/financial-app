@@ -47,7 +47,7 @@ const ForgotPassword = () => {
 
         {sent ? (
           <div>
-            <div className="error-message" style={{ background: 'rgba(56,161,105,0.12)', color: '#38a169', border: '1px solid #38a169' }}>
+            <div className="error-message" style={{ background: 'rgba(56,161,105,0.12)', color: '#16a34a', border: '1px solid #16a34a' }}>
               <i className="fas fa-circle-check error-icon"></i> If an account with that email exists, a reset link has been sent. It expires in 1 hour.
             </div>
             <div className="signup-section" style={{ marginTop: '1.5rem' }}>

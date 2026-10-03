@@ -128,7 +128,7 @@ export default function CashTracking() {
         </>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         .cash-page { max-width: 720px; margin: 0 auto; padding: 20px; }
         .cash-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); margin: 0 0 6px; }
         .cash-head p { color: var(--text-secondary); margin: 0 0 18px; }

@@ -23,7 +23,7 @@ const emailValid = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 //     errorBorder: '#e53e3e',
 //     errorText: '#9b2c2c',
 //     successBg: '#c6f6d5',
-//     successBorder: '#38a169',
+//     successBorder: '#16a34a',
 //     successText: '#276749',
 //     buttonBg: 'linear-gradient(135deg, #3182ce 0%, #2b6cb0 100%)',
 //     buttonHoverBg: 'linear-gradient(135deg, #2b6cb0 0%, #2c5282 100%)',
@@ -43,7 +43,7 @@ const emailValid = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 //     errorBorder: '#e53e3e',
 //     errorText: '#fed7d7',
 //     successBg: '#22543d',
-//     successBorder: '#38a169',
+//     successBorder: '#16a34a',
 //     successText: '#c6f6d5',
 //     buttonBg: 'linear-gradient(135deg, #2c5282 0%, #2d3748 100%)',
 //     buttonHoverBg: 'linear-gradient(135deg, #2d3748 0%, #1a202c 100%)',
@@ -68,7 +68,7 @@ const emailValid = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 //     backgroundColor: 'rgba(254, 215, 215, 0.1)',
 //   },
 //   valid: {
-//     borderColor: '#38a169',
+//     borderColor: '#16a34a',
 //     backgroundColor: 'rgba(198, 246, 213, 0.1)',
 //   }
 // };

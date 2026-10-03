@@ -41,8 +41,8 @@ export default function BetaPrompt() {
   return (
     <div style={{
       position: 'relative', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap',
-      background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(0,135,81,0.10))',
-      border: '1px solid rgba(99,102,241,0.28)', borderRadius: 16, padding: '1rem 1.25rem', marginBottom: '1.5rem',
+      background: 'linear-gradient(135deg, rgba(19, 157, 160,0.12), rgba(19, 157, 160,0.10))',
+      border: '1px solid rgba(19, 157, 160,0.28)', borderRadius: 16, padding: '1rem 1.25rem', marginBottom: '1.5rem',
     }}>
       <div style={{ fontSize: '1.6rem' }} aria-hidden>🧪</div>
       <div style={{ flex: 1, minWidth: 220 }}>

@@ -130,7 +130,7 @@ export default function SharedExpenses() {
         </div>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         .sh-page { max-width: 640px; margin: 0 auto; padding: 20px; }
         .sh-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); margin: 0 0 6px; }
         .sh-head p { color: var(--text-secondary); margin: 0 0 18px; line-height: 1.5; }

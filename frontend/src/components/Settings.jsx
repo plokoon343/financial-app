@@ -73,7 +73,7 @@ const Settings = () => {
 
   const logoutAll = async () => {
     if (!window.confirm('Log out of all devices? You will need to sign in again.')) return;
-    try { await axios.post(`${API_URL}/api/logout-all`, {}, authHeader()); } catch {}
+    try { await axios.post(`${API_URL}/api/logout-all`, {}, authHeader()); } catch { /* best effort */ }
     logout(); navigate('/login');
   };
 
@@ -89,7 +89,7 @@ const Settings = () => {
       let y = 16;
 
       // Header
-      doc.setFontSize(18); doc.setTextColor('#0b1326');
+      doc.setFontSize(18); doc.setTextColor('#0B0E11');
       doc.text('Automonie - Data Export', 14, y); y += 7;
       doc.setFontSize(10); doc.setTextColor('#64748b');
       doc.text(`Generated ${new Date().toLocaleString('en-NG')}`, 14, y); y += 8;
@@ -106,7 +106,7 @@ const Settings = () => {
           ['Monthly income', p.monthlyIncome ? fmtNaira(p.monthlyIncome) : '-'],
           ['Primary goal', p.primaryGoal || '-'],
         ],
-        theme: 'striped', headStyles: { fillColor: [8, 135, 81] }, styles: { fontSize: 9 },
+        theme: 'striped', headStyles: { fillColor: [19, 157, 160] }, styles: { fontSize: 9 },
       });
 
       const section = (title, head, rows) => {
@@ -114,7 +114,7 @@ const Settings = () => {
         autoTable(doc, {
           startY: doc.lastAutoTable.finalY + 8,
           head: [[`${title} (${rows.length})`, ...Array(head.length - 1).fill('')]],
-          theme: 'plain', styles: { fontSize: 11, fontStyle: 'bold', textColor: [8, 135, 81] },
+          theme: 'plain', styles: { fontSize: 11, fontStyle: 'bold', textColor: [19, 157, 160] },
         });
         autoTable(doc, {
           startY: doc.lastAutoTable.finalY + 1,
@@ -249,7 +249,7 @@ const Settings = () => {
         <button className="btn-danger" onClick={deleteAccount} disabled={deleting || !delPw}>{deleting ? 'Deleting…' : 'Delete my account'}</button>
       </div>
 
-      <style jsx="true">{`
+      <style>{`
         .settings-page { max-width: 720px; margin: 0 auto; padding: 16px; }
         .settings-card { background: var(--card-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
         .settings-card.danger { border-color: rgba(229,62,62,0.4); }
@@ -257,14 +257,8 @@ const Settings = () => {
         .sub { font-weight: 600; font-size: 0.85rem; margin: 0 0 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
         .kv { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
         .kv span { color: var(--text-secondary); font-size: 0.85rem; }
-        .divider { height: 1px; background: var(--glass-border); margin: 16px 0; }
-        .form-group { margin-bottom: 14px; }
-        .form-row { display: flex; gap: 14px; }
-        .form-row .form-group { flex: 1; }
-        .form-group label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.85rem; }
-        .form-group input { width: 100%; padding: 11px 12px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); }
-        .form-group input:disabled { opacity: 0.7; }
-        .row-between { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--glass-border); }
+
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--glass-border); }
         .row-between:last-of-type { border-bottom: none; }
         .row-between strong { display: block; font-size: 0.9rem; }
         .hint { font-size: 0.78rem; color: var(--text-secondary); display: inline-flex; gap: 6px; align-items: center; }
@@ -273,15 +267,8 @@ const Settings = () => {
         .switch span { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left 0.2s; }
         .switch.on span { left: 23px; }
         .switch:disabled { opacity: 0.7; cursor: not-allowed; }
-        .btn-primary { background: var(--gradient-primary); color: #fff; border: none; border-radius: var(--radius-md); padding: 11px 18px; font-weight: 600; cursor: pointer; }
-        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-        .btn-secondary { background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); color: var(--text-primary); border-radius: var(--radius-md); padding: 10px 16px; font-weight: 600; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; margin-top: 6px; }
-        .btn-danger { background: rgba(229,62,62,0.12); color: #e53e3e; border: 1px solid rgba(229,62,62,0.4); border-radius: var(--radius-md); padding: 11px 18px; font-weight: 600; cursor: pointer; }
-        .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
-        .message { padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 16px; text-align: center; }
-        .message.success { background: rgba(56,161,105,0.12); color: #38a169; }
-        .message.error { background: rgba(229,62,62,0.12); color: #e53e3e; }
-        .dark-theme select { color-scheme: dark; }
+
+.dark-theme select { color-scheme: dark; }
       `}</style>
     </div>
   );

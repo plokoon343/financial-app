@@ -24,7 +24,7 @@
   background: var(--gradient-primary, linear-gradient(135deg, #6c5ce7, #00b894));
   flex-shrink: 0;
 }
-.ai-header-icon .material-symbols-outlined { font-size: 26px; }
+.ai-header-icon .fas { font-size: 26px; }
 .ai-header h1 { font-size: 1.35rem; margin: 0; color: var(--text-primary); }
 .ai-header p { margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.85rem; }
 
@@ -41,7 +41,7 @@
   color: var(--text-secondary);
   margin-bottom: 0.85rem;
 }
-.ai-banner .material-symbols-outlined { font-size: 20px; color: var(--accent-primary); }
+.ai-banner .fas { font-size: 20px; color: var(--accent-primary); }
 
 .ai-chat {
   flex: 1;
@@ -68,7 +68,7 @@
   background: var(--secondary-bg, rgba(127,127,127,0.1));
   color: var(--accent-primary);
 }
-.ai-empty-icon .material-symbols-outlined { font-size: 28px; }
+.ai-empty-icon .fas { font-size: 28px; }
 .ai-empty p { font-size: 0.9rem; margin-bottom: 1rem; }
 
 .ai-suggestions {
@@ -150,8 +150,8 @@
   border-radius: 8px;
   padding: 0.4rem 0.55rem;
 }
-.ai-action .material-symbols-outlined { font-size: 17px; color: #00b894; flex-shrink: 0; }
-.ai-action-fail .material-symbols-outlined { color: #e17055; }
+.ai-action .fas { font-size: 17px; color: #00b894; flex-shrink: 0; }
+.ai-action-fail .fas { color: #e17055; }
 
 .ai-typing { display: flex; gap: 4px; align-items: center; }
 .ai-typing span {

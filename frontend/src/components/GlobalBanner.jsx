@@ -48,7 +48,7 @@ export default function GlobalBanner() {
       )}
       <button className="gb-x" onClick={dismiss} aria-label="Dismiss" style={{ color: s.fg }}><i className="fas fa-times"></i></button>
 
-      <style jsx="true">{`
+      <style>{`
         .gb { display: flex; align-items: center; gap: 12px; padding: 10px 16px; font-size: 0.9rem; font-weight: 600; line-height: 1.4; }
         .gb-msg { flex: 1; min-width: 0; }
         .gb-link { font-weight: 800; text-decoration: underline; white-space: nowrap; }

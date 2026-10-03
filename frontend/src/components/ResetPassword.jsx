@@ -56,7 +56,7 @@ const ResetPassword = () => {
         {!token ? (
           <div className="error-message"><i className="fas fa-triangle-exclamation error-icon"></i> Missing reset token. Please use the link from your email.</div>
         ) : done ? (
-          <div className="error-message" style={{ background: 'rgba(56,161,105,0.12)', color: '#38a169', border: '1px solid #38a169' }}>
+          <div className="error-message" style={{ background: 'rgba(56,161,105,0.12)', color: '#16a34a', border: '1px solid #16a34a' }}>
             <i className="fas fa-circle-check error-icon"></i> Password updated! Redirecting to login…
           </div>
         ) : (

@@ -71,8 +71,8 @@ export default function BetaCard() {
             <button key={k.id} onClick={() => setKind(k.id)}
               style={{
                 padding: '5px 12px', borderRadius: 999, fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
-                border: `1px solid ${kind === k.id ? 'var(--accent-primary, #008751)' : 'var(--glass-border)'}`,
-                background: kind === k.id ? 'var(--accent-primary, #008751)' : 'transparent',
+                border: `1px solid ${kind === k.id ? 'var(--accent-primary, #139DA0)' : 'var(--glass-border)'}`,
+                background: kind === k.id ? 'var(--accent-primary, #139DA0)' : 'transparent',
                 color: kind === k.id ? '#fff' : 'var(--text-secondary)',
               }}>{k.label}</button>
           ))}
@@ -88,7 +88,7 @@ export default function BetaCard() {
       </div>
 
       {note && (
-        <p style={{ marginTop: 12, fontSize: '0.85rem', color: note.type === 'ok' ? '#38a169' : '#e53e3e' }}>{note.text}</p>
+        <p style={{ marginTop: 12, fontSize: '0.85rem', color: note.type === 'ok' ? '#16a34a' : '#e53e3e' }}>{note.text}</p>
       )}
     </div>
   );

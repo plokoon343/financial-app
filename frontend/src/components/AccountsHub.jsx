@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader } from './Logo';
+import { useServerFeatures } from '../lib/useServerFeatures';
 
 // "Accounts & alerts" hub — folds the three former Banking pages (My Accounts,
 // Email Forwarding, Connect Bank) into one tabbed page, so setting up where your
@@ -11,14 +12,16 @@ const Accounts = lazy(() => import('./Accounts'));
 const EmailForwarding = lazy(() => import('./EmailForwarding'));
 const ConnectBank = lazy(() => import('./ConnectBank'));
 
-const TABS = [
-  { key: 'accounts', label: 'My accounts', icon: 'credit_card', render: () => <Accounts /> },
-  { key: 'email', label: 'Email alerts', icon: 'forward_to_inbox', render: () => <EmailForwarding /> },
-  { key: 'bank', label: 'Connect bank', icon: 'account_balance', render: () => <ConnectBank /> },
+const ALL_TABS = [
+  { key: 'accounts', label: 'My accounts', icon: 'fa-credit-card', render: () => <Accounts /> },
+  { key: 'email', label: 'Email alerts', icon: 'fa-envelope-open-text', render: () => <EmailForwarding /> },
+  { key: 'bank', label: 'Connect bank', icon: 'fa-building-columns', render: () => <ConnectBank />, needs: 'bankLink' },
 ];
 
 export default function AccountsHub() {
   const [params, setParams] = useSearchParams();
+  const live = useServerFeatures();
+  const TABS = ALL_TABS.filter((t) => !t.needs || live[t.needs]);
   const active = TABS.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'accounts';
   const current = TABS.find((t) => t.key === active) || TABS[0];
 
@@ -40,7 +43,7 @@ export default function AccountsHub() {
             className={`ah-tab ${active === t.key ? 'on' : ''}`}
             onClick={() => pick(t.key)}
           >
-            <span className="material-symbols-outlined">{t.icon}</span>
+            <i className={`fas ${t.icon}`} aria-hidden="true"></i>
             <span>{t.label}</span>
           </button>
         ))}
@@ -52,14 +55,14 @@ export default function AccountsHub() {
         </Suspense>
       </div>
 
-      <style jsx="true">{`
+      <style>{`
         .ah-page { max-width: 760px; margin: 0 auto; padding: 20px 20px 8px; }
         .ah-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); margin: 0 0 6px; }
         .ah-head p { color: var(--text-secondary); margin: 0 0 16px; }
         .ah-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border-color, var(--glass-border)); margin-bottom: 4px; overflow-x: auto; }
         .ah-tab { display: inline-flex; align-items: center; gap: 8px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); font-weight: 700; font-size: 0.9rem; padding: 10px 6px 12px; cursor: pointer; white-space: nowrap; }
-        .ah-tab .material-symbols-outlined { font-size: 1.15rem; }
-        .ah-tab.on { color: var(--accent-primary, #008751); border-bottom-color: var(--accent-primary, #008751); }
+        .ah-tab .fas { font-size: 1.15rem; }
+        .ah-tab.on { color: var(--accent-primary, #139DA0); border-bottom-color: var(--accent-primary, #139DA0); }
         .ah-loading { display: flex; justify-content: center; padding: 48px 0; }
       `}</style>
     </div>

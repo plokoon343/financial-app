@@ -119,7 +119,7 @@ export default function RichTextEditor({ value, onChange, disabled, uploadImage 
         data-placeholder="Write your newsletter here — use the toolbar to format."
       />
 
-      <style jsx="true">{`
+      <style>{`
         .rte { border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md, 8px); overflow: hidden; background: var(--bg-card, #fff); }
         .rte-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px; border-bottom: 1px solid var(--border-color, #e2e8f0); background: var(--glass-bg, #f8fafc); }
         .rte-btn { min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid var(--border-color, #e2e8f0); background: var(--bg-card, #fff); color: var(--text-primary, #1a365d); border-radius: 6px; cursor: pointer; font-size: 0.85rem; }

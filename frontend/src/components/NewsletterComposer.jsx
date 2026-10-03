@@ -155,7 +155,7 @@ export default function NewsletterComposer({ embedded = false }) {
         </div>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         .nl-wrap { max-width: 760px; margin: 0 auto; padding: 20px; }
         .nl-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
         .nl-modal { background: var(--bg-card, #fff); border: 1px solid var(--border-color); border-radius: 14px; width: 100%; max-width: 620px; max-height: 88vh; overflow-y: auto; padding: 18px; }
@@ -164,7 +164,7 @@ export default function NewsletterComposer({ embedded = false }) {
         .nl-modal-sub { color: var(--text-secondary); font-size: 0.85rem; margin: 6px 0 12px; }
         .nl-preview { background: #f6f8fa; border-radius: 12px; padding: 16px; }
         .nl-pv-brand { font-weight: 800; font-size: 20px; color: #0f6e56; margin-bottom: 10px; }
-        .nl-pv-card { background: #fff; border: 1px solid #e7ebf1; border-radius: 12px; padding: 18px; color: #0b1326; line-height: 1.6; }
+        .nl-pv-card { background: #fff; border: 1px solid #e7ebf1; border-radius: 12px; padding: 18px; color: #0B0E11; line-height: 1.6; }
         .nl-pv-card img { max-width: 100%; height: auto; }
         .nl-pv-foot { color: #8a97a8; font-size: 12px; padding: 12px 4px 0; }
         .nl-modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 14px; }

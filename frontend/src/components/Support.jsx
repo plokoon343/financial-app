@@ -122,10 +122,10 @@ const Support = () => {
         </div>
       </div>
 
-      <style jsx="true">{`
+      <style>{`
         .support-page { max-width: 1000px; margin: 0 auto; padding: 16px; }
         .sp-msg { padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 14px; text-align: center; }
-        .sp-msg.success { background: rgba(56,161,105,0.12); color: #38a169; }
+        .sp-msg.success { background: rgba(56,161,105,0.12); color: #16a34a; }
         .sp-msg.error { background: rgba(229,62,62,0.12); color: #e53e3e; }
         .sp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         @media (max-width: 800px) { .sp-grid { grid-template-columns: 1fr; } }
@@ -134,10 +134,8 @@ const Support = () => {
         .faq-item { border-bottom: 1px solid var(--glass-border); }
         .faq-q { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: none; border: none; color: var(--text-primary); font-weight: 600; font-size: 0.92rem; text-align: left; padding: 12px 2px; cursor: pointer; }
         .faq-a { padding: 0 2px 14px; color: var(--text-primary); opacity: 0.85; font-size: 0.88rem; line-height: 1.55; }
-        .form-group { margin-bottom: 14px; }
-        .form-group label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.88rem; }
-        .form-group input, .form-group textarea { width: 100%; padding: 10px 12px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); font-family: inherit; resize: vertical; }
-        .sp-btn { background: var(--gradient-primary); color: #fff; border: none; border-radius: var(--radius-md); padding: 11px 18px; font-weight: 600; cursor: pointer; width: 100%; }
+
+.sp-btn { background: var(--gradient-primary); color: #fff; border: none; border-radius: var(--radius-md); padding: 11px 18px; font-weight: 600; cursor: pointer; width: 100%; }
         .sp-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .my-tickets { margin-top: 20px; }
         .my-tickets h4 { margin: 0 0 10px; font-size: 0.9rem; }

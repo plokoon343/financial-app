@@ -166,25 +166,25 @@ const Onboarding = () => {
         </button>
       </div>
 
-      <style jsx="true">{`
+      <style>{`
         .ob-overlay { position: fixed; inset: 0; z-index: 3500; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 20px; }
         .ob-card { position: relative; width: 100%; max-width: 460px; background: var(--card-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 30px 28px 24px; box-shadow: var(--shadow-lg); color: var(--text-primary); }
         .ob-skip { position: absolute; top: 14px; right: 16px; background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.85rem; font-weight: 600; }
         .ob-slide { min-height: 288px; }
         .ob-hook { font-size: 2rem; font-weight: 800; letter-spacing: -0.8px; line-height: 1.15; margin: 8px 0 0; }
         .ob-hook-sm { font-size: 1.7rem; }
-        .ob-accent { color: var(--accent-primary, #008751); }
-        .ob-accent-strong { color: var(--accent-primary, #008751); font-weight: 800; }
+        .ob-accent { color: var(--accent-primary, #139DA0); }
+        .ob-accent-strong { color: var(--accent-primary, #139DA0); font-weight: 800; }
         .ob-body { color: var(--text-secondary); font-size: 0.98rem; line-height: 1.55; margin: 14px 0 0; }
         .ob-faint { color: var(--text-secondary); opacity: 0.7; font-size: 0.9rem; }
 
-        .ob-mark { width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: var(--glass-bg); border: 1px solid var(--accent-primary, #008751); margin-bottom: 6px; }
-        .ob-mark i { color: var(--accent-primary, #008751); font-size: 1.4rem; }
+        .ob-mark { width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: var(--glass-bg); border: 1px solid var(--accent-primary, #139DA0); margin-bottom: 6px; }
+        .ob-mark i { color: var(--accent-primary, #139DA0); font-size: 1.4rem; }
         .ob-trust { margin-top: 18px; }
         .ob-trust-row { display: flex; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--border-color, var(--glass-border)); }
         .ob-trust-row:last-child { border-bottom: none; }
         .ob-tick { width: 22px; height: 22px; border-radius: 7px; background: var(--glass-bg); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
-        .ob-tick i { color: var(--accent-primary, #008751); font-size: 0.72rem; }
+        .ob-tick i { color: var(--accent-primary, #139DA0); font-size: 0.72rem; }
         .ob-trust-title { font-weight: 700; font-size: 0.92rem; }
         .ob-trust-sub { color: var(--text-secondary); font-size: 0.8rem; margin-top: 2px; line-height: 1.4; }
 
@@ -195,7 +195,7 @@ const Onboarding = () => {
         .ob-prev-pct { font-size: 0.82rem; font-weight: 700; }
         .ob-prev-pct.over { color: #e53e3e; }
         .ob-bar { height: 6px; border-radius: 3px; background: var(--border-color, var(--glass-border)); margin-top: 7px; overflow: hidden; }
-        .ob-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent-primary, #008751); }
+        .ob-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent-primary, #139DA0); }
         .ob-bar-fill.over { background: #e53e3e; }
         .ob-prev-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-color, var(--glass-border)); color: var(--text-secondary); font-size: 0.8rem; }
 
@@ -203,18 +203,18 @@ const Onboarding = () => {
         .ob-sub { margin: 0 0 18px; color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; }
         .ob-reasons { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
         .ob-reason { display: flex; align-items: center; gap: 13px; padding: 13px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color, var(--glass-border)); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; text-align: left; }
-        .ob-reason.on { border-color: var(--accent-primary, #008751); background: color-mix(in srgb, var(--accent-primary, #008751) 12%, transparent); }
+        .ob-reason.on { border-color: var(--accent-primary, #139DA0); background: color-mix(in srgb, var(--accent-primary, #139DA0) 12%, transparent); }
         .ob-reason-icon { width: 36px; height: 36px; border-radius: 11px; background: var(--card-bg); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); flex-shrink: 0; }
-        .ob-reason.on .ob-reason-icon { color: var(--accent-primary, #008751); }
+        .ob-reason.on .ob-reason-icon { color: var(--accent-primary, #139DA0); }
         .ob-reason-label { flex: 1; font-size: 0.92rem; font-weight: 600; }
-        .ob-reason.on .ob-reason-label { color: var(--accent-primary, #008751); font-weight: 700; }
-        .ob-reason-check { color: var(--accent-primary, #008751); }
+        .ob-reason.on .ob-reason-label { color: var(--accent-primary, #139DA0); font-weight: 700; }
+        .ob-reason-check { color: var(--accent-primary, #139DA0); }
 
         .ob-dots { display: flex; gap: 6px; justify-content: center; margin: 20px 0 16px; }
         .ob-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--border-color, var(--glass-border)); transition: all 0.2s; }
-        .ob-dots span.on { background: var(--accent-primary, #008751); width: 22px; border-radius: 4px; }
+        .ob-dots span.on { background: var(--accent-primary, #139DA0); width: 22px; border-radius: 4px; }
 
-        .ob-primary { width: 100%; padding: 14px; border-radius: var(--radius-md); font-weight: 800; font-size: 1rem; cursor: pointer; border: none; color: #fff; background: var(--gradient-primary, var(--accent-primary, #008751)); }
+        .ob-primary { width: 100%; padding: 14px; border-radius: var(--radius-md); font-weight: 800; font-size: 1rem; cursor: pointer; border: none; color: #fff; background: var(--gradient-primary, var(--accent-primary, #139DA0)); }
         .ob-primary:disabled { opacity: 0.55; cursor: default; }
         .ob-text-btn { width: 100%; margin-top: 10px; padding: 8px; background: none; border: none; color: var(--text-secondary); font-weight: 600; font-size: 0.9rem; cursor: pointer; }
         .dark-theme .ob-reason { color-scheme: dark; }

@@ -70,7 +70,7 @@ const NetWorthCalculator = () => {
         
         <div className="networth-display">
           <div className="networth-label">Current Net Worth</div>
-          <div className="networth-value" style={{ color: netWorth >= 0 ? '#27ae60' : '#e74c3c', textShadow: netWorth >= 0 ? '0 0 20px rgba(39,174,96,0.3)' : '0 0 20px rgba(231,76,60,0.3)' }}>
+          <div className="networth-value" style={{ color: netWorth >= 0 ? '#16a34a' : '#e74c3c', textShadow: netWorth >= 0 ? '0 0 20px rgba(39,174,96,0.3)' : '0 0 20px rgba(231,76,60,0.3)' }}>
             {fmtNaira(netWorth)}
           </div>
           <div className="networth-breakdown">
@@ -159,47 +159,15 @@ const NetWorthCalculator = () => {
         </div>
       </div>
       
-      <style jsx="true">{`
+      <style>{`
         /* Net Worth Calculator Styles */
         .networth-page {
           padding: 20px;
           max-width: 1200px;
           margin: 0 auto;
         }
-        
-        .section-header {
-          text-align: center;
-          margin-bottom: 24px;
-          padding: 18px 14px;
-          background: var(--card-bg);
-          border-radius: var(--radius-lg);
-          box-shadow: var(--shadow-md);
-          border: 1px solid var(--glass-border);
-        }
-        
-        .section-header h2 {
-          font-family: var(--font-heading);
-          font-size: 2.5rem;
-          font-weight: 700;
-          margin-bottom: 10px;
-          background: linear-gradient(135deg, #ffa62e 0%, #ff6b8b 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          -webkit-text-fill-color: transparent;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 15px;
-        }
-        
-        .section-subtitle {
-          color: var(--text-secondary);
-          font-size: 1.1rem;
-          max-width: 600px;
-          margin: 0 auto;
-        }
-        
-        /* Net Worth Summary */
+
+/* Net Worth Summary */
         .networth-summary {
           background: var(--card-bg);
           backdrop-filter: blur(20px);
@@ -279,7 +247,7 @@ const NetWorthCalculator = () => {
         }
         
         .breakdown-item.positive {
-          border-left: 4px solid #27ae60;
+          border-left: 4px solid #16a34a;
         }
         
         .breakdown-item.negative {
@@ -299,7 +267,7 @@ const NetWorthCalculator = () => {
         }
         
         .breakdown-label i.fa-arrow-up {
-          color: #27ae60;
+          color: #16a34a;
         }
         
         .breakdown-label i.fa-arrow-down {
@@ -313,7 +281,7 @@ const NetWorthCalculator = () => {
         }
         
         .breakdown-item.positive .breakdown-amount {
-          color: #27ae60;
+          color: #16a34a;
         }
         
         .breakdown-item.negative .breakdown-amount {
@@ -344,14 +312,14 @@ const NetWorthCalculator = () => {
         }
         
         .assets-section {
-          border-top: 4px solid #27ae60;
+          border-top: 4px solid #16a34a;
         }
         
         .liabilities-section {
           border-top: 4px solid #e74c3c;
         }
         
-        .section-title {
+        .networth-page .section-title {
           display: flex;
           justify-content: space-between;
           align-items: center;
@@ -360,7 +328,7 @@ const NetWorthCalculator = () => {
           border-bottom: 2px solid var(--glass-border);
         }
         
-        .section-title h3 {
+        .networth-page .section-title h3 {
           font-family: var(--font-heading);
           font-size: 1.6rem;
           color: var(--text-primary);
@@ -424,11 +392,11 @@ const NetWorthCalculator = () => {
           background: linear-gradient(135deg, #ff6b8b 0%, #ffa62e 100%);
         }
         
-        .category-info {
+        .networth-page .category-info {
           flex: 1;
         }
         
-        .category-name {
+        .networth-page .category-name {
           font-weight: 600;
           font-size: 1.1rem;
           color: var(--text-primary);
@@ -492,11 +460,11 @@ const NetWorthCalculator = () => {
           border: 1px solid var(--glass-border);
         }
         
-        .tips-header {
+        .networth-page .tips-header {
           margin-bottom: 30px;
         }
         
-        .tips-header h3 {
+        .networth-page .tips-header h3 {
           font-family: var(--font-heading);
           font-size: 1.8rem;
           margin-bottom: 8px;
@@ -506,7 +474,7 @@ const NetWorthCalculator = () => {
           gap: 10px;
         }
         
-        .tips-header p {
+        .networth-page .tips-header p {
           color: var(--text-secondary);
           font-size: 0.95rem;
         }
@@ -531,7 +499,7 @@ const NetWorthCalculator = () => {
           box-shadow: var(--shadow-md);
         }
         
-        .tip-icon {
+        .networth-page .tip-icon {
           width: 70px;
           height: 70px;
           border-radius: 50%;
@@ -543,34 +511,34 @@ const NetWorthCalculator = () => {
           flex-shrink: 0;
         }
         
-        .tip-icon.income {
-          background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+        .networth-page .tip-icon.income {
+          background: linear-gradient(135deg, #16a34a 0%, #2ecc71 100%);
         }
         
-        .tip-icon.debt {
+        .networth-page .tip-icon.debt {
           background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
         }
         
-        .tip-icon.equity {
+        .networth-page .tip-icon.equity {
           background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
         }
         
-        .tip-icon.investment {
+        .networth-page .tip-icon.investment {
           background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
         }
         
-        .tip-icon.emergency {
+        .networth-page .tip-icon.emergency {
           background: linear-gradient(135deg, #f39c12 0%, #d35400 100%);
         }
         
-        .tip-content h4 {
+        .networth-page .tip-content h4 {
           font-size: 1.2rem;
           color: var(--text-primary);
           margin-bottom: 10px;
           font-weight: 600;
         }
         
-        .tip-content p {
+        .networth-page .tip-content p {
           color: var(--text-secondary);
           font-size: 0.95rem;
           line-height: 1.5;
@@ -581,12 +549,8 @@ const NetWorthCalculator = () => {
           .networth-page {
             padding: 15px;
           }
-          
-          .section-header h2 {
-            font-size: 2rem;
-          }
-          
-          .networth-value {
+
+.networth-value {
             font-size: 3rem;
           }
           
@@ -611,11 +575,8 @@ const NetWorthCalculator = () => {
         }
         
         @media (max-width: 480px) {
-          .section-header h2 {
-            font-size: 1.8rem;
-          }
-          
-          .networth-value {
+
+.networth-value {
             font-size: 2.5rem;
           }
           
@@ -623,7 +584,7 @@ const NetWorthCalculator = () => {
             grid-template-columns: 1fr;
           }
           
-          .section-title {
+          .networth-page .section-title {
             flex-direction: column;
             align-items: flex-start;
             gap: 10px;
@@ -634,7 +595,7 @@ const NetWorthCalculator = () => {
             text-align: center;
           }
           
-          .tip-icon {
+          .networth-page .tip-icon {
             margin: 0 auto;
           }
         }

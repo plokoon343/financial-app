@@ -117,7 +117,7 @@ export default function People() {
 
                 <div className="ppl-stats">
                   <span><i className="fas fa-arrow-up" style={{ color: '#e53e3e' }} /> Sent {naira(c.sentTotal)} · {c.sentCount}</span>
-                  <span><i className="fas fa-arrow-down" style={{ color: '#38a169' }} /> Got {naira(c.receivedTotal)} · {c.receivedCount}</span>
+                  <span><i className="fas fa-arrow-down" style={{ color: '#16a34a' }} /> Got {naira(c.receivedTotal)} · {c.receivedCount}</span>
                 </div>
 
                 <div className="ppl-actions">
@@ -143,7 +143,7 @@ export default function People() {
 
       {toast && <div className="ppl-toast">{toast}</div>}
 
-      <style jsx="true">{`
+      <style>{`
         .ppl-wrap { max-width: 860px; margin: 0 auto; }
         .ppl-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.25rem; }
         .ppl-head h1 { margin: 0 0 0.25rem; font-size: 1.5rem; color: var(--text-primary, #1a365d); }
@@ -151,30 +151,30 @@ export default function People() {
         .ppl-rebuild { flex-shrink: 0; background: var(--card-bg, #fff); border: 1px solid var(--glass-border, #e2e8f0); color: var(--text-primary, #1a365d);
           padding: 0.5rem 0.9rem; border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
         .ppl-empty { text-align: center; color: var(--text-secondary, #718096); padding: 3rem 1rem; line-height: 1.6; }
-        .ppl-suggest { display: flex; gap: 0.6rem; align-items: center; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3);
+        .ppl-suggest { display: flex; gap: 0.6rem; align-items: center; background: rgba(19, 157, 160,0.1); border: 1px solid rgba(19, 157, 160,0.3);
           color: var(--text-primary, #1a365d); padding: 0.7rem 0.9rem; border-radius: 12px; font-size: 0.88rem; margin-bottom: 1rem; }
-        .ppl-suggest i { color: #6366f1; }
+        .ppl-suggest i { color: #139DA0; }
         .ppl-tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; }
         .ppl-tabs button { background: transparent; border: 1px solid var(--glass-border, #e2e8f0); color: var(--text-secondary, #718096);
           padding: 0.4rem 0.85rem; border-radius: 999px; font-weight: 600; cursor: pointer; font-size: 0.82rem; }
-        .ppl-tabs button.on { background: var(--accent-primary, #008751); color: #fff; border-color: transparent; }
+        .ppl-tabs button.on { background: var(--accent-primary, #139DA0); color: #fff; border-color: transparent; }
         .ppl-list { display: grid; gap: 0.75rem; }
         .ppl-card { background: var(--card-bg, #fff); border: 1px solid var(--glass-border, #e2e8f0); border-radius: 14px; padding: 0.9rem 1rem; }
-        .ppl-card.sug { border-color: rgba(99,102,241,0.4); }
+        .ppl-card.sug { border-color: rgba(19, 157, 160,0.4); }
         .ppl-top { display: flex; align-items: center; gap: 0.75rem; }
         .ppl-av { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; flex-shrink: 0; }
         .ppl-id { flex: 1; min-width: 0; }
         .ppl-name { font-weight: 700; color: var(--text-primary, #1a365d); font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem; }
-        .ppl-fam { font-size: 0.62rem; background: rgba(99,102,241,0.15); color: #6366f1; padding: 1px 6px; border-radius: 6px; font-weight: 700; text-transform: uppercase; }
+        .ppl-fam { font-size: 0.62rem; background: rgba(19, 157, 160,0.15); color: #139DA0; padding: 1px 6px; border-radius: 6px; font-weight: 700; text-transform: uppercase; }
         .ppl-sub { color: var(--text-secondary, #718096); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .ppl-net { text-align: right; flex-shrink: 0; }
         .ppl-netv { font-weight: 800; font-size: 0.95rem; }
-        .ppl-netv.pos { color: #38a169; } .ppl-netv.neg { color: #e53e3e; }
+        .ppl-netv.pos { color: #16a34a; } .ppl-netv.neg { color: #e53e3e; }
         .ppl-stats { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.7rem 0 0.8rem; font-size: 0.8rem; color: var(--text-secondary, #718096); }
         .ppl-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
         .ppl-rel { display: inline-flex; align-items: center; gap: 0.3rem; background: transparent; border: 1px solid var(--glass-border, #e2e8f0);
           color: var(--text-secondary, #718096); padding: 0.35rem 0.7rem; border-radius: 999px; font-weight: 600; cursor: pointer; font-size: 0.78rem; }
-        .ppl-rel.on { background: var(--accent-primary, #008751); color: #fff; border-color: transparent; }
+        .ppl-rel.on { background: var(--accent-primary, #139DA0); color: #fff; border-color: transparent; }
         .ppl-actions select { margin-left: auto; background: var(--bg-input, #f8fafc); border: 1px solid var(--glass-border, #e2e8f0);
           color: var(--text-primary, #1a365d); border-radius: 8px; padding: 0.35rem 0.5rem; font-size: 0.78rem; cursor: pointer; max-width: 160px; }
         .ppl-toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: #1a365d; color: #fff;

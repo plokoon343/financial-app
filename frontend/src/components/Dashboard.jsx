@@ -12,13 +12,6 @@ import BetaPrompt from './BetaPrompt';
 import IncomePrompt from './IncomePrompt';
 import AccountSwitcher from './AccountSwitcher';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
-import {
-  FaMoneyBillWave, FaHome, FaShoppingCart, FaCar, FaUtensils, FaLightbulb, FaBriefcase,
-  FaChartLine, FaCalendar, FaTag, FaPlus, FaTrophy, FaListAlt,
-  FaArrowUp, FaArrowDown, FaTrash, FaEdit, FaChartPie, FaWallet, FaPiggyBank, FaRegMoneyBillAlt,
-  FaFileUpload, FaTimes, FaCheck, FaSpinner, FaExclamationTriangle,
-  FaCloudUploadAlt, FaPaperclip, FaMagic, FaInfoCircle, FaEye, FaEyeSlash, FaCheckCircle, FaEnvelopeOpenText
-} from 'react-icons/fa';
 
 const API = `${API_URL}`;
 
@@ -38,15 +31,15 @@ const statVariants = {
 };
 
 const categoryIcons = {
-  Salary:        <FaMoneyBillWave style={{ color: '#38a169' }} />,
-  Housing:       <FaHome          style={{ color: '#e53e3e' }} />,
-  Shopping:      <FaShoppingCart  style={{ color: '#d69e2e' }} />,
-  Transport:     <FaCar           style={{ color: 'var(--accent-primary)' }} />,
-  Food:          <FaUtensils      style={{ color: '#ed8936' }} />,
-  Utilities:     <FaLightbulb    style={{ color: '#805ad5' }} />,
-  Freelance:     <FaBriefcase     style={{ color: '#0bc5ea' }} />,
-  Entertainment: <FaRegMoneyBillAlt style={{ color: '#d53f8c' }} />,
-  Other:         <FaTag           style={{ color: '#718096' }} />,
+  Salary:        <i className="fas fa-money-bill-wave" style={{ color: '#16a34a' }} aria-hidden="true"></i>,
+  Housing:       <i className="fas fa-house" style={{ color: '#e53e3e' }} aria-hidden="true"></i>,
+  Shopping:      <i className="fas fa-cart-shopping" style={{ color: '#d69e2e' }} aria-hidden="true"></i>,
+  Transport:     <i className="fas fa-car" style={{ color: 'var(--accent-primary)' }} aria-hidden="true"></i>,
+  Food:          <i className="fas fa-utensils" style={{ color: '#ed8936' }} aria-hidden="true"></i>,
+  Utilities:     <i className="fas fa-lightbulb" style={{ color: '#805ad5' }} aria-hidden="true"></i>,
+  Freelance:     <i className="fas fa-briefcase" style={{ color: '#0bc5ea' }} aria-hidden="true"></i>,
+  Entertainment: <i className="far fa-money-bill-1" style={{ color: '#d53f8c' }} aria-hidden="true"></i>,
+  Other:         <i className="fas fa-tag" style={{ color: '#718096' }} aria-hidden="true"></i>,
 };
 
 // Amount cell for the import review table. Shows a thousands-separated value at
@@ -285,9 +278,9 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
               message.type === 'success'
                 ? 'rgba(56,161,105,0.12)'
                 : 'rgba(229,62,62,0.12)',
-            color: message.type === 'success' ? '#38a169' : '#e53e3e',
+            color: message.type === 'success' ? '#16a34a' : '#e53e3e',
             border: `1px solid ${
-              message.type === 'success' ? '#38a169' : '#e53e3e'
+              message.type === 'success' ? '#16a34a' : '#e53e3e'
             }`,
             display: 'flex',
             alignItems: 'center',
@@ -295,7 +288,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
             fontSize: '0.9rem',
           }}
         >
-          {message.type === 'success' ? <FaCheck /> : <FaExclamationTriangle />}
+          {message.type === 'success' ? <i className="fas fa-check" aria-hidden="true"></i> : <i className="fas fa-triangle-exclamation" aria-hidden="true"></i>}
           {message.text}
         </div>
       )}
@@ -342,7 +335,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                 }}
               >
-                {uploading ? <><FaSpinner /> Reading…</> : <><FaMagic /> Read Alerts</>}
+                {uploading ? <><i className="fas fa-spinner fa-spin" aria-hidden="true"></i> Reading…</> : <><i className="fas fa-wand-magic-sparkles" aria-hidden="true"></i> Read Alerts</>}
               </motion.button>
             </>
           ) : (
@@ -362,15 +355,11 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
             onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent-primary)')}
             onMouseLeave={(e) => (e.currentTarget.style.borderColor = theme.inputBorder)}
           >
-            <FaCloudUploadAlt
-              style={{
-                fontSize: '2.5rem',
+            <i className="fas fa-cloud-arrow-up" style={{ fontSize: '2.5rem',
                 color: 'var(--accent-primary)',
                 marginBottom: '0.75rem',
                 display: 'block',
-                margin: '0 auto 0.75rem',
-              }}
-            />
+                margin: '0 auto 0.75rem', }} aria-hidden="true"></i>
             <p style={{ color: theme.labelColor, fontWeight: 600, margin: '0 0 0.25rem' }}>
               Click to select your bank statement
             </p>
@@ -386,7 +375,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
             />
             {file && (
               <p style={{ marginTop: '0.75rem', color: 'var(--accent-primary)', fontWeight: 600, fontSize: '0.9rem' }}>
-                <FaPaperclip style={{ marginRight: '0.4rem' }} />
+                <i className="fas fa-paperclip" style={{ marginRight: '0.4rem' }} aria-hidden="true"></i>
                 {file.name}
               </p>
             )}
@@ -461,18 +450,18 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
           >
             {uploading ? (
               <>
-                <FaSpinner /> Processing…
+                <i className="fas fa-spinner fa-spin" aria-hidden="true"></i> Processing…
               </>
             ) : (
               <>
-                <FaMagic /> Analyse Statement
+                <i className="fas fa-wand-magic-sparkles" aria-hidden="true"></i> Analyse Statement
               </>
             )}
           </motion.button>
           </>
           )}
           <Link to="/email-forwarding" style={{ display: 'block', textAlign: 'center', marginTop: '1rem', color: 'var(--accent-primary)', fontWeight: 600, fontSize: '0.88rem', textDecoration: 'none' }}>
-            <FaEnvelopeOpenText style={{ marginRight: '0.4rem' }} />Auto-import by forwarding your bank emails →
+            <i className="fas fa-envelope-open-text" style={{ marginRight: '0.4rem' }} aria-hidden="true"></i>Auto-import by forwarding your bank emails →
           </Link>
         </>
       )}
@@ -483,18 +472,18 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
               <span style={{ fontWeight: 700, color: theme.labelColor }}>{transactions.length} transactions found</span>
               {meta?.duplicateCount > 0 && (
                 <span style={{ marginLeft: '0.75rem', fontSize: '0.8rem', color: '#f59e0b' }}>
-                  <FaInfoCircle style={{ marginRight: '0.3rem' }} />{meta.duplicateCount} already imported (pre-deselected)
+                  <i className="fas fa-circle-info" style={{ marginRight: '0.3rem' }} aria-hidden="true"></i>{meta.duplicateCount} already imported (pre-deselected)
                 </span>
               )}
               {meta?.uncertainCount > 0 && (
                 <span style={{ marginLeft: '0.75rem', fontSize: '0.8rem', color: '#f59e0b' }}>
-                  <FaExclamationTriangle style={{ marginRight: '0.3rem' }} />{meta.uncertainCount} to check
+                  <i className="fas fa-triangle-exclamation" style={{ marginRight: '0.3rem' }} aria-hidden="true"></i>{meta.uncertainCount} to check
                 </span>
               )}
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: theme.labelColor }}>
-                <FaWallet style={{ opacity: 0.7 }} /> Bank:
+                <i className="fas fa-wallet" style={{ opacity: 0.7 }} aria-hidden="true"></i> Bank:
                 <input
                   list="bank-options"
                   value={bank}
@@ -508,7 +497,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
               </label>
               {flaggedCount > 0 && confidentIdx.length > 0 && (
                 <button onClick={() => handleImport(confidentIdx)} title="Save the confident ones and deal with the flagged rows below" style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', border: 'none', background: 'var(--gradient-primary, #10b981)', color: '#fff', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>
-                  <FaCheckCircle style={{ marginRight: '0.35rem' }} />Save the {confidentIdx.length} good ones
+                  <i className="fas fa-circle-check" style={{ marginRight: '0.35rem' }} aria-hidden="true"></i>Save the {confidentIdx.length} good ones
                 </button>
               )}
               <button onClick={toggleAll} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', border: `1px solid ${theme.inputBorder}`, background: 'transparent', color: theme.labelColor, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>
@@ -523,12 +512,12 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
             <div style={{
               display: 'flex', alignItems: 'flex-start', gap: '0.6rem', marginBottom: '1rem',
               padding: '0.75rem 0.9rem', borderRadius: '10px',
-              border: `1px solid ${meta.reconciliation.ok ? '#38a169' : '#f59e0b'}`,
+              border: `1px solid ${meta.reconciliation.ok ? '#16a34a' : '#f59e0b'}`,
               background: meta.reconciliation.ok ? 'rgba(56,161,105,0.08)' : 'rgba(245,158,11,0.1)',
             }}>
               {meta.reconciliation.ok
-                ? <FaCheckCircle style={{ color: '#38a169', marginTop: 2, flexShrink: 0 }} />
-                : <FaExclamationTriangle style={{ color: '#f59e0b', marginTop: 2, flexShrink: 0 }} />}
+                ? <i className="fas fa-circle-check" style={{ color: '#16a34a', marginTop: 2, flexShrink: 0 }} aria-hidden="true"></i>
+                : <i className="fas fa-triangle-exclamation" style={{ color: '#f59e0b', marginTop: 2, flexShrink: 0 }} aria-hidden="true"></i>}
               <div>
                 <div style={{ fontWeight: 700, color: theme.labelColor, fontSize: '0.86rem' }}>
                   {meta.reconciliation.ok ? 'Balances with your statement' : "Doesn't balance — review carefully"}
@@ -563,7 +552,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                     <td style={{ padding: '0.5rem 0.7rem', color: darkMode ? '#cbd5e0' : '#4a5568', whiteSpace: 'nowrap' }}>{tx.date}</td>
                     <td title={tx.description} style={{ padding: '0.5rem 0.7rem', color: theme.labelColor, maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tx.description}
-                      {tx.internal && <span title={tx.internalReason || "Won't count as income or spending"} style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(99,102,241,0.15)', color: '#6366f1', padding: '1px 5px', borderRadius: '4px' }}>🔁 Internal</span>}
+                      {tx.internal && <span title={tx.internalReason || "Won't count as income or spending"} style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(19, 157, 160,0.15)', color: '#139DA0', padding: '1px 5px', borderRadius: '4px' }}>🔁 Internal</span>}
                       {tx.duplicate && <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>Dup</span>}
                       {!tx.duplicate && (tx.confidenceLevel === 'low' || tx.confidenceLevel === 'medium') && (
                         <span title="We weren't fully sure of this row — please check it" style={{ marginLeft: '0.4rem', fontSize: '0.68rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '4px' }}>⚠ check</span>
@@ -577,7 +566,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                         title={(tx.needsReview || tx.confidenceLevel === 'low') ? 'We were unsure of this amount — please check it' : 'Edit amount'}
                         style={{
                           width: '92px', padding: '3px 6px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, textAlign: 'right',
-                          color: tx.type === 'income' ? '#38a169' : '#e53e3e',
+                          color: tx.type === 'income' ? '#16a34a' : '#e53e3e',
                           background: (tx.needsReview || tx.confidenceLevel === 'low') ? 'rgba(245,158,11,0.12)' : (darkMode ? '#4a5568' : '#edf2f7'),
                           border: `1px solid ${(tx.needsReview || tx.confidenceLevel === 'low') ? '#f59e0b' : theme.inputBorder}`,
                         }}
@@ -585,7 +574,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                     </td>
                     <td style={{ padding: '0.5rem 0.7rem', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                       <select value={tx.type} onChange={(e) => updateTxType(idx, e.target.value)}
-                        style={{ background: darkMode ? '#4a5568' : '#edf2f7', color: tx.type === 'income' ? '#38a169' : '#e53e3e', border: `1px solid ${theme.inputBorder}`, borderRadius: '6px', padding: '3px 4px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                        style={{ background: darkMode ? '#4a5568' : '#edf2f7', color: tx.type === 'income' ? '#16a34a' : '#e53e3e', border: `1px solid ${theme.inputBorder}`, borderRadius: '6px', padding: '3px 4px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
                         <option value="expense">↓ expense</option>
                         <option value="income">↑ income</option>
                       </select>
@@ -620,19 +609,19 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
           <motion.button onClick={handleImport} disabled={selectedIndices.length === 0} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             style={{
               width: '100%', padding: '0.9rem', borderRadius: '10px', border: 'none',
-              background: selectedIndices.length === 0 ? (darkMode ? '#4a5568' : '#e2e8f0') : 'linear-gradient(135deg, #38a169, #2f855a)',
+              background: selectedIndices.length === 0 ? (darkMode ? '#4a5568' : '#e2e8f0') : 'linear-gradient(135deg, #16a34a, #2f855a)',
               color: selectedIndices.length === 0 ? (darkMode ? '#718096' : '#a0aec0') : 'white',
               fontWeight: 600, cursor: selectedIndices.length === 0 ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
             }}>
-            <FaCheck /> Import Selected ({selectedIndices.length})
+            <i className="fas fa-check" aria-hidden="true"></i> Import Selected ({selectedIndices.length})
           </motion.button>
         </>
       )}
 
       {step === 'importing' && (
         <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-          <FaSpinner style={{ fontSize: '2rem', color: 'var(--accent-primary)', marginBottom: '1rem', display: 'block', margin: '0 auto 1rem' }} />
+          <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: 'var(--accent-primary)', marginBottom: '1rem', display: 'block', margin: '0 auto 1rem' }} aria-hidden="true"></i>
           <p style={{ color: theme.labelColor, fontWeight: 600 }}>Importing transactions…</p>
         </div>
       )}
@@ -691,7 +680,6 @@ const Dashboard = ({ initialImport } = {}) => {
     }
   }, [initialImport]);
 
-// eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     (async () => {
       try {
@@ -807,10 +795,10 @@ const Dashboard = ({ initialImport } = {}) => {
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 className="dashboard-title" style={{ color: darkMode ? '#f7fafc' : '#1a365d', fontSize: '2.5rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <FaChartPie style={{ color: 'var(--accent-primary)' }} /> Financial Dashboard
+            <i className="fas fa-chart-pie" style={{ color: 'var(--accent-primary)' }} aria-hidden="true"></i> Financial Dashboard
           </h1>
           <p className="dashboard-subtitle" style={{ color: darkMode ? '#cbd5e0' : '#4a5568', marginTop: '0.5rem', fontSize: '1.1rem' }}>
-            <FaWallet style={{ color: '#38a169', marginRight: '0.4rem' }} /> Welcome back, {user?.name || 'User'}!
+            <i className="fas fa-wallet" style={{ color: '#16a34a', marginRight: '0.4rem' }} aria-hidden="true"></i> Welcome back, {user?.name || 'User'}!
           </p>
         </div>
         <div className="dashboard-actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -831,20 +819,20 @@ const Dashboard = ({ initialImport } = {}) => {
               justifyContent: 'center',
             }}
           >
-            {hideAmounts ? <FaEyeSlash size={20} /> : <FaEye size={20} />}
+            {hideAmounts ? <i className="fas fa-eye-slash" style={{ fontSize: 20 }} aria-hidden="true"></i> : <i className="fas fa-eye" style={{ fontSize: 20 }} aria-hidden="true"></i>}
           </motion.button>
           <Link to="/transactions"
             style={{ background: darkMode ? '#4a5568' : '#e2e8f0', color: darkMode ? '#f7fafc' : '#1a365d',
               border: 'none', padding: '0.875rem 1.5rem', borderRadius: '10px', fontSize: '1rem', fontWeight: 600,
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', textDecoration: 'none' }}>
-            <FaListAlt /> View Transactions
+            <i className="fas fa-rectangle-list" aria-hidden="true"></i> View Transactions
           </Link>
           <motion.button onClick={() => { setShowModal(true); setActiveTab('single'); setFormMsg(null); }}
             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             style={{ background: 'var(--gradient-primary)', color: 'white', border: 'none',
               padding: '0.875rem 1.75rem', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: '0.75rem', boxShadow: '0 4px 12px rgba(66,153,225,0.3)' }}>
-            <FaPlus /> Add / Import Transactions
+            <i className="fas fa-plus" aria-hidden="true"></i> Add / Import Transactions
           </motion.button>
         </div>
       </motion.div>
@@ -856,7 +844,7 @@ const Dashboard = ({ initialImport } = {}) => {
             initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
             style={{ background: 'color-mix(in srgb, var(--accent-primary) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent)', borderRadius: '16px', padding: '1.1rem 1.25rem', marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'color-mix(in srgb, var(--accent-primary) 22%, transparent)' }}>
-              <FaPiggyBank style={{ color: 'var(--accent-primary)', fontSize: 22 }} />
+              <i className="fas fa-piggy-bank" style={{ color: 'var(--accent-primary)', fontSize: 22 }} aria-hidden="true"></i>
             </div>
             <div style={{ flex: 1, minWidth: 200 }}>
               <div style={{ color: darkMode ? '#f7fafc' : '#1a365d', fontWeight: 800, fontSize: '1.05rem' }}>
@@ -875,7 +863,7 @@ const Dashboard = ({ initialImport } = {}) => {
               </Link>
               <button onClick={dismissSalary} aria-label="Dismiss"
                 style={{ background: 'transparent', border: 'none', color: darkMode ? '#cbd5e0' : '#4a5568', cursor: 'pointer', display: 'flex', padding: 6 }}>
-                <FaTimes size={18} />
+                <i className="fas fa-xmark" style={{ fontSize: 18 }} aria-hidden="true"></i>
               </button>
             </div>
           </motion.div>
@@ -927,14 +915,14 @@ const Dashboard = ({ initialImport } = {}) => {
                 <h2 style={{ color: darkMode ? '#f7fafc' : '#1a365d', margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>Transactions</h2>
                 <button onClick={() => setShowModal(false)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a0aec0' : '#718096', fontSize: '1.3rem' }}>
-                  <FaTimes />
+                  <i className="fas fa-xmark" aria-hidden="true"></i>
                 </button>
               </div>
               {/* Tabs */}
               <div style={{ display: 'flex', marginBottom: '1.75rem', background: darkMode ? '#4a5568' : '#f1f5f9', borderRadius: '10px', padding: '0.25rem' }}>
                 {[
-                  { id: 'single', label: 'Add Single', icon: <FaPlus /> },
-                  { id: 'import', label: 'Import Statement', icon: <FaFileUpload /> },
+                  { id: 'single', label: 'Add Single', icon: <i className="fas fa-plus" aria-hidden="true"></i> },
+                  { id: 'import', label: 'Import Statement', icon: <i className="fas fa-file-arrow-up" aria-hidden="true"></i> },
                 ].map((tab) => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     style={{
@@ -956,16 +944,16 @@ const Dashboard = ({ initialImport } = {}) => {
                     <div style={{
                       padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1rem',
                       background: formMsg.type === 'success' ? 'rgba(56,161,105,0.12)' : 'rgba(229,62,62,0.12)',
-                      color: formMsg.type === 'success' ? '#38a169' : '#e53e3e',
-                      border: `1px solid ${formMsg.type === 'success' ? '#38a169' : '#e53e3e'}`,
+                      color: formMsg.type === 'success' ? '#16a34a' : '#e53e3e',
+                      border: `1px solid ${formMsg.type === 'success' ? '#16a34a' : '#e53e3e'}`,
                       display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem',
                     }}>
-                      {formMsg.type === 'success' ? <FaCheck /> : <FaExclamationTriangle />} {formMsg.text}
+                      {formMsg.type === 'success' ? <i className="fas fa-check" aria-hidden="true"></i> : <i className="fas fa-triangle-exclamation" aria-hidden="true"></i>} {formMsg.text}
                     </div>
                   )}
                   <div style={{ marginBottom: '1.25rem' }}>
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: theme.labelColor, fontSize: '0.9rem' }}>
-                      <FaEdit style={{ marginRight: '0.4rem' }} /> Description
+                      <i className="fas fa-pen-to-square" style={{ marginRight: '0.4rem' }} aria-hidden="true"></i> Description
                     </label>
                     <textarea
                       value={formData.description}
@@ -980,7 +968,7 @@ const Dashboard = ({ initialImport } = {}) => {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
                     <div>
                       <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: theme.labelColor, fontSize: '0.9rem' }}>
-                        <FaWallet style={{ marginRight: '0.4rem' }} /> Amount (₦)
+                        <i className="fas fa-wallet" style={{ marginRight: '0.4rem' }} aria-hidden="true"></i> Amount (₦)
                       </label>
                       <input
                         type="number"
@@ -997,17 +985,17 @@ const Dashboard = ({ initialImport } = {}) => {
                     </div>
                     <div>
                       <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: theme.labelColor, fontSize: '0.9rem' }}>
-                        <FaTag style={{ marginRight: '0.4rem' }} /> Type
+                        <i className="fas fa-tag" style={{ marginRight: '0.4rem' }} aria-hidden="true"></i> Type
                       </label>
                       <div style={{ display: 'flex', gap: '0.5rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px' }}>
                         {[
-                          { val: 'expense', label: 'Expense', icon: <FaArrowDown size={11} /> },
-                          { val: 'income', label: 'Income', icon: <FaArrowUp size={11} /> },
+                          { val: 'expense', label: 'Expense', icon: <i className="fas fa-arrow-down" style={{ fontSize: 11 }} aria-hidden="true"></i> },
+                          { val: 'income', label: 'Income', icon: <i className="fas fa-arrow-up" style={{ fontSize: 11 }} aria-hidden="true"></i> },
                         ].map(({ val, label, icon }) => (
                           <button key={val} type="button" onClick={() => setFormData({ ...formData, type: val })}
                             style={{
                               flex: 1, padding: '0.65rem', border: 'none', borderRadius: '8px',
-                              background: formData.type === val ? (val === 'income' ? '#38a169' : '#e53e3e') : 'transparent',
+                              background: formData.type === val ? (val === 'income' ? '#16a34a' : '#e53e3e') : 'transparent',
                               color: formData.type === val ? 'white' : darkMode ? '#cbd5e0' : '#4a5568',
                               fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s',
                               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontSize: '0.9rem',
@@ -1021,7 +1009,7 @@ const Dashboard = ({ initialImport } = {}) => {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.75rem' }}>
                     <div>
                       <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: theme.labelColor, fontSize: '0.9rem' }}>
-                        <FaListAlt style={{ marginRight: '0.4rem' }} /> Category
+                        <i className="fas fa-rectangle-list" style={{ marginRight: '0.4rem' }} aria-hidden="true"></i> Category
                       </label>
                       <select
                         value={formData.category}
@@ -1040,7 +1028,7 @@ const Dashboard = ({ initialImport } = {}) => {
                     </div>
                     <div>
                       <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: theme.labelColor, fontSize: '0.9rem' }}>
-                        <FaCalendar style={{ marginRight: '0.4rem' }} /> Date
+                        <i className="fas fa-calendar" style={{ marginRight: '0.4rem' }} aria-hidden="true"></i> Date
                       </label>
                       <input
                         type="date"
@@ -1074,13 +1062,13 @@ const Dashboard = ({ initialImport } = {}) => {
                       whileTap={{ scale: 0.97 }}
                       style={{
                         flex: 2, padding: '0.9rem',
-                        background: formData.type === 'income' ? 'linear-gradient(135deg,#38a169,#2f855a)' : 'linear-gradient(135deg,#e53e3e,#c53030)',
+                        background: formData.type === 'income' ? 'linear-gradient(135deg,#16a34a,#2f855a)' : 'linear-gradient(135deg,#e53e3e,#c53030)',
                         color: 'white', border: 'none', borderRadius: '10px', fontWeight: 600,
                         cursor: submitting ? 'not-allowed' : 'pointer',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                       }}
                     >
-                      {submitting ? <><FaSpinner /> Saving…</> : <><FaPlus /> Add {formData.type === 'income' ? 'Income' : 'Expense'}</>}
+                      {submitting ? <><i className="fas fa-spinner fa-spin" aria-hidden="true"></i> Saving…</> : <><i className="fas fa-plus" aria-hidden="true"></i> Add {formData.type === 'income' ? 'Income' : 'Expense'}</>}
                     </motion.button>
                   </div>
                 </form>
@@ -1096,16 +1084,16 @@ const Dashboard = ({ initialImport } = {}) => {
       <motion.div className="quick-stats" initial="hidden" animate="visible" variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } }}
         style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
         {[
-          { label: 'Total Income',   value: formatAmount(stats.totalIncome),   icon: <FaArrowUp   style={{ color: '#38a169', fontSize: '1.5rem' }} />, isPos: true },
-          { label: 'Total Expenses', value: formatAmount(stats.totalExpenses), icon: <FaArrowDown style={{ color: '#e53e3e', fontSize: '1.5rem' }} />, isPos: false },
-          { label: 'Net Balance',    value: formatAmount(stats.netBalance),    icon: <FaChartLine style={{ color: stats.netBalance >= 0 ? '#38a169' : '#e53e3e', fontSize: '1.5rem' }} />, isPos: stats.netBalance >= 0 },
+          { label: 'Total Income',   value: formatAmount(stats.totalIncome),   icon: <i className="fas fa-arrow-up" style={{ color: '#16a34a', fontSize: '1.5rem' }} aria-hidden="true"></i>, isPos: true },
+          { label: 'Total Expenses', value: formatAmount(stats.totalExpenses), icon: <i className="fas fa-arrow-down" style={{ color: '#e53e3e', fontSize: '1.5rem' }} aria-hidden="true"></i>, isPos: false },
+          { label: 'Net Balance',    value: formatAmount(stats.netBalance),    icon: <i className="fas fa-chart-line" style={{ color: stats.netBalance >= 0 ? '#16a34a' : '#e53e3e', fontSize: '1.5rem' }} aria-hidden="true"></i>, isPos: stats.netBalance >= 0 },
         ].map((s, idx) => (
           <motion.div key={s.label} custom={idx} variants={statVariants} whileHover={{ scale: 1.05, y: -5 }}
             style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem',
               border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
             <div style={{ background: s.isPos ? 'rgba(56,161,105,0.1)' : 'rgba(229,62,62,0.1)', width: 56, height: 56, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{s.icon}</div>
             <div>
-              <div style={{ fontSize: '1.75rem', fontWeight: 700, color: s.isPos ? (darkMode ? '#68d391' : '#38a169') : (darkMode ? '#fc8181' : '#e53e3e') }}>{s.value}</div>
+              <div style={{ fontSize: '1.75rem', fontWeight: 700, color: s.isPos ? (darkMode ? '#68d391' : '#16a34a') : (darkMode ? '#fc8181' : '#e53e3e') }}>{s.value}</div>
               <div style={{ color: darkMode ? '#a0aec0' : '#718096', fontSize: '0.9rem', fontWeight: 600 }}>{s.label}</div>
             </div>
           </motion.div>
@@ -1118,12 +1106,12 @@ const Dashboard = ({ initialImport } = {}) => {
         <motion.div className="card overview-card" variants={cardVariants} whileHover="hover"
           style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
           <h2 style={{ color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FaChartPie style={{ color: 'var(--accent-primary)' }} /> Financial Overview
+            <i className="fas fa-chart-pie" style={{ color: 'var(--accent-primary)' }} aria-hidden="true"></i> Financial Overview
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', background: darkMode ? '#4a5568' : '#f8fafc', borderRadius: '12px' }}>
               <span style={{ fontWeight: 600, color: darkMode ? '#e2e8f0' : '#4a5568' }}>Total Income</span>
-              <span style={{ fontWeight: 700, color: '#38a169', fontSize: '1.2rem' }}>{formatAmount(stats.totalIncome)}</span>
+              <span style={{ fontWeight: 700, color: '#16a34a', fontSize: '1.2rem' }}>{formatAmount(stats.totalIncome)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', background: darkMode ? '#4a5568' : '#f8fafc', borderRadius: '12px' }}>
               <span style={{ fontWeight: 600, color: darkMode ? '#e2e8f0' : '#4a5568' }}>Total Expenses</span>
@@ -1131,7 +1119,7 @@ const Dashboard = ({ initialImport } = {}) => {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', background: darkMode ? '#4a5568' : '#f8fafc', borderRadius: '12px' }}>
               <span style={{ fontWeight: 600, color: darkMode ? '#e2e8f0' : '#4a5568' }}>Net Balance</span>
-              <span style={{ fontWeight: 700, color: stats.netBalance >= 0 ? '#38a169' : '#e53e3e', fontSize: '1.2rem' }}>{formatAmount(stats.netBalance)}</span>
+              <span style={{ fontWeight: 700, color: stats.netBalance >= 0 ? '#16a34a' : '#e53e3e', fontSize: '1.2rem' }}>{formatAmount(stats.netBalance)}</span>
             </div>
           </div>
         </motion.div>
@@ -1139,7 +1127,7 @@ const Dashboard = ({ initialImport } = {}) => {
           style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
             <h2 style={{ color: darkMode ? '#f7fafc' : '#1a365d', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <FaListAlt style={{ color: 'var(--accent-primary)' }} /> Recent Transactions
+              <i className="fas fa-rectangle-list" style={{ color: 'var(--accent-primary)' }} aria-hidden="true"></i> Recent Transactions
             </h2>
             <div style={{ display: 'flex', gap: '0.25rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.2rem', borderRadius: '8px' }}>
               {[{ val: 'all', label: 'All' }, { val: 'income', label: '↑' }, { val: 'expense', label: '↓' }].map(f => (
@@ -1167,14 +1155,14 @@ const Dashboard = ({ initialImport } = {}) => {
                     <div style={{ fontWeight: 600, color: darkMode ? '#f7fafc' : '#1a365d', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.description}</div>
                     <div style={{ fontSize: '0.78rem', color: darkMode ? '#a0aec0' : '#718096' }}>{new Date(tx.date).toLocaleDateString()} · {km ? km.label : tx.category}</div>
                   </div>
-                  <div style={{ fontWeight: 700, color: km ? (darkMode ? '#a0aec0' : '#718096') : tx.type === 'income' ? '#38a169' : '#e53e3e', whiteSpace: 'nowrap', fontSize: '0.92rem' }}>
+                  <div style={{ fontWeight: 700, color: km ? (darkMode ? '#a0aec0' : '#718096') : tx.type === 'income' ? '#16a34a' : '#e53e3e', whiteSpace: 'nowrap', fontSize: '0.92rem' }}>
                     {km ? `${km.symbol} ` : tx.type === 'income' ? '+' : '-'}{hideAmounts ? '••••' : fmtNaira(Math.abs(tx.amount))}
                   </div>
                   <button onClick={() => deleteTransaction(tx._id || tx.id)}
                     style={{ background: 'none', border: 'none', color: darkMode ? '#718096' : '#cbd5e0', cursor: 'pointer', padding: '0.25rem', borderRadius: '6px', flexShrink: 0 }}
                     onMouseEnter={e => e.currentTarget.style.color = '#e53e3e'}
                     onMouseLeave={e => e.currentTarget.style.color = darkMode ? '#718096' : '#cbd5e0'}>
-                    <FaTrash size={12} />
+                    <i className="fas fa-trash" style={{ fontSize: 12 }} aria-hidden="true"></i>
                   </button>
                 </div>
                 );
@@ -1187,12 +1175,12 @@ const Dashboard = ({ initialImport } = {}) => {
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
-              <FaChartPie style={{ fontSize: '2.5rem', color: darkMode ? '#4a5568' : '#cbd5e0', marginBottom: '0.75rem', display: 'block', margin: '0 auto 0.75rem' }} />
+              <i className="fas fa-chart-pie" style={{ fontSize: '2.5rem', color: darkMode ? '#4a5568' : '#cbd5e0', marginBottom: '0.75rem', display: 'block', margin: '0 auto 0.75rem' }} aria-hidden="true"></i>
               <h3 style={{ color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '0.4rem' }}>No Transactions Yet</h3>
               <p style={{ color: darkMode ? '#a0aec0' : '#718096', marginBottom: '1.25rem', fontSize: '0.9rem' }}>Add one or import a bank statement.</p>
               <button onClick={() => { setShowModal(true); setActiveTab('single'); }}
                 style={{ background: 'var(--gradient-primary)', color: 'white', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem' }}>
-                <FaPlus /> Add Transaction
+                <i className="fas fa-plus" aria-hidden="true"></i> Add Transaction
               </button>
             </div>
           )}
@@ -1205,10 +1193,10 @@ const Dashboard = ({ initialImport } = {}) => {
         <motion.div className="card savings-card" whileHover={{ scale: 1.02, y: -5 }}
           style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
           <h3 style={{ color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FaPiggyBank style={{ color: '#38a169' }} /> Savings Rate
+            <i className="fas fa-piggy-bank" style={{ color: '#16a34a' }} aria-hidden="true"></i> Savings Rate
           </h3>
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-            <div style={{ width: 120, height: 120, borderRadius: '50%', border: `8px solid ${savingsRate >= 0 ? '#00d4aa' : '#ff6b8b'}`, margin: '0 auto 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 120, height: 120, borderRadius: '50%', border: `8px solid ${savingsRate >= 0 ? '#1DD3A8' : '#ff6b8b'}`, margin: '0 auto 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontSize: '1.5rem', fontWeight: 700, color: darkMode ? '#f7fafc' : '#1a365d' }}>
                 {hideAmounts ? '••' : `${savingsRate.toFixed(1)}%`}
               </span>
@@ -1222,14 +1210,14 @@ const Dashboard = ({ initialImport } = {}) => {
         <motion.div className="card insights-card" whileHover={{ scale: 1.02, y: -5 }}
           style={{ background: darkMode ? '#2d3748' : 'white', borderRadius: '16px', padding: '1.5rem', border: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)' }}>
           <h3 style={{ color: darkMode ? '#f7fafc' : '#1a365d', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FaTrophy style={{ color: '#d69e2e' }} /> Quick Insights
+            <i className="fas fa-trophy" style={{ color: '#d69e2e' }} aria-hidden="true"></i> Quick Insights
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             {[
-              { title: 'Top Spending Category', value: transactions.length > 0 ? (Object.entries(transactions.filter(t => t.type === 'expense').reduce((a, t) => { const c = t.category||'Other'; a[c]=(a[c]||0)+Math.abs(t.amount); return a; }, {})).sort((a,b)=>b[1]-a[1])[0]?.[0] || 'None') : 'None', color: '#00d4aa' },
-              { title: 'Avg Daily Spend', value: hideAmounts ? '••••' : fmtNaira(stats.totalExpenses/30), color: '#4facfe' },
+              { title: 'Top Spending Category', value: transactions.length > 0 ? (Object.entries(transactions.filter(t => t.type === 'expense').reduce((a, t) => { const c = t.category||'Other'; a[c]=(a[c]||0)+Math.abs(t.amount); return a; }, {})).sort((a,b)=>b[1]-a[1])[0]?.[0] || 'None') : 'None', color: '#1DD3A8' },
+              { title: 'Avg Daily Spend', value: hideAmounts ? '••••' : fmtNaira(stats.totalExpenses/30), color: '#139DA0' },
               { title: 'Total Transactions', value: transactions.length, color: '#fa709a' },
-              { title: 'Balance Status', value: stats.netBalance >= 0 ? '✓ Positive' : '✗ Negative', color: stats.netBalance >= 0 ? '#38a169' : '#e53e3e' },
+              { title: 'Balance Status', value: stats.netBalance >= 0 ? '✓ Positive' : '✗ Negative', color: stats.netBalance >= 0 ? '#16a34a' : '#e53e3e' },
             ].map(ins => (
               <div key={ins.title} style={{ background: darkMode ? '#4a5568' : '#f8fafc', borderRadius: '12px', padding: '1rem' }}>
                 <div style={{ fontSize: '0.75rem', color: darkMode ? '#a0aec0' : '#718096', fontWeight: 600, marginBottom: '0.3rem' }}>{ins.title}</div>
@@ -1241,7 +1229,7 @@ const Dashboard = ({ initialImport } = {}) => {
       </motion.div>
 
       {/* RESPONSIVE STYLES */}
-      <style jsx="true">{`
+      <style>{`
         /* Dashboard root padding reduced on mobile */
         @media (max-width: 768px) {
           .dashboard-root {

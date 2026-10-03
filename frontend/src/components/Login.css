@@ -1,47 +1,3 @@
-/* CSS Variables for Theme */
-:root {
-  --primary-color: #008751;
-  --primary-hover: #00a862;
-  --success-color: #10b981;
-  --error-color: #ef4444;
-  --warning-color: #f59e0b;
-  
-  /* Light Theme (default) */
-  --bg-primary: #f8fafc;
-  --bg-secondary: #f1f5f9;
-  --bg-card: #ffffff;
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
-  --border-color: #cbd5e1;
-  --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
-  
-  /* Input Colors (Light) */
-  --input-bg: #ffffff;
-  --input-border: #cbd5e1;
-  --input-focus: #008751;
-  --input-text: #0f172a;
-  --input-placeholder: #94a3b8;
-}
-
-[data-theme="dark"] {
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-card: #1e293b;
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
-  --border-color: #334155;
-  --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
-  
-  /* Input Colors (Dark) */
-  --input-bg: #334155;
-  --input-border: #475569;
-  --input-focus: #00a862;
-  --input-text: #f1f5f9;
-  --input-placeholder: #94a3b8;
-}
-
 /* Base Styles */
 .login-container {
   min-height: 100vh;
@@ -72,7 +28,7 @@
 .login-brand {
   flex: 1 1 0;
   min-width: 0;
-  background: linear-gradient(150deg, #008751 0%, #00a862 55%, #0891b2 100%);
+  background: linear-gradient(150deg, #139DA0 0%, #1DD3A8 55%, #0891b2 100%);
   color: #eafff5;
   padding: 46px 40px;
   display: flex;
@@ -196,10 +152,6 @@
   margin-bottom: 24px;
 }
 
-.form-group {
-  margin-bottom: 20px;
-}
-
 .form-label {
   display: block;
   margin-bottom: 6px;
@@ -248,7 +200,7 @@
 .form-input:focus {
   outline: none;
   border-color: var(--input-focus);
-  box-shadow: 0 0 0 3px rgba(0, 135, 81, 0.18);
+  box-shadow: 0 0 0 3px rgba(19, 157, 160, 0.18);
 }
 
 .form-input:disabled {
@@ -304,26 +256,6 @@
   100% { transform: rotate(360deg); }
 }
 
-/* Divider */
-.divider {
-  display: flex;
-  align-items: center;
-  margin: 24px 0;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-
-.divider::before,
-.divider::after {
-  content: '';
-  flex: 1;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.divider span {
-  padding: 0 16px;
-}
-
 /* Google sign-in divider */
 .login-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: var(--text-secondary, #94a3b8); font-size: 0.85rem; }
 .login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-color, rgba(148,163,184,0.3)); }
@@ -346,7 +278,7 @@
 .demo-button:hover {
   border-color: var(--primary-color);
   color: var(--primary-color);
-  background: rgba(0, 135, 81, 0.06);
+  background: rgba(19, 157, 160, 0.06);
 }
 
 /* Sign Up Section */
@@ -483,7 +415,7 @@
   margin: 0 0 0.9rem;
 }
 .legal-consent a {
-  color: var(--accent-primary, #00a862);
+  color: var(--accent-primary, #1DD3A8);
   font-weight: 600;
   text-decoration: underline;
 }
@@ -512,7 +444,7 @@
 .otp-box:focus {
   outline: none;
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(0, 135, 81, 0.18);
+  box-shadow: 0 0 0 3px rgba(19, 157, 160, 0.18);
 }
 .otp-box:disabled { opacity: 0.6; }
 

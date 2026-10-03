@@ -5734,6 +5734,11 @@ const executeAiTool = async (name, input, user) => {
   }
 };
 
+// Which key-gated features are switched on, so clients can hide what isn't live.
+app.get('/api/features', auth, (req, res) => {
+  res.json({ assistant: aiConfigured(), bankLink: monoConfigured() });
+});
+
 app.get('/api/ai/status', auth, async (req, res) => {
   res.json({ configured: aiConfigured(), model: aiConfigured() ? aiModel() : null, plan: req.user.plan || 'free' });
 });

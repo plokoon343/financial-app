@@ -50,7 +50,7 @@ function confetti(canvas) {
   const ctx = canvas.getContext('2d');
   const W = canvas.width = canvas.offsetWidth;
   const H = canvas.height = canvas.offsetHeight;
-  const colors = ['#008751', '#1DD3A8', '#f59e0b', '#ec4899', '#0ea5e9', '#8b5cf6'];
+  const colors = ['#139DA0', '#1DD3A8', '#f59e0b', '#ec4899', '#0ea5e9', '#8b5cf6'];
   const parts = Array.from({ length: 120 }, () => ({
     x: Math.random() * W, y: -20 - Math.random() * H * 0.4,
     r: 4 + Math.random() * 5, c: colors[(Math.random() * colors.length) | 0],
@@ -152,13 +152,13 @@ export default function FirstInsight() {
         <button className="fi-btn" onClick={done}>Show me more</button>
       </div>
 
-      <style jsx="true">{`
-        .fi-overlay { position: fixed; inset: 0; z-index: 4000; background: var(--bg-primary, #0b1326); overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        .fi-overlay::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 40%; background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary, #008751) 18%, transparent), transparent); pointer-events: none; }
+      <style>{`
+        .fi-overlay { position: fixed; inset: 0; z-index: 4000; background: var(--bg-primary, #071c1a); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        .fi-overlay::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 40%; background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary, #139DA0) 18%, transparent), transparent); pointer-events: none; }
         .fi-confetti { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
         .fi-body { position: relative; width: 100%; max-width: 460px; padding: 28px 24px; display: flex; flex-direction: column; min-height: 60vh; }
         .fi-loading { color: var(--text-secondary); font-size: 0.9rem; text-align: center; margin: auto; }
-        .fi-eyebrow { color: var(--accent-primary, #008751); font-size: 0.7rem; font-weight: 800; letter-spacing: 1.4px; }
+        .fi-eyebrow { color: var(--accent-primary, #139DA0); font-size: 0.7rem; font-weight: 800; letter-spacing: 1.4px; }
         .fi-heading { color: var(--text-primary); font-size: 1.7rem; font-weight: 800; letter-spacing: -0.6px; line-height: 1.22; margin: 10px 0 0; }
         .fi-empty { color: var(--text-secondary); font-size: 0.98rem; line-height: 1.5; margin-top: 14px; }
         .fi-card { background: var(--card-bg); border: 1px solid var(--glass-border); border-radius: 18px; padding: 18px; margin-top: 24px; }
@@ -172,10 +172,10 @@ export default function FirstInsight() {
         .fi-cat-amt { color: var(--text-primary); font-size: 0.85rem; font-weight: 700; }
         .fi-bar { height: 6px; border-radius: 3px; background: var(--glass-bg); margin-top: 6px; overflow: hidden; }
         .fi-bar-fill { display: block; height: 100%; border-radius: 3px; }
-        .fi-voice { background: var(--card-bg); border: 1px solid var(--glass-border); border-left: 3px solid var(--accent-primary, #008751); border-radius: 14px; padding: 15px; margin-top: 14px; }
-        .fi-voice-label { color: var(--accent-primary, #008751); font-size: 0.62rem; font-weight: 800; letter-spacing: 1.2px; }
+        .fi-voice { background: var(--card-bg); border: 1px solid var(--glass-border); border-left: 3px solid var(--accent-primary, #139DA0); border-radius: 14px; padding: 15px; margin-top: 14px; }
+        .fi-voice-label { color: var(--accent-primary, #139DA0); font-size: 0.62rem; font-weight: 800; letter-spacing: 1.2px; }
         .fi-voice-text { color: var(--text-primary); font-size: 0.92rem; line-height: 1.5; margin: 6px 0 0; }
-        .fi-btn { margin-top: auto; margin-bottom: 8px; width: 100%; padding: 15px; border: none; border-radius: 14px; color: #fff; font-weight: 800; font-size: 1rem; cursor: pointer; background: var(--gradient-primary, var(--accent-primary, #008751)); }
+        .fi-btn { margin-top: auto; margin-bottom: 8px; width: 100%; padding: 15px; border: none; border-radius: 14px; color: #fff; font-weight: 800; font-size: 1rem; cursor: pointer; background: var(--gradient-primary, var(--accent-primary, #139DA0)); }
       `}</style>
     </div>
   );

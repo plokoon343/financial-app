@@ -25,9 +25,9 @@ export const FeatureTip = ({ tipKey, title, children }) => {
         <button onClick={close} className="ft-got">Got it</button>
         <button onClick={disableAll} className="ft-off" title="Stop showing tips">Don't show again</button>
       </div>
-      <style jsx="true">{`
-        .feature-tip { display: flex; align-items: flex-start; gap: 12px; background: rgba(99,102,241,0.10);
-          border: 1px solid rgba(99,102,241,0.35); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px; }
+      <style>{`
+        .feature-tip { display: flex; align-items: flex-start; gap: 12px; background: rgba(19, 157, 160,0.10);
+          border: 1px solid rgba(19, 157, 160,0.35); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px; }
         .ft-bulb { color: var(--accent-primary); margin-top: 2px; }
         .ft-body { flex: 1; color: var(--text-primary); font-size: 0.88rem; line-height: 1.5; }
         .ft-body strong { display: block; margin-bottom: 2px; }
@@ -45,7 +45,7 @@ export const InfoTip = ({ text }) => (
   <span className="info-tip" tabIndex={0}>
     <i className="fas fa-circle-info"></i>
     <span className="info-tip-bubble">{text}</span>
-    <style jsx="true">{`
+    <style>{`
       .info-tip { position: relative; display: inline-flex; margin-left: 6px; color: var(--text-secondary); cursor: help; outline: none; }
       .info-tip-bubble { position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%);
         background: #1f2937; color: #f8fafc; padding: 8px 10px; border-radius: 8px; font-size: 0.78rem; font-weight: 500;

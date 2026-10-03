@@ -113,7 +113,7 @@ export default function Cashflow() {
       ) : data ? (
         <>
           {/* Safe to spend hero */}
-          <div style={{ borderRadius: 20, padding: 22, color: '#fff', background: 'var(--gradient-primary, linear-gradient(135deg,#0e9f88,#075f4d))' }}>
+          <div style={{ borderRadius: 20, padding: 22, color: '#fff', background: 'var(--gradient-primary, linear-gradient(135deg,#139DA0,#0e7f82))' }}>
             <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.6, opacity: 0.9 }}>SAFE TO SPEND TODAY</div>
             <div style={{ fontSize: 38, fontWeight: 800, marginTop: 4 }}>{fmtNaira(data.safeToSpend)}</div>
             <div style={{ fontSize: 13.5, opacity: 0.9, marginTop: 2 }}>
@@ -153,7 +153,7 @@ export default function Cashflow() {
           {/* Shortfall warning */}
           {data.shortfallDate && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 14, borderRadius: 14, border: '1px solid var(--expense-color)', background: 'rgba(239,68,68,0.08)', color: 'var(--text-primary)' }}>
-              <span className="material-symbols-outlined" style={{ color: 'var(--expense-color)' }}>warning</span>
+              <i className="fas fa-triangle-exclamation" style={{ color: 'var(--expense-color)' }} aria-hidden="true"></i>
               <span>Balance dips below zero around <strong style={{ color: 'var(--expense-color)' }}>{fmtDate(data.shortfallDate)}</strong>. Trim spending or move a bill.</span>
             </div>
           )}

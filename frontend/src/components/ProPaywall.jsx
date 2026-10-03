@@ -54,7 +54,7 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
         </button>
         <button className="pro-later" onClick={onClose}>Maybe later</button>
       </div>
-      <style jsx="true">{`
+      <style>{`
         .pro-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 20px; }
         .pro-modal { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 26px; max-width: 420px; width: 100%; text-align: center; box-shadow: var(--shadow-lg); }
         .pro-badge { display: inline-flex; align-items: center; gap: 6px; background: var(--gradient-primary, var(--accent-primary)); color: #04130d; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.5px; padding: 5px 12px; border-radius: 20px; }

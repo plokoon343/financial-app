@@ -474,12 +474,12 @@ const Transactions = () => {
         </div>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         .tx-page { max-width: 1100px; margin: 0 auto; padding: 16px; }
         .tx-card { background: var(--card-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px; }
         .tx-card h3 { margin: 0 0 12px; font-size: 1rem; }
         .tx-msg { padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 14px; text-align: center; }
-        .tx-msg.success { background: rgba(56,161,105,0.12); color: #38a169; }
+        .tx-msg.success { background: rgba(56,161,105,0.12); color: #16a34a; }
         .tx-msg.error { background: rgba(229,62,62,0.12); color: #e53e3e; }
         .statements-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
         .view-all-btn {
@@ -506,7 +506,7 @@ const Transactions = () => {
         .filters select, .filters input { padding: 8px 10px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); font-size: 0.85rem; }
         .filters input[type=text] { flex: 1; min-width: 160px; }
         .tx-summary { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.88rem; color: var(--text-primary); padding: 0 4px; }
-        .tx-internal-toggle { background: rgba(99,102,241,0.1); color: #6366f1; border: 1px solid rgba(99,102,241,0.25); border-radius: 999px; padding: 3px 12px; font-size: 0.8rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+        .tx-internal-toggle { background: rgba(19, 157, 160,0.1); color: #139DA0; border: 1px solid rgba(19, 157, 160,0.25); border-radius: 999px; padding: 3px 12px; font-size: 0.8rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
         .pos { color: #1f9d57; font-weight: 700; }
         .neg { color: #d83a3a; font-weight: 700; }
         .dark-theme .pos { color: #48bb78; }
@@ -524,16 +524,16 @@ const Transactions = () => {
         .txn-avatar { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 0.72rem; font-weight: 800; line-height: 1; }
         .txn-avatar i { font-size: 0.72rem; }
         td.nowrap { white-space: nowrap; }
-        tr.sel { background: rgba(99,102,241,0.12); }
-        tr.editing td { background: rgba(99,102,241,0.05); }
+        tr.sel { background: rgba(19, 157, 160,0.12); }
+        tr.editing td { background: rgba(19, 157, 160,0.05); }
         tr.editing input, tr.editing select { padding: 6px 8px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; color: var(--text-primary); width: 100%; }
         .cat-select { padding: 5px 7px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; color: var(--text-primary); font-size: 0.82rem; font-weight: 600; max-width: 150px; cursor: pointer; }
         .row-actions { display: flex; gap: 6px; white-space: nowrap; }
         .icon-btn { background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; padding: 6px 8px; cursor: pointer; color: var(--text-primary); }
         .icon-btn.del:hover { color: #e53e3e; border-color: #e53e3e; }
-        .icon-btn.save { color: #38a169; }
+        .icon-btn.save { color: #16a34a; }
         .btn-danger-sm { background: rgba(229,62,62,0.1); color: #e53e3e; border: 1px solid rgba(229,62,62,0.3); border-radius: var(--radius-md); padding: 7px 12px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
-        .btn-secondary { padding: 8px 14px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); cursor: pointer; font-size: 0.85rem; }
+
         td.empty { text-align: center; color: var(--text-primary); padding: 28px; }
         .batch-meta { color: var(--text-primary); opacity: 0.75; }
         .tx-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; font-size: 0.85rem; color: var(--text-primary); }

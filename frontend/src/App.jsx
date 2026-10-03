@@ -1,6 +1,8 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
+import axios from 'axios';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { API_URL } from './config';
 import './App.css';
 import './responsive.css';  // at the top with other CSS imports
 // Eager: auth pages + the persistent shell (needed on first paint)
@@ -65,24 +67,26 @@ function AppContent() {
   const [goals, setGoals] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [budgets, setBudgets] = useState([]);
-  const { darkMode } = useAuth();
+  const { user, darkMode } = useAuth();
+  const userId = user?.id || user?._id || null;
 
+  // Financial data lives in memory only. Older builds cached it in localStorage,
+  // which leaves it readable on shared devices, so clear any leftover copies.
   useEffect(() => {
-    localStorage.removeItem('debts');
-    try {
-      setTransactions(JSON.parse(localStorage.getItem('transactions') || '[]'));
-      setGoals(JSON.parse(localStorage.getItem('goals') || '[]'));
-      setSubscriptions(JSON.parse(localStorage.getItem('subscriptions') || '[]'));
-      setBudgets(JSON.parse(localStorage.getItem('budgets') || '[]'));
-    } catch (error) {
-      console.error('Error loading data:', error);
-    }
+    ['transactions', 'goals', 'subscriptions', 'budgets', 'debts'].forEach((k) => localStorage.removeItem(k));
   }, []);
 
-  useEffect(() => { localStorage.setItem('transactions', JSON.stringify(transactions)); }, [transactions]);
-  useEffect(() => { localStorage.setItem('goals', JSON.stringify(goals)); }, [goals]);
-  useEffect(() => { localStorage.setItem('subscriptions', JSON.stringify(subscriptions)); }, [subscriptions]);
-  useEffect(() => { localStorage.setItem('budgets', JSON.stringify(budgets)); }, [budgets]);
+  // Load the signed-in user's transactions once so every page has them; drop
+  // everything on sign-out so the next user never sees the previous one's data.
+  useEffect(() => {
+    setGoals([]); setSubscriptions([]); setBudgets([]); setTransactions([]);
+    if (!userId) return undefined;
+    let alive = true;
+    axios.get(`${API_URL}/api/transactions`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+      .then((res) => { if (alive) setTransactions(res.data || []); })
+      .catch(() => { /* pages show their own empty or error states */ });
+    return () => { alive = false; };
+  }, [userId]);
 
   return (
     <div className={`App ${darkMode ? 'dark-theme' : ''}`}>

@@ -75,7 +75,7 @@ const AiAssistant = () => {
     <div className="ai-page">
       <div className="ai-header">
         <div className="ai-header-icon">
-          <span className="material-symbols-outlined">smart_toy</span>
+          <i className="fas fa-robot" aria-hidden="true"></i>
         </div>
         <div>
           <h1>AI Assistant</h1>
@@ -85,7 +85,7 @@ const AiAssistant = () => {
 
       {!configured && (
         <div className="ai-banner">
-          <span className="material-symbols-outlined">schedule</span>
+          <i className="fas fa-clock" aria-hidden="true"></i>
           The AI assistant is being activated for your account. It will answer using your
           own financial data once switched on.
         </div>
@@ -95,7 +95,7 @@ const AiAssistant = () => {
         {messages.length === 0 && (
           <div className="ai-empty">
             <div className="ai-empty-icon">
-              <span className="material-symbols-outlined">forum</span>
+              <i className="fas fa-comments" aria-hidden="true"></i>
             </div>
             <p>Your data stays private - I only see your own accounts.</p>
             <div className="ai-suggestions">
@@ -111,7 +111,7 @@ const AiAssistant = () => {
         {messages.map((m, i) => (
           <div key={i} className={`ai-msg ai-msg-${m.role}${m.error ? ' ai-msg-error' : ''}`}>
             {m.role === 'assistant' && (
-              <span className="material-symbols-outlined ai-msg-avatar">smart_toy</span>
+              <i className="fas fa-robot ai-msg-avatar" aria-hidden="true"></i>
             )}
             <div className="ai-bubble">
               {m.content}
@@ -119,9 +119,7 @@ const AiAssistant = () => {
                 <div className="ai-actions">
                   {m.actions.map((a, j) => (
                     <div key={j} className={`ai-action${a.ok ? '' : ' ai-action-fail'}`}>
-                      <span className="material-symbols-outlined">
-                        {a.ok ? 'check_circle' : 'error'}
-                      </span>
+                      <i className={`fas ${a.ok ? 'fa-circle-check' : 'fa-circle-exclamation'}`} aria-hidden="true"></i>
                       {a.summary}
                     </div>
                   ))}
@@ -133,7 +131,7 @@ const AiAssistant = () => {
 
         {loading && (
           <div className="ai-msg ai-msg-assistant">
-            <span className="material-symbols-outlined ai-msg-avatar">smart_toy</span>
+            <i className="fas fa-robot ai-msg-avatar" aria-hidden="true"></i>
             <div className="ai-bubble ai-typing">
               <span></span><span></span><span></span>
             </div>
@@ -158,7 +156,7 @@ const AiAssistant = () => {
           disabled={loading || !input.trim()}
           aria-label="Send"
         >
-          <span className="material-symbols-outlined">send</span>
+          <i className="fas fa-paper-plane" aria-hidden="true"></i>
         </button>
       </div>
       <p className="ai-disclaimer">

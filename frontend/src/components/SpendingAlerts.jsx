@@ -45,7 +45,7 @@ const SpendingAlerts = () => {
     switch (type) {
       case 'danger': return '#e74c3c';
       case 'warning': return '#f39c12';
-      case 'success': return '#27ae60';
+      case 'success': return '#16a34a';
       default: return '#3498db';
     }
   };

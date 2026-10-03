@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogoFull } from './Logo';
+import { useServerFeatures } from '../lib/useServerFeatures';
 const Sidebar = () => {
   const { user, logout, darkMode, toggleDarkMode } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
+  const live = useServerFeatures();
 
   // Open the drawer when the mobile bottom-nav "Menu" button is tapped
   useEffect(() => {
@@ -27,31 +29,31 @@ const Sidebar = () => {
   // way. Shared Expenses is hidden for now (under review); Quick Log was removed.
   const navGroups = [
     { title: 'Home', items: [
-      { path: '/', label: 'Dashboard', icon: 'dashboard' },
-      { path: '/assistant', label: 'AI Assistant', icon: 'smart_toy' },
+      { path: '/', label: 'Dashboard', icon: 'fa-house' },
+      ...(live.assistant ? [{ path: '/assistant', label: 'AI Assistant', icon: 'fa-robot' }] : []),
     ]},
     { title: 'Money', items: [
-      { path: '/transactions', label: 'Transactions', icon: 'receipt_long' },
-      { path: '/people', label: 'People & Family', icon: 'diversity_3' },
-      { path: '/subscriptions', label: 'Subscriptions', icon: 'subscriptions' },
+      { path: '/transactions', label: 'Transactions', icon: 'fa-receipt' },
+      { path: '/people', label: 'People & Family', icon: 'fa-people-group' },
+      { path: '/subscriptions', label: 'Subscriptions', icon: 'fa-repeat' },
     ]},
     { title: 'Grow', items: [
-      { path: '/goals', label: 'Goals', icon: 'track_changes' },
-      { path: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
-      { path: '/bills', label: 'Bills', icon: 'receipt' },
+      { path: '/goals', label: 'Goals', icon: 'fa-bullseye' },
+      { path: '/budget', label: 'Budget', icon: 'fa-wallet' },
+      { path: '/bills', label: 'Bills', icon: 'fa-file-invoice' },
     ]},
     { title: 'Insights', items: [
-      { path: '/insights', label: 'Insights', icon: 'pie_chart' },
-      { path: '/recap', label: 'Recaps', icon: 'movie' },
+      { path: '/insights', label: 'Insights', icon: 'fa-chart-pie' },
+      { path: '/recap', label: 'Recaps', icon: 'fa-film' },
       // Money Wrapped is a year-in-review — only surface it in December.
-      ...(new Date().getMonth() === 11 ? [{ path: '/wrapped', label: 'Money Wrapped', icon: 'celebration' }] : []),
+      ...(new Date().getMonth() === 11 ? [{ path: '/wrapped', label: 'Money Wrapped', icon: 'fa-champagne-glasses' }] : []),
     ]},
     { title: 'You', items: [
-      { path: '/accounts', label: 'Accounts & alerts', icon: 'account_balance' },
-      { path: '/settings', label: 'Settings', icon: 'settings' },
-      { path: '/support', label: 'Support & FAQ', icon: 'help' },
-      ...((user?.role === 'superadmin' || user?.newsletterEditor) ? [{ path: '/newsletter', label: 'Newsletter', icon: 'campaign' }] : []),
-      ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'shield' }] : []),
+      { path: '/accounts', label: 'Accounts & alerts', icon: 'fa-building-columns' },
+      { path: '/settings', label: 'Settings', icon: 'fa-gear' },
+      { path: '/support', label: 'Support & FAQ', icon: 'fa-circle-question' },
+      ...((user?.role === 'superadmin' || user?.newsletterEditor) ? [{ path: '/newsletter', label: 'Newsletter', icon: 'fa-bullhorn' }] : []),
+      ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'fa-shield-halved' }] : []),
     ]},
   ];
 
@@ -60,7 +62,7 @@ const Sidebar = () => {
   return (
     <>
       <button className="sidebar-hamburger" onClick={toggleSidebar}>
-        <span className="material-symbols-outlined">menu</span>
+        <i className="fas fa-bars" aria-hidden="true"></i>
       </button>
 
       {isOpen && <div className="sidebar-overlay" onClick={toggleSidebar}></div>}
@@ -68,7 +70,7 @@ const Sidebar = () => {
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <Link to="/" className="sidebar-logo" onClick={toggleSidebar}>
-            <LogoFull height={26} variant="light" />
+            <LogoFull height={26} />
           </Link>
         </div>
 
@@ -96,7 +98,7 @@ const Sidebar = () => {
                   className={`sidebar-link ${location.pathname === item.path ? 'active' : ''} ${item.key ? 'sidebar-key' : ''}`}
                   onClick={toggleSidebar}
                 >
-                  <span className="material-symbols-outlined">{item.icon}</span>
+                  <i className={`fas ${item.icon}`} aria-hidden="true"></i>
                   <span>{item.label}</span>
                   {item.key && <span className="sidebar-key-badge">New</span>}
                 </Link>
@@ -112,15 +114,15 @@ const Sidebar = () => {
             style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '0.5rem' }}
             onClick={() => { window.dispatchEvent(new Event('finpilot:start-tour')); setIsOpen(false); }}
           >
-            <span className="material-symbols-outlined">help</span>
+            <i className="fas fa-circle-question" aria-hidden="true"></i>
             <span>Take a tour</span>
           </button>
           <div className="sidebar-actions">
             <button className="sidebar-dark-toggle" onClick={toggleDarkMode}>
-              <span className="material-symbols-outlined">{darkMode ? 'light_mode' : 'dark_mode'}</span>
+              <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`} aria-hidden="true"></i>
             </button>
             <button className="sidebar-logout" onClick={handleLogout}>
-              <span className="material-symbols-outlined">logout</span>
+              <i className="fas fa-right-from-bracket" aria-hidden="true"></i>
               <span>Logout</span>
             </button>
           </div>

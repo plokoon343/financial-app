@@ -12,7 +12,7 @@ export default function AccountSwitcher({ style }) {
 
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...style }}>
-      <i className="fas fa-wallet" style={{ color: 'var(--accent-primary, #008751)' }} />
+      <i className="fas fa-wallet" style={{ color: 'var(--accent-primary, #139DA0)' }} />
       <select
         value={scope}
         onChange={(e) => setScope(e.target.value)}

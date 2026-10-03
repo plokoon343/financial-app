@@ -74,7 +74,7 @@ class ErrorBoundary extends React.Component {
 const btn = (kind) => ({
   padding: '0.6rem 1.1rem', borderRadius: 10, fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer',
   border: kind === 'solid' ? 'none' : '1px solid var(--glass-border, rgba(0,0,0,0.12))',
-  background: kind === 'solid' ? 'var(--gradient-primary, #008751)' : 'transparent',
+  background: kind === 'solid' ? 'var(--gradient-primary, #139DA0)' : 'transparent',
   color: kind === 'solid' ? '#fff' : 'var(--text-primary, #1a365d)',
 });
 

@@ -54,13 +54,13 @@ export default function InstallPrompt() {
     position: 'fixed', left: '50%', transform: 'translateX(-50%)',
     bottom: 'calc(16px + env(safe-area-inset-bottom))', zIndex: 9999,
     width: 'calc(100% - 24px)', maxWidth: 460,
-    background: '#0b1326', color: '#eaf2ff', borderRadius: 14,
+    background: '#071c1a', color: '#eaf2ff', borderRadius: 14,
     boxShadow: '0 12px 34px rgba(0,0,0,.35)', border: '1px solid rgba(255,255,255,.08)',
     padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12,
     fontSize: 14, lineHeight: 1.45,
   };
   const btn = {
-    background: 'linear-gradient(135deg,#00a862,#008751)', color: '#fff', border: 'none',
+    background: 'linear-gradient(135deg,#1DD3A8,#139DA0)', color: '#fff', border: 'none',
     borderRadius: 10, padding: '9px 16px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
   };
   const x = {

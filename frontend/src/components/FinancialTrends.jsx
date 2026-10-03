@@ -11,8 +11,8 @@ const FinancialTrends = ({ transactions = [] }) => {
 
   const timeframes = [
     { value: '3months', label: '3 Months', color: 'var(--accent-primary)' },
-    { value: '6months', label: '6 Months', color: '#4facfe' },
-    { value: '1year', label: '1 Year', color: '#43e97b' }
+    { value: '6months', label: '6 Months', color: '#139DA0' },
+    { value: '1year', label: '1 Year', color: '#44BC7E' }
   ];
 
   const processTransactionData = useCallback(() => {
@@ -214,7 +214,7 @@ const FinancialTrends = ({ transactions = [] }) => {
 
         <div className="trend-card glass-card">
           <div className="trend-header">
-            <div className="trend-icon" style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}>
+            <div className="trend-icon" style={{ background: 'linear-gradient(135deg, #139DA0 0%, #1DD3A8 100%)' }}>
               <i className="fas fa-piggy-bank"></i>
             </div>
             <div className="trend-info">
@@ -241,7 +241,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           </h3>
           <div className="chart-legend">
             <div className="legend-item">
-              <span className="legend-dot" style={{ backgroundColor: '#27ae60' }}></span>
+              <span className="legend-dot" style={{ backgroundColor: '#16a34a' }}></span>
               <span>Income</span>
             </div>
             <div className="legend-item">
@@ -284,10 +284,10 @@ const FinancialTrends = ({ transactions = [] }) => {
                   <Line 
                     type="monotone" 
                     dataKey="income" 
-                    stroke="#27ae60" 
+                    stroke="#16a34a" 
                     strokeWidth={3}
-                    dot={{ stroke: '#27ae60', strokeWidth: 2, r: 4 }}
-                    activeDot={{ r: 6, stroke: '#27ae60', strokeWidth: 2, fill: 'white' }}
+                    dot={{ stroke: '#16a34a', strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6, stroke: '#16a34a', strokeWidth: 2, fill: 'white' }}
                     name="Income" 
                   />
                   <Line 
@@ -325,7 +325,7 @@ const FinancialTrends = ({ transactions = [] }) => {
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend />
-                  <Bar dataKey="income" fill="#27ae60" name="Income" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="income" fill="#16a34a" name="Income" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="expenses" fill="#e74c3c" name="Expenses" radius={[4, 4, 0, 0]} />
                 </BarChart>
               )}
@@ -449,7 +449,7 @@ const FinancialTrends = ({ transactions = [] }) => {
               </div>
 
               <div className="metric-item">
-                <div className="metric-icon" style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}>
+                <div className="metric-icon" style={{ background: 'linear-gradient(135deg, #139DA0 0%, #1DD3A8 100%)' }}>
                   <i className="fas fa-piggy-bank"></i>
                 </div>
                 <div className="metric-content">
@@ -461,7 +461,7 @@ const FinancialTrends = ({ transactions = [] }) => {
               </div>
 
               <div className="metric-item">
-                <div className="metric-icon" style={{ background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' }}>
+                <div className="metric-icon" style={{ background: 'linear-gradient(135deg, #44BC7E 0%, #1DD3A8 100%)' }}>
                   <i className="fas fa-percentage"></i>
                 </div>
                 <div className="metric-content">
@@ -495,7 +495,7 @@ const FinancialTrends = ({ transactions = [] }) => {
         </div>
       </div>
 
-      <style jsx="true">{`
+      <style>{`
         /* Trends Page Styles */
         .trends-page {
           padding: 20px;
@@ -509,17 +509,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Section Header */
-        .section-header {
-          background: var(--card-bg);
-          border-radius: var(--radius-lg);
-          padding: 18px;
-          margin-bottom: 30px;
-          box-shadow: var(--shadow-md);
-          border: 1px solid var(--glass-border);
-        }
-
-        .header-content h2 {
+.header-content h2 {
           font-family: var(--font-heading);
           font-size: 2.5rem;
           font-weight: 700;
@@ -533,14 +523,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           gap: 15px;
         }
 
-        .section-subtitle {
-          color: var(--text-secondary);
-          font-size: 1.1rem;
-          max-width: 600px;
-          line-height: 1.6;
-        }
-
-        /* Header Controls */
+/* Header Controls */
         .header-controls {
           display: flex;
           justify-content: space-between;
@@ -690,7 +673,7 @@ const FinancialTrends = ({ transactions = [] }) => {
 
         .trend-change.positive {
           background: rgba(39, 174, 96, 0.1);
-          color: #27ae60;
+          color: #16a34a;
         }
 
         .trend-change.negative {
@@ -747,7 +730,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           border-radius: 50%;
         }
 
-        .chart-container {
+        .trends-page .chart-container {
           padding: 20px 0;
         }
 
@@ -870,7 +853,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           border-bottom: none;
         }
 
-        .category-info {
+        .trends-page .category-info {
           display: flex;
           align-items: center;
           gap: 12px;
@@ -882,13 +865,13 @@ const FinancialTrends = ({ transactions = [] }) => {
           border-radius: 50%;
         }
 
-        .category-name {
+        .trends-page .category-name {
           display: flex;
           flex-direction: column;
           gap: 4px;
         }
 
-        .category-name span:first-child {
+        .trends-page .category-name span:first-child {
           font-weight: 500;
           color: var(--text-primary);
         }
@@ -958,7 +941,7 @@ const FinancialTrends = ({ transactions = [] }) => {
         }
 
         .metric-value.positive {
-          color: #27ae60;
+          color: #16a34a;
         }
 
         .metric-value.negative {
@@ -980,7 +963,7 @@ const FinancialTrends = ({ transactions = [] }) => {
         .month-amount {
           font-family: var(--font-accent);
           font-weight: 700;
-          color: #27ae60;
+          color: #16a34a;
         }
 
         .month-rate {
@@ -988,19 +971,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           font-size: 0.9rem;
         }
 
-        /* Empty States */
-        .empty-state {
-          text-align: center;
-          padding: 60px 40px;
-          background: var(--glass-bg);
-          border-radius: var(--radius-lg);
-        }
-
-        .empty-state.small {
-          padding: 18px 14px;
-        }
-
-        .empty-icon {
+.empty-icon {
           width: 80px;
           height: 80px;
           border-radius: 50%;
@@ -1013,20 +984,7 @@ const FinancialTrends = ({ transactions = [] }) => {
           margin: 0 auto 20px;
         }
 
-        .empty-state h4 {
-          font-size: 1.5rem;
-          margin-bottom: 10px;
-          color: var(--text-primary);
-        }
-
-        .empty-state p {
-          color: var(--text-secondary);
-          max-width: 400px;
-          margin: 0 auto;
-          line-height: 1.6;
-        }
-
-        /* Scrollbar */
+/* Scrollbar */
         .categories-list::-webkit-scrollbar {
           width: 6px;
         }
@@ -1053,11 +1011,7 @@ const FinancialTrends = ({ transactions = [] }) => {
             padding: 15px;
           }
 
-          .section-header {
-            padding: 20px 15px;
-          }
-
-          .header-content h2 {
+.header-content h2 {
             font-size: 2rem;
           }
 

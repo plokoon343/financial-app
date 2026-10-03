@@ -52,7 +52,6 @@ const SubscriptionManager = () => {
   useEffect(() => {
     const fetchStatus = () => axios.get(`${API_URL}/api/billing/status`, authHeaders()).then((r) => setIsPro(!!r.data.isPro)).catch(() => {});
     verifyPendingPro().then((ok) => { if (ok) setIsPro(true); }).finally(fetchStatus);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const openCancel = (s) => { if (isPro) setCancelSub(s); else setPaywall(true); };
 
@@ -359,7 +358,7 @@ const SubscriptionManager = () => {
 
       <ProPaywall open={paywall} feature="cancel" onClose={() => setPaywall(false)} />
 
-      <style jsx="true">{`
+      <style>{`
         .subscriptions-page { padding: 20px; max-width: 1100px; margin: 0 auto; }
         .cancel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
         .cancel-modal { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 22px; max-width: 460px; width: 100%; max-height: 85vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
@@ -371,11 +370,9 @@ const SubscriptionManager = () => {
         .cancel-steps { margin: 14px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 9px; color: var(--text-primary); font-size: 0.92rem; line-height: 1.45; }
         .cancel-link { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--accent-primary); font-weight: 700; text-decoration: none; }
         .cancel-foot { color: var(--text-secondary); font-size: 0.78rem; line-height: 1.5; margin-top: 12px; text-align: center; }
-        .section-header { text-align: center; margin-bottom: 24px; padding: 18px 14px; background: var(--bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); border: 1px solid var(--border-color); }
-        .section-header h2 { font-family: var(--font-heading); font-size: 2rem; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--text-primary); }
-        .section-subtitle { color: var(--text-secondary); font-size: 1rem; max-width: 600px; margin: 0 auto 14px; }
-        .header-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-        .btn-primary { background: var(--gradient-primary); color: #fff; border: none; border-radius: var(--radius-full); padding: 9px 20px; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
+
+.header-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
         .btn-ghost { background: var(--glass-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-full); padding: 8px 18px; cursor: pointer; font-weight: 600; }
         .btn-ghost:disabled { opacity: 0.6; cursor: default; }
         .subs-error { background: rgba(239,68,68,0.12); color: #ef4444; padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 16px; }
@@ -389,22 +386,20 @@ const SubscriptionManager = () => {
         .af-field label { font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; }
         .af-field input, .af-field select { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px 12px; font-size: 0.95rem; }
         .af-submit { margin-top: 14px; }
-        .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .overview-card { background: var(--bg-card); border-radius: var(--radius-lg); padding: 16px; display: flex; align-items: center; gap: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--border-color); }
-        .overview-icon { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; flex-shrink: 0; }
-        .overview-icon.monthly-cost { background: var(--gradient-primary); }
-        .overview-icon.yearly-cost { background: linear-gradient(135deg, #ff6b8b 0%, #ffa62e 100%); }
-        .overview-icon.active-subs { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-        .overview-content h3 { font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500; }
-        .overview-amount { font-size: 1.6rem; font-weight: 700; font-family: var(--font-accent); color: var(--text-primary); }
+        .subscriptions-page .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .subscriptions-page .overview-card { background: var(--bg-card); border-radius: var(--radius-lg); padding: 16px; display: flex; align-items: center; gap: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--border-color); }
+        .subscriptions-page .overview-icon { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; flex-shrink: 0; }
+        .subscriptions-page .overview-icon.monthly-cost { background: var(--gradient-primary); }
+        .subscriptions-page .overview-icon.yearly-cost { background: linear-gradient(135deg, #ff6b8b 0%, #ffa62e 100%); }
+        .subscriptions-page .overview-icon.active-subs { background: linear-gradient(135deg, #44BC7E 0%, #1DD3A8 100%); }
+        .subscriptions-page .overview-content h3 { font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500; }
+        .subscriptions-page .overview-amount { font-size: 1.6rem; font-weight: 700; font-family: var(--font-accent); color: var(--text-primary); }
         .subscriptions-list-container { background: var(--bg-card); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--border-color); margin-bottom: 24px; }
-        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border-color); }
-        .list-header h3 { font-family: var(--font-heading); font-size: 1.2rem; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+        .subscriptions-page .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border-color); }
+        .subscriptions-page .list-header h3 { font-family: var(--font-heading); font-size: 1.2rem; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
         .subscription-count { font-size: 0.85rem; background: var(--glass-bg); padding: 6px 14px; border-radius: var(--radius-full); color: var(--text-secondary); font-weight: 600; }
-        .empty-state { text-align: center; padding: 50px 30px; }
-        .empty-state.small { padding: 26px; }
-        .empty-state p { color: var(--text-secondary); max-width: 460px; margin: 0 auto; line-height: 1.6; }
-        .subscriptions-list { display: flex; flex-direction: column; gap: 12px; }
+
+.subscriptions-list { display: flex; flex-direction: column; gap: 12px; }
         .subscription-item { background: var(--glass-bg); border-radius: var(--radius-md); padding: 18px; border-left: 4px solid var(--accent-primary); }
         .sub-name { display: flex; align-items: center; gap: 12px; font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; }
         .sub-renewal { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--accent-primary); font-weight: 600; margin: -4px 0 10px; }
@@ -412,7 +407,7 @@ const SubscriptionManager = () => {
         .sub-details { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
         .sub-details span { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; padding: 7px 14px; background: var(--glass-bg); border-radius: var(--radius-full); color: var(--text-secondary); }
         .sub-del { margin-left: auto; background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: var(--radius-md); padding: 7px 12px; cursor: pointer; }
-        @media (max-width: 768px) { .overview-grid { grid-template-columns: 1fr; } .sub-details { gap: 8px; } }
+        @media (max-width: 768px) { .subscriptions-page .overview-grid { grid-template-columns: 1fr; } .sub-details { gap: 8px; } }
       `}</style>
     </div>
   );

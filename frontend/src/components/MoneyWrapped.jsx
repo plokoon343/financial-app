@@ -92,12 +92,12 @@ export default function MoneyWrapped() {
     const noSpend = Math.max(0, elapsed - spentDays.size);
 
     const out = [];
-    out.push({ key: 'intro', colors: ['#0e9f6e', '#075f4d'], fa: 'fa-wand-magic-sparkles', eyebrow: 'AUTOMONIE', big: `Your ${year},\nwrapped.`, sub: 'A year of your money, as a story — swipe →' });
+    out.push({ key: 'intro', colors: ['#0e9f6e', '#0e7f82'], fa: 'fa-wand-magic-sparkles', eyebrow: 'AUTOMONIE', big: `Your ${year},\nwrapped.`, sub: 'A year of your money, as a story — swipe →' });
     out.push({ key: 'vol', colors: ['#6d28d9', '#4c1d95'], fa: 'fa-receipt', eyebrow: 'THE NUMBERS', big: `${expenses.length}\ntransactions`, sub: `across ${monthsActive} month${monthsActive === 1 ? '' : 's'} · ${MONTHS[busiest]} was your busiest` });
     if (topM) out.push({ key: 'merch', colors: ['#0ea5e9', '#0369a1'], fa: 'fa-heart', eyebrow: 'RIDE OR DIE', big: topM[0], sub: `${topM[1]} visits this year. Loyalty like this is rare.` });
     if (distinct.length > 1) out.push({ key: 'journey', colors: ['#f59e0b', '#b45309'], fa: 'fa-arrow-trend-up', eyebrow: 'THE GLOW-UP', big: distinct.map((a) => a.name.replace('The ', '')).join('  →  '), sub: 'You shape-shifted through the year. Character development.' });
     if (dominant) out.push({ key: 'era', colors: [dominant.color, dominant.color], sym: dominant.icon, eyebrow: `YOUR ${year} ERA`, big: dominant.name, sub: dominant.tagline });
-    if (noSpend >= 5) out.push({ key: 'discipline', colors: ['#14b8a6', '#0f766e'], fa: 'fa-shield-halved', eyebrow: 'IRON WILL', big: `${noSpend} days`, sub: 'you spent absolutely nothing. Monk behaviour, respect.' });
+    if (noSpend >= 5) out.push({ key: 'discipline', colors: ['#139DA0', '#0f766e'], fa: 'fa-shield-halved', eyebrow: 'IRON WILL', big: `${noSpend} days`, sub: 'you spent absolutely nothing. Monk behaviour, respect.' });
     out.push({ key: 'share', colors: ['#ec4899', '#9d174d'], fa: 'fa-share-nodes', eyebrow: 'THAT’S A WRAP', big: 'Share your\nmoney era', sub: 'Personality only — never your figures. Safe for the group chat.', share: true });
     return out;
   }, [all, year]);
@@ -147,7 +147,7 @@ export default function MoneyWrapped() {
     <div className="wr-page">
       {toast && <div className="wr-toast">{toast}</div>}
       {loading ? (
-        <div className="wr-stage" style={{ background: 'linear-gradient(135deg,#0e9f6e,#075f4d)' }}><div className="wr-eyebrow">Loading your year…</div></div>
+        <div className="wr-stage" style={{ background: 'linear-gradient(135deg,#0e9f6e,#0e7f82)' }}><div className="wr-eyebrow">Loading your year…</div></div>
       ) : !isDecember ? (
         <div className="wr-stage wr-empty">
           <i className="fas fa-calendar-day" style={{ fontSize: '2.4rem', opacity: 0.75 }}></i>
@@ -168,7 +168,7 @@ export default function MoneyWrapped() {
           onTouchEnd={(e) => { if (touchX.current == null) return; const dx = e.changedTouches[0].clientX - touchX.current; if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1); touchX.current = null; }}
         >
           <div className="wr-icon">
-            {s.sym ? <span className="material-symbols-outlined" style={{ fontSize: 32 }}>{s.sym}</span> : <i className={`fas ${s.fa}`}></i>}
+            {s.sym ? <i className={`fas ${s.sym}`} style={{ fontSize: 32 }} aria-hidden="true"></i> : <i className={`fas ${s.fa}`}></i>}
           </div>
           <div className="wr-eyebrow">{s.eyebrow}</div>
           <div className="wr-big">{s.big}</div>
@@ -184,14 +184,14 @@ export default function MoneyWrapped() {
         </div>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         .wr-page { max-width: 720px; margin: 0 auto; padding: 16px; }
         .wr-stage { position: relative; border-radius: 24px; min-height: 70vh; padding: 40px 34px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 16px; overflow: hidden; color: #fff; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
         .wr-icon { width: 62px; height: 62px; border-radius: 18px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 1.6rem; }
         .wr-eyebrow { font-size: 0.8rem; font-weight: 900; letter-spacing: 2px; color: rgba(255,255,255,0.85); }
         .wr-big { font-size: 2.5rem; font-weight: 900; line-height: 1.1; white-space: pre-line; }
         .wr-sub { font-size: 1.1rem; font-weight: 600; line-height: 1.5; color: rgba(255,255,255,0.92); max-width: 90%; }
-        .wr-share { display: inline-flex; align-items: center; gap: 10px; background: #fff; color: #0b1326; border: none; padding: 13px 22px; border-radius: 14px; font-weight: 800; font-size: 0.95rem; cursor: pointer; margin-top: 6px; }
+        .wr-share { display: inline-flex; align-items: center; gap: 10px; background: #fff; color: #0B0E11; border: none; padding: 13px 22px; border-radius: 14px; font-weight: 800; font-size: 0.95rem; cursor: pointer; margin-top: 6px; }
         .wr-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; border: none; background: rgba(0,0,0,0.28); color: #fff; cursor: pointer; font-size: 1rem; }
         .wr-prev { left: 14px; } .wr-next { right: 14px; }
         .wr-dots { position: absolute; bottom: 22px; left: 0; right: 0; display: flex; gap: 7px; justify-content: center; }

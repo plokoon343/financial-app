@@ -68,7 +68,7 @@ function buildSlides(all, meta) {
   const spentDays = new Set(expenses.map((t) => t.date));
 
   const out = [];
-  out.push({ key: 'intro', colors: ['#0e9f6e', '#075f4d'], fa: 'fa-wand-magic-sparkles', eyebrow: 'AUTOMONIE', big: heading, sub: `${label || `${from} – ${to}`}  ·  swipe →` });
+  out.push({ key: 'intro', colors: ['#0e9f6e', '#0e7f82'], fa: 'fa-wand-magic-sparkles', eyebrow: 'AUTOMONIE', big: heading, sub: `${label || `${from} – ${to}`}  ·  swipe →` });
 
   if (win === 'year') {
     const byMonthCount = Array(12).fill(0);
@@ -94,7 +94,7 @@ function buildSlides(all, meta) {
     }
     if (topM) out.push({ key: 'merch', colors: ['#0ea5e9', '#0369a1'], fa: 'fa-heart', eyebrow: win === 'day' ? 'TODAY’S MVP' : 'MOST-VISITED', big: topM[0], sub: topM[1] > 1 ? `${topM[1]} visits. The relationship is strong.` : 'Your standout spot this time.' });
     if (topC) out.push({ key: 'cat', colors: ['#8b5cf6', '#5b21b6'], fa: 'fa-chart-pie', eyebrow: 'WHERE IT WENT', big: topC[0], sub: `${topCPct}% of your spend went here.` });
-    if (savingsRate >= 15) out.push({ key: 'save', colors: ['#14b8a6', '#0f766e'], fa: 'fa-shield-halved', eyebrow: 'DISCIPLINE', big: `${savingsRate}% kept`, sub: 'You held money back. Future you says thank you.' });
+    if (savingsRate >= 15) out.push({ key: 'save', colors: ['#139DA0', '#0f766e'], fa: 'fa-shield-halved', eyebrow: 'DISCIPLINE', big: `${savingsRate}% kept`, sub: 'You held money back. Future you says thank you.' });
     else if (spentDays.size >= 5 && win !== 'day') out.push({ key: 'active', colors: ['#f97316', '#c2410c'], fa: 'fa-bolt', eyebrow: 'BUSY BEE', big: `${spentDays.size} spending days`, sub: 'Your card saw the streets this period.' });
   }
 
@@ -146,7 +146,7 @@ function RecapPlayer({ all, meta, onClose }) {
             onTouchStart={(e) => { touchX.current = e.touches[0].clientX; }}
             onTouchEnd={(e) => { if (touchX.current == null) return; const dx = e.changedTouches[0].clientX - touchX.current; if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1); touchX.current = null; }}
           >
-            <div className="rc-icon">{s.sym ? <span className="material-symbols-outlined" style={{ fontSize: 30 }}>{s.sym}</span> : <i className={`fas ${s.fa}`}></i>}</div>
+            <div className="rc-icon">{s.sym ? <i className={`fas ${s.sym}`} style={{ fontSize: 30 }} aria-hidden="true"></i> : <i className={`fas ${s.fa}`}></i>}</div>
             <div className="rc-eyebrow">{s.eyebrow}</div>
             <div className="rc-big">{s.big}</div>
             <div className="rc-sub">{s.sub}</div>
@@ -208,7 +208,7 @@ export default function Recap() {
 
       {active && all && <RecapPlayer all={all} meta={active} onClose={() => setActive(null)} />}
 
-      <style jsx="true">{`
+      <style>{`
         .rc-page { max-width: 720px; margin: 0 auto; padding: 20px; }
         .rc-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); margin: 0 0 6px; }
         .rc-head p { color: var(--text-secondary); margin: 0 0 18px; line-height: 1.5; }
@@ -234,7 +234,7 @@ export default function Recap() {
         .rc-eyebrow { font-size: 0.8rem; font-weight: 900; letter-spacing: 2px; color: rgba(255,255,255,0.85); }
         .rc-big { font-size: 2.3rem; font-weight: 900; line-height: 1.12; white-space: pre-line; }
         .rc-sub { font-size: 1.05rem; font-weight: 600; line-height: 1.5; color: rgba(255,255,255,0.92); max-width: 92%; }
-        .rc-share { display: inline-flex; align-items: center; gap: 10px; background: #fff; color: #0b1326; border: none; padding: 13px 22px; border-radius: 14px; font-weight: 800; cursor: pointer; margin-top: 6px; }
+        .rc-share { display: inline-flex; align-items: center; gap: 10px; background: #fff; color: #0B0E11; border: none; padding: 13px 22px; border-radius: 14px; font-weight: 800; cursor: pointer; margin-top: 6px; }
         .rc-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px; border-radius: 50%; border: none; background: rgba(0,0,0,0.28); color: #fff; cursor: pointer; }
         .rc-prev { left: 12px; } .rc-next { right: 12px; }
         .rc-dots { position: absolute; bottom: 20px; left: 0; right: 0; display: flex; gap: 7px; justify-content: center; }

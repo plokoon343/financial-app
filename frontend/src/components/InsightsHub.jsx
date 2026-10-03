@@ -18,10 +18,10 @@ export default function InsightsHub() {
   const transactions = ctx.transactions || [];
 
   const tabs = [
-    { key: 'spending', label: 'Spending', icon: 'pie_chart', render: () => <Insights transactions={transactions} /> },
-    { key: 'health', label: 'Financial Health', icon: 'health_and_safety', render: () => <FinancialHealth transactions={transactions} /> },
-    { key: 'cashflow', label: 'Cashflow', icon: 'monitoring', render: () => <Cashflow /> },
-    ...(FEATURES.netWorth ? [{ key: 'networth', label: 'Net Worth', icon: 'show_chart', render: () => <NetWorthCalculator /> }] : []),
+    { key: 'spending', label: 'Spending', icon: 'fa-chart-pie', render: () => <Insights transactions={transactions} /> },
+    { key: 'health', label: 'Financial Health', icon: 'fa-heart-pulse', render: () => <FinancialHealth transactions={transactions} /> },
+    { key: 'cashflow', label: 'Cashflow', icon: 'fa-chart-line', render: () => <Cashflow /> },
+    ...(FEATURES.netWorth ? [{ key: 'networth', label: 'Net Worth', icon: 'fa-chart-area', render: () => <NetWorthCalculator /> }] : []),
   ];
 
   const active = tabs.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'spending';
@@ -39,7 +39,7 @@ export default function InsightsHub() {
             className={`ih-tab ${active === t.key ? 'on' : ''}`}
             onClick={() => pick(t.key)}
           >
-            <span className="material-symbols-outlined">{t.icon}</span>
+            <i className={`fas ${t.icon}`} aria-hidden="true"></i>
             <span>{t.label}</span>
           </button>
         ))}
@@ -51,12 +51,12 @@ export default function InsightsHub() {
         </Suspense>
       </div>
 
-      <style jsx="true">{`
+      <style>{`
         .ih-page { max-width: 1100px; margin: 0 auto; }
         .ih-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border-color, var(--glass-border)); margin: 0 0 4px; padding: 0 8px; overflow-x: auto; }
         .ih-tab { display: inline-flex; align-items: center; gap: 8px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); font-weight: 700; font-size: 0.9rem; padding: 12px 8px 13px; cursor: pointer; white-space: nowrap; }
-        .ih-tab .material-symbols-outlined { font-size: 1.15rem; }
-        .ih-tab.on { color: var(--accent-primary, #008751); border-bottom-color: var(--accent-primary, #008751); }
+        .ih-tab .fas { font-size: 1.15rem; }
+        .ih-tab.on { color: var(--accent-primary, #139DA0); border-bottom-color: var(--accent-primary, #139DA0); }
         .ih-loading { display: flex; justify-content: center; padding: 48px 0; }
       `}</style>
     </div>

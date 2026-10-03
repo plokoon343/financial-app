@@ -9,7 +9,7 @@ import AccountSwitcher from './AccountSwitcher';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 
 // Palette for category legend dots (categories carry no colour of their own).
-const PALETTE = ['#14b8a6', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#84cc16', '#ec4899'];
+const PALETTE = ['#139DA0', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#84cc16', '#ec4899'];
 
 const monthKey = (iso) => String(iso).slice(0, 7);
 const monthLabel = (key) => {
@@ -206,7 +206,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
 
       {/* Financial report (C6) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '14px 18px', flexWrap: 'wrap' }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 26, color: 'var(--accent-primary)' }}>description</span>
+        <i className="fas fa-file-lines" style={{ fontSize: 26, color: 'var(--accent-primary)' }} aria-hidden="true"></i>
         <div style={{ flex: 1, minWidth: 200 }}>
           <strong style={{ color: 'var(--text-primary)' }}>Financial report</strong>
           <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>A shareable income &amp; spending summary for visa, rent or loan applications.</div>
@@ -220,7 +220,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
       {/* Better than last month (C5) — only when earned */}
       {monthWin && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 16, padding: '14px 16px' }}>
-          <span className="material-symbols-outlined" style={{ color: '#10b981' }}>trending_down</span>
+          <i className="fas fa-arrow-trend-down" style={{ color: '#10b981' }} aria-hidden="true"></i>
           <div>
             <strong style={{ color: 'var(--text-primary)' }}>Better than last month</strong>
             <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 2 }}>
@@ -235,7 +235,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
       {/* Bank charges this month (5.4) */}
       {bankCharges.total > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(245,158,11,0.09)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 16, padding: '14px 16px' }}>
-          <span className="material-symbols-outlined" style={{ color: '#f59e0b' }}>do_not_disturb_on</span>
+          <i className="fas fa-circle-minus" style={{ color: '#f59e0b' }} aria-hidden="true"></i>
           <div>
             <strong style={{ color: 'var(--text-primary)' }}>{fmtNaira(bankCharges.total)} in bank charges this month</strong>
             <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 2 }}>
@@ -250,18 +250,18 @@ export default function Insights({ transactions: allTransactions = [] }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {streak > 0 && (
           <span style={chipStyle}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#f97316' }}>local_fire_department</span>
+            <i className="fas fa-fire" style={{ fontSize: 16, color: '#f97316' }} aria-hidden="true"></i>
             {streak}-day clarity streak
           </span>
         )}
         {freezeSaved && (
           <span style={{ ...chipStyle, color: '#10b981', borderColor: '#10b981' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#10b981' }}>ac_unit</span>
+            <i className="fas fa-snowflake" style={{ fontSize: 16, color: '#10b981' }} aria-hidden="true"></i>
             Streak saved — free freeze used
           </span>
         )}
         <span style={chipStyle}>
-          <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--accent-primary)' }}>calendar_month</span>
+          <i className="fas fa-calendar-days" style={{ fontSize: 16, color: 'var(--accent-primary)' }} aria-hidden="true"></i>
           {seasonFor(month)}
         </span>
       </div>
@@ -298,7 +298,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
               ))}
             </div>
             <button onClick={(e) => { e.stopPropagation(); shareText(`${voiceLines[voiceIdx].text}\n\n- my Automonie read`, e.currentTarget); }} style={shareBtn}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>ios_share</span> Share
+              <i className="fas fa-arrow-up-from-bracket" style={{ fontSize: 16 }} aria-hidden="true"></i> Share
             </button>
           </div>
         </div>
@@ -310,7 +310,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
           <div style={{ color: 'var(--text-faint)', fontSize: 12, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 14 }}>This month, you are…</div>
           <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
             <span style={{ width: 56, height: 56, borderRadius: 16, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${archetype.archetype.color} 18%, transparent)` }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 30, color: archetype.archetype.color }}>{archetype.archetype.icon}</span>
+              <i className={`fas ${archetype.archetype.icon}`} style={{ fontSize: 30, color: archetype.archetype.color }} aria-hidden="true"></i>
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ color: 'var(--text-primary)', fontSize: 20, fontWeight: 800 }}>{archetype.archetype.name}</div>
@@ -320,7 +320,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
           <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.5, marginTop: 12 }}>{archetype.archetype.blurb}</div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
             <button onClick={(e) => shareText(`My Automonie money archetype this month: ${archetype.archetype.name} - ${archetype.archetype.tagline}`, e.currentTarget)} style={shareBtn}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>ios_share</span> Share
+              <i className="fas fa-arrow-up-from-bracket" style={{ fontSize: 16 }} aria-hidden="true"></i> Share
             </button>
           </div>
         </div>
@@ -336,7 +336,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
         </div>
         {projection && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid var(--border-color)', marginTop: 12, paddingTop: 12, color: 'var(--text-secondary)', fontSize: 14 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>trending_up</span>
+            <i className="fas fa-arrow-trend-up" style={{ fontSize: 18 }} aria-hidden="true"></i>
             <span>On track for <strong style={{ color: 'var(--text-primary)' }}>{fmtNaira(projection.projected)}</strong> by month end{projection.pctIncome != null ? ` (${projection.pctIncome}% of income)` : ''}</span>
           </div>
         )}

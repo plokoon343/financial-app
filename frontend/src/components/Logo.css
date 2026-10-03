@@ -9,10 +9,9 @@
 .am-full { display: inline-block; user-select: none; }
 .am-full img { display: block; height: 100%; width: auto; }
 .am-auto { position: relative; }
-.am-fd { display: block; }
-.am-fl { display: none; }
-.dark-theme .am-fd { display: none; }
-.dark-theme .am-fl { display: block; }
+.am-auto .am-fl { display: none; }
+.dark-theme .am-auto .am-fd { display: none; }
+.dark-theme .am-auto .am-fl { display: block; }
 
 .am-loader { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .am-loader-label { color: var(--text-secondary, #5b6b82); font-size: 0.9rem; font-weight: 600; }
@@ -20,7 +19,7 @@
 /* Brief logo reveal on app open */
 .am-splash {
   position: fixed; inset: 0; z-index: 6000;
-  background: #0b1326;
+  background: #071c1a;
   display: flex; align-items: center; justify-content: center;
   animation: am-splash-fade 0.45s ease forwards;
   animation-delay: 1.3s;

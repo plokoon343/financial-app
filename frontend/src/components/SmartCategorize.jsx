@@ -143,7 +143,7 @@ export default function SmartCategorize() {
 
       <ProPaywall open={paywall} feature="ai-purpose" onClose={() => setPaywall(false)} />
 
-      <style jsx="true">{`
+      <style>{`
         .sc-page { max-width: 720px; margin: 0 auto; padding: 20px; }
         .sc-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); margin: 0 0 6px; }
         .sc-head p { color: var(--text-secondary); margin: 0 0 18px; }
@@ -151,7 +151,7 @@ export default function SmartCategorize() {
         .sc-proposal { border: 2px solid var(--accent-primary); }
         .sc-top { display: flex; align-items: center; gap: 12px; }
         .sc-icon { width: 40px; height: 40px; border-radius: 11px; background: var(--glass-bg); display: flex; align-items: center; justify-content: center; color: var(--accent-primary); }
-        .sc-in { color: #38a169; }
+        .sc-in { color: #16a34a; }
         .sc-name { font-weight: 700; color: var(--text-primary); }
         .sc-sub { color: var(--text-secondary); font-size: 0.83rem; margin-top: 2px; }
         .sc-badge { background: var(--glass-bg); color: var(--accent-primary); border-radius: 8px; padding: 3px 9px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase; }

@@ -196,7 +196,7 @@ const AdminDashboard = () => {
 
   return (
     <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
-      {message && <div style={{ position: 'fixed', top: '1rem', right: '1rem', padding: '1rem 1.5rem', background: message.type === 'error' ? '#e53e3e' : '#38a169', color: 'white', borderRadius: '8px', zIndex: 9999, fontWeight: '600' }}>{message.text}</div>}
+      {message && <div style={{ position: 'fixed', top: '1rem', right: '1rem', padding: '1rem 1.5rem', background: message.type === 'error' ? '#e53e3e' : '#16a34a', color: 'white', borderRadius: '8px', zIndex: 9999, fontWeight: '600' }}>{message.text}</div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <div><h1 style={{ ...textPrimary, fontSize: '2rem', fontWeight: '700', margin: 0 }}>Admin Dashboard</h1><p style={{ ...textSecondary, marginTop: '0.25rem' }}>Welcome back, {user?.name}</p></div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -220,11 +220,11 @@ const AdminDashboard = () => {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
             {[
               { label: 'Total Users', value: stats.totalUsers, color: 'var(--accent-primary)' },
-              { label: 'Active Users', value: stats.activeUsers, color: '#38a169' },
+              { label: 'Active Users', value: stats.activeUsers, color: '#16a34a' },
               { label: 'Inactive Users', value: stats.inactiveUsers, color: '#e53e3e' },
               { label: 'Total Transactions', value: stats.totalTransactions, color: '#805ad5' },
-              { label: 'Waitlist Signups', value: stats.waitlistCount ?? 0, color: '#00a862' },
-              { label: 'Platform Income', value: compactNaira(stats.platformIncome), title: fullNaira(stats.platformIncome), color: '#38a169' },
+              { label: 'Waitlist Signups', value: stats.waitlistCount ?? 0, color: '#1DD3A8' },
+              { label: 'Platform Income', value: compactNaira(stats.platformIncome), title: fullNaira(stats.platformIncome), color: '#16a34a' },
               { label: 'Platform Expenses', value: compactNaira(stats.platformExpenses), title: fullNaira(stats.platformExpenses), color: '#e53e3e' }
             ].map(stat => <div key={stat.label} style={{ ...cardStyle, minWidth: 0 }}><p style={{ ...textSecondary, fontSize: '0.85rem', fontWeight: '600', margin: '0 0 0.5rem' }}>{stat.label}</p><p title={stat.title || undefined} style={{ color: stat.color, fontSize: '1.6rem', fontWeight: '700', margin: 0, overflowWrap: 'anywhere' }}>{stat.value}</p></div>)}
           </div>
@@ -244,7 +244,7 @@ const AdminDashboard = () => {
             <div style={cardStyle}><p style={{ ...textSecondary, margin: 0 }}>No ingestion data yet. Accuracy fills in as users import statements and correct parsed rows.</p></div>
           ) : (() => {
             const c = accuracy.corrections, r = accuracy.reconciliation;
-            const rateColor = (rate, good) => (good ? (rate >= 95 ? '#38a169' : rate >= 85 ? '#dd6b20' : '#e53e3e') : (rate <= 5 ? '#38a169' : rate <= 15 ? '#dd6b20' : '#e53e3e'));
+            const rateColor = (rate, good) => (good ? (rate >= 95 ? '#16a34a' : rate >= 85 ? '#dd6b20' : '#e53e3e') : (rate <= 5 ? '#16a34a' : rate <= 15 ? '#dd6b20' : '#e53e3e'));
             const kpi = (label, value, color, title) => <div key={label} style={{ ...cardStyle, minWidth: 0 }}><p style={{ ...textSecondary, fontSize: '0.85rem', fontWeight: 600, margin: '0 0 0.5rem' }}>{label}</p><p title={title} style={{ color, fontSize: '1.6rem', fontWeight: 700, margin: 0 }}>{value}</p></div>;
             const th = (h) => <th key={h} style={{ ...textSecondary, textAlign: 'left', padding: '0.6rem 0.75rem', fontSize: '0.8rem', fontWeight: 600, borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, whiteSpace: 'nowrap' }}>{h}</th>;
             const td = (child, extra) => <td style={{ padding: '0.6rem 0.75rem', ...textPrimary, ...extra }}>{child}</td>;
@@ -331,7 +331,7 @@ const AdminDashboard = () => {
                 <tbody>
                   {senders.map((s) => {
                     const top = (s.votes || [])[0];
-                    const statusColor = s.status === 'promoted' ? '#38a169' : s.status === 'dismissed' ? '#a0aec0' : '#dd6b20';
+                    const statusColor = s.status === 'promoted' ? '#16a34a' : s.status === 'dismissed' ? '#a0aec0' : '#dd6b20';
                     return (
                       <tr key={s.senderKey}>
                         <td style={{ padding: '0.6rem 0.75rem', ...textPrimary }}>
@@ -350,7 +350,7 @@ const AdminDashboard = () => {
                           {s.status !== 'dismissed' && (
                             <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
                               {top && s.status !== 'promoted' && (
-                                <button disabled={actionLoading === s.senderKey} onClick={() => promoteSender(s.senderKey, top.bankCode)} style={{ padding: '0.35rem 0.7rem', border: 'none', borderRadius: '6px', background: '#38a169', color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem' }}>
+                                <button disabled={actionLoading === s.senderKey} onClick={() => promoteSender(s.senderKey, top.bankCode)} style={{ padding: '0.35rem 0.7rem', border: 'none', borderRadius: '6px', background: '#16a34a', color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem' }}>
                                   Promote → {top.bankName || top.bankCode}
                                 </button>
                               )}
@@ -379,7 +379,7 @@ const AdminDashboard = () => {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>{['Name', 'Email', 'Role', 'Status', 'Transactions', 'Joined', 'Actions'].map(h => <th key={h} style={{ ...textSecondary, textAlign: 'left', padding: '0.75rem', fontSize: '0.85rem', fontWeight: '600', borderBottom: `1px solid ${darkMode ? '#4a5568' : '#e2e8f0'}`, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
-              <tbody>{filteredUsers.map(u => <tr key={u._id} style={{ opacity: u.isActive ? 1 : 0.6 }}><td style={{ ...textPrimary, padding: '0.75rem', fontWeight: '600' }}>{u.name}{u._id === user.id && <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'var(--accent-primary)' }}>(you)</span>}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{u.email}</td><td style={{ padding: '0.75rem' }}><span style={{ padding: '0.25rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '600', background: u.role === 'superadmin' ? '#553c9a' : '#2b6cb0', color: 'white' }}>{u.role}</span></td><td style={{ padding: '0.75rem' }}><span style={{ padding: '0.25rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '600', background: u.isActive ? '#276749' : '#742a2a', color: u.isActive ? '#c6f6d5' : '#fed7d7' }}>{u.isActive ? 'Active' : 'Inactive'}</span></td><td style={{ ...textSecondary, padding: '0.75rem' }}>{u.stats?.transactionCount || 0}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(u.createdAt).toLocaleDateString()}</td><td style={{ padding: '0.75rem' }}>{u._id !== user.id && <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}><button onClick={() => handleRoleChange(u._id, u.role === 'superadmin' ? 'user' : 'superadmin')} disabled={actionLoading === u._id + '_role'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: '#805ad5', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_role' ? '...' : (u.role === 'superadmin' ? 'Demote' : 'Promote')}</button><button onClick={() => toggleNewsletterAccess(u._id, !u.newsletterEditor)} disabled={actionLoading === u._id + '_nl'} title="Scoped newsletter-only access" style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: u.newsletterEditor ? '#dd6b20' : '#0f6e56', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_nl' ? '...' : (u.newsletterEditor ? 'Revoke NL' : 'Grant NL')}</button><button onClick={() => handleToggleStatus(u._id)} disabled={actionLoading === u._id + '_status'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: u.isActive ? '#dd6b20' : '#38a169', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_status' ? '...' : (u.isActive ? 'Deactivate' : 'Activate')}</button><button onClick={() => handleDeleteUser(u._id, u.name)} disabled={actionLoading === u._id + '_delete'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: '#e53e3e', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_delete' ? '...' : 'Delete'}</button></div>}</td></tr>)}</tbody>
+              <tbody>{filteredUsers.map(u => <tr key={u._id} style={{ opacity: u.isActive ? 1 : 0.6 }}><td style={{ ...textPrimary, padding: '0.75rem', fontWeight: '600' }}>{u.name}{u._id === user.id && <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'var(--accent-primary)' }}>(you)</span>}</td><td style={{ ...textSecondary, padding: '0.75rem' }}>{u.email}</td><td style={{ padding: '0.75rem' }}><span style={{ padding: '0.25rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '600', background: u.role === 'superadmin' ? '#553c9a' : '#2b6cb0', color: 'white' }}>{u.role}</span></td><td style={{ padding: '0.75rem' }}><span style={{ padding: '0.25rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '600', background: u.isActive ? '#276749' : '#742a2a', color: u.isActive ? '#c6f6d5' : '#fed7d7' }}>{u.isActive ? 'Active' : 'Inactive'}</span></td><td style={{ ...textSecondary, padding: '0.75rem' }}>{u.stats?.transactionCount || 0}</td><td style={{ ...textSecondary, padding: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(u.createdAt).toLocaleDateString()}</td><td style={{ padding: '0.75rem' }}>{u._id !== user.id && <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}><button onClick={() => handleRoleChange(u._id, u.role === 'superadmin' ? 'user' : 'superadmin')} disabled={actionLoading === u._id + '_role'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: '#805ad5', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_role' ? '...' : (u.role === 'superadmin' ? 'Demote' : 'Promote')}</button><button onClick={() => toggleNewsletterAccess(u._id, !u.newsletterEditor)} disabled={actionLoading === u._id + '_nl'} title="Scoped newsletter-only access" style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: u.newsletterEditor ? '#dd6b20' : '#0f6e56', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_nl' ? '...' : (u.newsletterEditor ? 'Revoke NL' : 'Grant NL')}</button><button onClick={() => handleToggleStatus(u._id)} disabled={actionLoading === u._id + '_status'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: u.isActive ? '#dd6b20' : '#16a34a', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_status' ? '...' : (u.isActive ? 'Deactivate' : 'Activate')}</button><button onClick={() => handleDeleteUser(u._id, u.name)} disabled={actionLoading === u._id + '_delete'} style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: '#e53e3e', color: 'white', fontSize: '0.8rem', fontWeight: '600' }}>{actionLoading === u._id + '_delete' ? '...' : 'Delete'}</button></div>}</td></tr>)}</tbody>
             </table>
             {filteredUsers.length === 0 && <p style={{ ...textSecondary, textAlign: 'center', padding: '1.25rem' }}>No users match &ldquo;{search}&rdquo;.</p>}
           </div>
@@ -429,7 +429,7 @@ const AdminDashboard = () => {
                 {['auto', 'on', 'off'].map(r => (
                   <button key={r} onClick={() => setRecapRule(w, r)}
                     style={{ padding: '0.4rem 0.9rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', textTransform: 'capitalize',
-                      background: recapCfg[w] === r ? (r === 'on' ? '#38a169' : r === 'off' ? '#e53e3e' : 'var(--accent-primary)') : (darkMode ? '#2d3748' : '#edf2f7'),
+                      background: recapCfg[w] === r ? (r === 'on' ? '#16a34a' : r === 'off' ? '#e53e3e' : 'var(--accent-primary)') : (darkMode ? '#2d3748' : '#edf2f7'),
                       color: recapCfg[w] === r ? '#fff' : (darkMode ? '#cbd5e0' : '#4a5568') }}>{r}</button>
                 ))}
               </div>
@@ -481,7 +481,7 @@ const AdminDashboard = () => {
                       <button
                         onClick={() => handleTicketStatus(t._id, t.status === 'open' ? 'resolved' : 'open')}
                         disabled={actionLoading === t._id + '_ticket'}
-                        style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: t.status === 'open' ? '#38a169' : '#dd6b20', color: 'white', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}
+                        style={{ padding: '0.4rem 0.75rem', border: 'none', borderRadius: '6px', cursor: 'pointer', background: t.status === 'open' ? '#16a34a' : '#dd6b20', color: 'white', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}
                       >
                         {actionLoading === t._id + '_ticket' ? '...' : (t.status === 'open' ? 'Mark resolved' : 'Reopen')}
                       </button>

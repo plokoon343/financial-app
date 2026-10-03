@@ -84,26 +84,20 @@ const Profile = () => {
         </p>
       </div>
 
-      <style jsx="true">{`
+      <style>{`
         .profile-page { max-width: 600px; margin: 0 auto; padding: 16px; }
         .profile-card { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 22px; border: 1px solid var(--glass-border); }
         .avatar-row { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
         .avatar { width: 56px; height: 56px; border-radius: 50%; background: var(--gradient-primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; }
         .av-name { font-weight: 700; font-size: 1.05rem; }
         .av-email { color: var(--text-secondary); font-size: 0.85rem; }
-        .form-group { margin-bottom: 16px; }
-        .form-row { display: flex; gap: 14px; }
-        .form-row .form-group { flex: 1; }
-        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; }
-        select, input { width: 100%; padding: 12px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); }
-        .btn-primary { width: 100%; padding: 12px; background: var(--gradient-primary); color: white; border: none; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; }
-        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-        .settings-link { margin-top: 18px; text-align: center; font-size: 0.85rem; color: var(--text-secondary); }
+
+select, input { width: 100%; padding: 12px; background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: var(--radius-md); color: var(--text-primary); }
+
+.settings-link { margin-top: 18px; text-align: center; font-size: 0.85rem; color: var(--text-secondary); }
         .settings-link a { color: var(--accent-primary, var(--accent-primary)); font-weight: 600; }
-        .message { padding: 10px; border-radius: var(--radius-md); margin-bottom: 16px; text-align: center; }
-        .message.success { background: rgba(56,161,105,0.1); color: #38a169; }
-        .message.error { background: rgba(229,62,62,0.1); color: #e53e3e; }
-        .dark-theme select { color-scheme: dark; }
+
+.dark-theme select { color-scheme: dark; }
         .dark-theme select option { background: #26263a; color: #f8f9fa; }
       `}</style>
     </div>

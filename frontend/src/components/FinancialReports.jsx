@@ -8,7 +8,7 @@ import { fmtNaira } from '../utils/format';
 const INCOME = '#10b981';
 const EXPENSE = '#ef4444';
 const ACCENT = '#3b82f6';
-const CAT_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#64748b'];
+const CAT_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#139DA0', '#f97316', '#64748b'];
 
 const monthLabel = (ym) => {
   const [y, m] = ym.split('-').map(Number);
@@ -164,7 +164,7 @@ const FinancialReports = ({ transactions = [] }) => {
         )}
       </div>
 
-      <style jsx="true">{`
+      <style>{`
         .reports { display: flex; flex-direction: column; gap: 16px; }
         .rep-selector { display: flex; flex-wrap: wrap; gap: 10px; }
         .rep-chip { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: var(--radius-full); border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-secondary); font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: all var(--transition-fast); }

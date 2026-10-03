@@ -40,7 +40,7 @@ const FinancialHealth = ({ transactions = [] }) => {
   }, [calculateFinancialHealth]);
 
   const getSavingsRateColor = (rate) => {
-    if (rate >= 20) return '#27ae60';
+    if (rate >= 20) return '#16a34a';
     if (rate >= 10) return '#f39c12';
     if (rate >= 0) return '#e74c3c';
     return '#c0392b';
@@ -120,7 +120,7 @@ const FinancialHealth = ({ transactions = [] }) => {
                   <span 
                     className="value" 
                     style={{ 
-                      color: healthData.netIncome >= 0 ? '#27ae60' : '#e74c3c',
+                      color: healthData.netIncome >= 0 ? '#16a34a' : '#e74c3c',
                       fontWeight: healthData.netIncome < 0 ? 'bold' : 'normal'
                     }}
                   >
@@ -160,7 +160,7 @@ const FinancialHealth = ({ transactions = [] }) => {
               <div className="health-metrics">
                 <div className="metric">
                   <span className="label">Spent of income</span>
-                  <span className="value" style={{ color: expenseRatio > 90 ? '#e74c3c' : expenseRatio > 70 ? '#f39c12' : '#27ae60' }}>{expenseRatio.toFixed(0)}%</span>
+                  <span className="value" style={{ color: expenseRatio > 90 ? '#e74c3c' : expenseRatio > 70 ? '#f39c12' : '#16a34a' }}>{expenseRatio.toFixed(0)}%</span>
                 </div>
                 <div className="metric">
                   <span className="label">Saved of income</span>
@@ -172,7 +172,7 @@ const FinancialHealth = ({ transactions = [] }) => {
                 </div>
               </div>
               <div className="insight-bar" title={`${expenseRatio.toFixed(0)}% of income spent`}>
-                <div className="insight-bar-fill" style={{ width: `${Math.min(expenseRatio, 100)}%`, background: expenseRatio > 90 ? '#e74c3c' : expenseRatio > 70 ? '#f39c12' : '#27ae60' }}></div>
+                <div className="insight-bar-fill" style={{ width: `${Math.min(expenseRatio, 100)}%`, background: expenseRatio > 90 ? '#e74c3c' : expenseRatio > 70 ? '#f39c12' : '#16a34a' }}></div>
               </div>
               <p className="insight-status"><i className="fas fa-circle" style={{ color: healthStatus.color, fontSize: '0.7rem', marginRight: 8 }}></i>{healthStatus.label}</p>
             </div>
@@ -186,7 +186,7 @@ const FinancialHealth = ({ transactions = [] }) => {
 
       {activeTab === 'reports' && <FinancialReports transactions={transactions} />}
 
-      <style jsx="true">{`
+      <style>{`
         /* Financial Health Page Styles */
         .financial-health-page {
           padding: 20px;
@@ -194,7 +194,7 @@ const FinancialHealth = ({ transactions = [] }) => {
           margin: 0 auto;
         }
         
-        .page-header {
+        .financial-health-page .page-header {
           text-align: center;
           margin-bottom: 24px;
           padding: 18px 14px;
@@ -204,7 +204,7 @@ const FinancialHealth = ({ transactions = [] }) => {
           border: 1px solid var(--glass-border);
         }
         
-        .page-header h1 {
+        .financial-health-page .page-header h1 {
           font-family: var(--font-heading);
           font-size: 2.8rem;
           font-weight: 700;
@@ -259,13 +259,13 @@ const FinancialHealth = ({ transactions = [] }) => {
           background: var(--gradient-primary);
           color: white;
           border-color: transparent;
-          box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+          box-shadow: 0 8px 25px rgba(19, 157, 160, 0.3);
           transform: translateY(-2px);
         }
         
         .tab-btn.active:hover {
           transform: translateY(-3px);
-          box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+          box-shadow: 0 10px 30px rgba(19, 157, 160, 0.4);
         }
         
         .tab-btn i {
@@ -376,7 +376,7 @@ const FinancialHealth = ({ transactions = [] }) => {
         }
         
         .metric .value.income {
-          color: #27ae60;
+          color: #16a34a;
         }
         
         .metric .value.expense {
@@ -473,33 +473,8 @@ const FinancialHealth = ({ transactions = [] }) => {
           font-size: 1.2rem;
           color: var(--text-secondary);
         }
-        
-        .empty-state {
-          text-align: center;
-          padding: 60px 40px;
-          background: var(--glass-bg);
-          border-radius: var(--radius-lg);
-          margin: 20px 0;
-          backdrop-filter: blur(20px);
-          border: 1px solid var(--glass-border);
-        }
-        
-        .empty-state h3 {
-          font-family: var(--font-heading);
-          font-size: 1.8rem;
-          margin-bottom: 10px;
-          color: var(--text-primary);
-        }
-        
-        .empty-state p {
-          color: var(--text-secondary);
-          max-width: 400px;
-          margin: 0 auto 30px;
-          font-size: 1.1rem;
-          line-height: 1.6;
-        }
-        
-        /* Responsive Design */
+
+/* Responsive Design */
         @media (max-width: 1200px) {
           .health-cards {
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -516,7 +491,7 @@ const FinancialHealth = ({ transactions = [] }) => {
             font-size: 0.9rem;
           }
           
-          .page-header h1 {
+          .financial-health-page .page-header h1 {
             font-size: 2.2rem;
           }
         }
@@ -526,11 +501,11 @@ const FinancialHealth = ({ transactions = [] }) => {
             padding: 15px;
           }
           
-          .page-header {
+          .financial-health-page .page-header {
             padding: 20px 15px;
           }
           
-          .page-header h1 {
+          .financial-health-page .page-header h1 {
             font-size: 2rem;
           }
           
@@ -567,7 +542,7 @@ const FinancialHealth = ({ transactions = [] }) => {
         }
         
         @media (max-width: 480px) {
-          .page-header h1 {
+          .financial-health-page .page-header h1 {
             font-size: 1.8rem;
           }
           

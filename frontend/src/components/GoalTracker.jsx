@@ -52,8 +52,7 @@ const GoalTracker = () => {
     } catch (err) { console.error(err); }
   };
 
-
-  // Goals record money the user sets aside themselves; no money moves.
+// Goals record money the user sets aside themselves; no money moves.
   const contributeToGoal = async (id, amount) => {
     try {
       const token = localStorage.getItem('token');
@@ -88,8 +87,7 @@ const GoalTracker = () => {
     } catch (err) { console.error(err); }
   };
 
-
-  const getGoalProgress = (goal) => {
+const getGoalProgress = (goal) => {
     const progress = (goal.current / goal.target) * 100;
     const daysLeft = Math.ceil((new Date(goal.deadline) - new Date()) / (1000 * 60 * 60 * 24));
     const monthlyNeeded = (goal.target - goal.current) / Math.max(1, (daysLeft / 30));
@@ -100,7 +98,7 @@ const GoalTracker = () => {
     const colors = {
       'General': 'var(--accent-primary)', 'Housing': '#4ECDC4', 'Travel': '#FF6B8B', 'Electronics': '#45B7D1',
       'Education': '#FFA07A', 'Vehicle': '#98D8C8', 'Emergency Fund': '#C9C9C9',
-      'Retirement': '#FFD700', 'Savings': '#27ae60', 'Debt': '#e74c3c'
+      'Retirement': '#FFD700', 'Savings': '#16a34a', 'Debt': '#e74c3c'
     };
     return colors[category] || colors.General;
   };
@@ -197,7 +195,7 @@ const GoalTracker = () => {
                       <td><span className="gt-cat" style={{ color: getCategoryColor(goal.category) }}>{goal.category}</span></td>
                       <td>
                         <div className="gt-progress">
-                          <div className="gt-track"><div className="gt-fill" style={{ width: `${progress}%`, background: isCompleted ? '#27ae60' : getCategoryColor(goal.category) }}></div></div>
+                          <div className="gt-track"><div className="gt-fill" style={{ width: `${progress}%`, background: isCompleted ? '#16a34a' : getCategoryColor(goal.category) }}></div></div>
                           <span>{progress.toFixed(0)}%</span>
                         </div>
                       </td>
@@ -242,7 +240,7 @@ const GoalTracker = () => {
                 <div className="progress-percentage">{progress.toFixed(1)}%</div>
               </div>
               <div className="progress-bar-container">
-                <div className="progress-bar"><div className="progress-fill" style={{ width: `${progress}%`, background: isCompleted ? '#27ae60' : getCategoryColor(activeGoal.category) }}></div></div>
+                <div className="progress-bar"><div className="progress-fill" style={{ width: `${progress}%`, background: isCompleted ? '#16a34a' : getCategoryColor(activeGoal.category) }}></div></div>
               </div>
 
               <div className="detail-grid" style={{ marginTop: '1rem' }}>
@@ -251,8 +249,7 @@ const GoalTracker = () => {
                 <div className="detail-item"><div className="detail-label"><i className="fas fa-wallet"></i><span>Remaining</span></div><div className="detail-value">{fmtNaira(activeGoal.target - activeGoal.current)}</div></div>
               </div>
 
-
-              {!isCompleted ? (
+{!isCompleted ? (
                 <div className="goal-actions">
                   <div className="quick-add-header"><i className="fas fa-bolt"></i><span>Log money set aside</span></div>
                   <div className="quick-add-buttons">
@@ -275,8 +272,7 @@ const GoalTracker = () => {
                 <div className="goal-completed"><i className="fas fa-trophy"></i><span>Goal Achieved!</span></div>
               )}
 
-
-              {activeGoal.current > 0 && (
+{activeGoal.current > 0 && (
                 <button type="button" className="goal-take-btn" onClick={() => takeFromGoal(activeGoal)}>
                   <i className="fas fa-minus-circle"></i> Record money taken out
                 </button>
@@ -390,35 +386,26 @@ const GoalTracker = () => {
           <div className="tip-item"><div className="tip-icon"><i className="fas fa-piggy-bank"></i></div><div className="tip-content"><h4>Log as you go</h4><p>Set money aside yourself, then log each contribution to keep your progress accurate.</p></div></div>
         </div>
       </div>
-  
 
-      <style jsx="true">{`
+<style>{`
         .goals-page { padding: 20px; max-width: 1200px; margin: 0 auto; }
-        .section-header { text-align: center; margin-bottom: 24px; padding: 18px 14px; background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); }
-        .section-header h2 { font-family: var(--font-heading); font-size: 2.5rem; font-weight: 700; margin-bottom: 10px; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; display: flex; align-items: center; justify-content: center; gap: 15px; }
-        .section-subtitle { color: var(--text-secondary); font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
-        .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .overview-card { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 16px; display: flex; align-items: center; gap: 20px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); transition: all var(--transition-base); }
-        .overview-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lg); }
-        .overview-icon { width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; color: white; }
-        .overview-icon.total-goals { background: var(--gradient-primary); }
-        .overview-icon.completed-goals { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-        .overview-icon.total-saved { background: linear-gradient(135deg, #ff6b8b 0%, #ffa62e 100%); }
-        .overview-icon.overall-progress { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-        .overview-content h3 { font-size: 1rem; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
-        .overview-amount { font-size: 1.8rem; font-weight: 700; font-family: var(--font-accent); color: var(--text-primary); }
-        .goals-list-container { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 24px; }
-        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid var(--glass-border); }
-        .list-header h3 { font-family: var(--font-heading); font-size: 1.6rem; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
-        .goals-count { font-size: 0.9rem; background: var(--glass-bg); padding: 6px 15px; border-radius: var(--radius-full); color: var(--text-secondary); font-weight: 600; }
-        .empty-state { text-align: center; padding: 60px 40px; }
-        .empty-state-icon { font-size: 80px; margin-bottom: 20px; opacity: 0.5; color: var(--text-secondary); }
-        .empty-state h4 { font-family: var(--font-heading); font-size: 1.6rem; margin-bottom: 10px; color: var(--text-primary); }
-        .empty-state p { color: var(--text-secondary); max-width: 400px; margin: 0 auto 25px; font-size: 1.1rem; line-height: 1.6; }
-        .btn-primary { padding: 14px 32px; background: var(--gradient-primary); color: white; border: none; border-radius: var(--radius-full); font-weight: 600; cursor: pointer; transition: all var(--transition-base); display: inline-flex; align-items: center; gap: 10px; font-size: 1rem; box-shadow: var(--shadow-md); }
-        .btn-primary:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
 
-        /* Goals table (#30) */
+.goals-page .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .goals-page .overview-card { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 16px; display: flex; align-items: center; gap: 20px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); transition: all var(--transition-base); }
+        .goals-page .overview-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lg); }
+        .goals-page .overview-icon { width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; color: white; }
+        .goals-page .overview-icon.total-goals { background: var(--gradient-primary); }
+        .goals-page .overview-icon.completed-goals { background: linear-gradient(135deg, #44BC7E 0%, #1DD3A8 100%); }
+        .goals-page .overview-icon.total-saved { background: linear-gradient(135deg, #ff6b8b 0%, #ffa62e 100%); }
+        .goals-page .overview-icon.overall-progress { background: linear-gradient(135deg, #139DA0 0%, #1DD3A8 100%); }
+        .goals-page .overview-content h3 { font-size: 1rem; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
+        .goals-page .overview-amount { font-size: 1.8rem; font-weight: 700; font-family: var(--font-accent); color: var(--text-primary); }
+        .goals-list-container { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 24px; }
+        .goals-page .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid var(--glass-border); }
+        .goals-page .list-header h3 { font-family: var(--font-heading); font-size: 1.6rem; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+        .goals-count { font-size: 0.9rem; background: var(--glass-bg); padding: 6px 15px; border-radius: var(--radius-full); color: var(--text-secondary); font-weight: 600; }
+
+/* Goals table (#30) */
         .goals-table-wrap { overflow-x: auto; }
         .goals-table { width: 100%; border-collapse: collapse; }
         .goals-table th { text-align: left; font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
@@ -448,9 +435,8 @@ const GoalTracker = () => {
         .target-amount { font-size: 1.1rem; color: var(--text-secondary); font-weight: 500; }
         .progress-percentage { font-family: var(--font-accent); font-size: 1.8rem; font-weight: 700; color: var(--text-primary); background: var(--glass-bg); padding: 6px 15px; border-radius: var(--radius-full); }
         .progress-bar-container { margin-top: 10px; }
-        .progress-bar { height: 12px; background: var(--glass-bg); border-radius: var(--radius-full); overflow: hidden; position: relative; }
-        .progress-fill { height: 100%; border-radius: var(--radius-full); transition: width 0.5s ease; background: inherit; }
-        .detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+
+.detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
         .detail-item { text-align: center; }
         .detail-label { display: flex; flex-direction: column; align-items: center; gap: 5px; margin-bottom: 8px; }
         .detail-label i { font-size: 1.2rem; color: var(--text-secondary); }
@@ -463,42 +449,36 @@ const GoalTracker = () => {
         .quick-add-header i { color: #f39c12; }
         .quick-add-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
         .add-funds-btn { padding: 10px 15px; background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-md); color: var(--text-primary); font-weight: 600; cursor: pointer; transition: all var(--transition-fast); display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .add-funds-btn:hover { background: rgba(0, 212, 170, 0.1); border-color: #00d4aa; transform: translateY(-2px); }
+        .add-funds-btn:hover { background: rgba(0, 212, 170, 0.1); border-color: #1DD3A8; transform: translateY(-2px); }
         .custom-add { display: flex; gap: 5px; grid-column: span 2; }
         .custom-input { flex: 1; padding: 10px 15px; background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-md); color: var(--text-primary); font-family: var(--font-body); }
         .custom-input:focus { outline: none; border-color: var(--income-color); }
         .custom-btn { padding: 10px 20px; background: var(--gradient-primary); border: none; border-radius: var(--radius-md); color: white; font-weight: 600; cursor: pointer; transition: all var(--transition-fast); }
         .custom-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
-        .goal-completed { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 20px; background: rgba(39, 174, 96, 0.1); border-radius: var(--radius-md); color: #27ae60; font-weight: 600; font-size: 1.2rem; }
+        .goal-completed { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 20px; background: rgba(39, 174, 96, 0.1); border-radius: var(--radius-md); color: #16a34a; font-weight: 600; font-size: 1.2rem; }
         .goal-completed i { font-size: 1.5rem; }
         .add-goal-form { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); margin-bottom: 24px; }
-        .form-header { text-align: center; margin-bottom: 30px; }
-        .form-header h3 { font-family: var(--font-heading); font-size: 1.8rem; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 10px; }
-        .form-header p { color: var(--text-secondary); font-size: 0.95rem; }
-        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 25px; }
-        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: var(--text-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
-        .input-with-icon { position: relative; }
-        .input-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); font-size: 1rem; z-index: 1; pointer-events: none; }
-        .input-with-icon input, .input-with-icon select { width: 100%; padding: 14px 15px 14px 45px; background: var(--glass-bg); border: 1.5px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); font-size: 1rem; transition: all 0.2s ease; }
-        .input-with-icon input:focus, .input-with-icon select:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); background: var(--card-bg); }
-        .form-buttons { display: flex; gap: 15px; justify-content: center; margin-top: 20px; }
-        .btn-submit, .btn-cancel { padding: 14px 28px; border: none; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; transition: all var(--transition-base); display: flex; align-items: center; gap: 8px; font-size: 1rem; font-family: var(--font-body); }
-        .btn-submit { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; }
-        .btn-submit:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-        .btn-cancel { background: var(--glass-bg); color: var(--text-primary); border: 1px solid var(--glass-border); }
-        .btn-cancel:hover { background: var(--glass-bg); transform: translateY(-2px); }
-        .goals-tips { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); }
-        .tips-header { margin-bottom: 30px; }
-        .tips-header h3 { font-family: var(--font-heading); font-size: 1.8rem; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
-        .tips-header p { color: var(--text-secondary); font-size: 0.95rem; }
+        .goals-page .form-header { text-align: center; margin-bottom: 30px; }
+        .goals-page .form-header h3 { font-family: var(--font-heading); font-size: 1.8rem; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .goals-page .form-header p { color: var(--text-secondary); font-size: 0.95rem; }
+
+.goals-page .input-with-icon { position: relative; }
+        .goals-page .input-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); font-size: 1rem; z-index: 1; pointer-events: none; }
+        .goals-page .input-with-icon input, .goals-page .input-with-icon select { width: 100%; padding: 14px 15px 14px 45px; background: var(--glass-bg); border: 1.5px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); font-size: 1rem; transition: all 0.2s ease; }
+        .goals-page .input-with-icon input:focus, .goals-page .input-with-icon select:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(19, 157, 160, 0.2); background: var(--card-bg); }
+
+.goals-tips { background: var(--card-bg); backdrop-filter: blur(20px); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-md); border: 1px solid var(--glass-border); }
+        .goals-page .tips-header { margin-bottom: 30px; }
+        .goals-page .tips-header h3 { font-family: var(--font-heading); font-size: 1.8rem; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+        .goals-page .tips-header p { color: var(--text-secondary); font-size: 0.95rem; }
         .tips-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
         .tip-item { background: var(--glass-bg); border-radius: var(--radius-md); padding: 16px; display: flex; gap: 20px; transition: all var(--transition-base); }
         .tip-item:hover { transform: translateY(-5px); background: rgba(255, 255, 255, 0.05); }
-        .tip-icon { width: 60px; height: 60px; border-radius: 50%; background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; flex-shrink: 0; }
-        .tip-content h4 { font-size: 1.1rem; color: var(--text-primary); margin-bottom: 10px; font-weight: 600; }
-        .tip-content p { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; }
-        @media (max-width: 768px) { .overview-grid { grid-template-columns: repeat(2, 1fr); } .goals-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: repeat(2, 1fr); } .quick-add-buttons { grid-template-columns: repeat(2, 1fr); } .custom-add { grid-column: span 2; } .form-grid { grid-template-columns: 1fr; } .tips-list { grid-template-columns: 1fr; } }
-        @media (max-width: 480px) { .overview-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: 1fr; } .quick-add-buttons { grid-template-columns: 1fr; } .custom-add { grid-column: span 1; } .progress-stats { flex-direction: column; align-items: flex-start; gap: 10px; } .goal-meta { flex-direction: column; align-items: flex-start; gap: 8px; } }
+        .goals-page .tip-icon { width: 60px; height: 60px; border-radius: 50%; background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; flex-shrink: 0; }
+        .goals-page .tip-content h4 { font-size: 1.1rem; color: var(--text-primary); margin-bottom: 10px; font-weight: 600; }
+        .goals-page .tip-content p { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; }
+        @media (max-width: 768px) { .goals-page .overview-grid { grid-template-columns: repeat(2, 1fr); } .goals-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: repeat(2, 1fr); } .quick-add-buttons { grid-template-columns: repeat(2, 1fr); } .custom-add { grid-column: span 2; } .tips-list { grid-template-columns: 1fr; } }
+        @media (max-width: 480px) { .goals-page .overview-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: 1fr; } .quick-add-buttons { grid-template-columns: 1fr; } .custom-add { grid-column: span 1; } .progress-stats { flex-direction: column; align-items: flex-start; gap: 10px; } .goal-meta { flex-direction: column; align-items: flex-start; gap: 8px; } }
       `}</style>
     </div>
   );

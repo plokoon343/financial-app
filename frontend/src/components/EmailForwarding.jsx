@@ -125,7 +125,7 @@ export default function EmailForwarding() {
         </>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         .ef-page { max-width: 720px; margin: 0 auto; padding: 20px; }
         .ef-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); margin: 0 0 6px; }
         .ef-head p { color: var(--text-secondary); margin: 0 0 18px; }
@@ -135,7 +135,7 @@ export default function EmailForwarding() {
         .ef-label { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.6px; color: var(--accent-primary); }
         .ef-addr { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); word-break: break-all; margin-top: 3px; }
         .ef-copy { background: var(--gradient-primary, var(--accent-primary)); color: #fff; border: none; border-radius: var(--radius-full); padding: 9px 18px; font-weight: 700; cursor: pointer; }
-        .ef-verify { background: rgba(56,161,105,0.08); border: 2px solid #38a169; border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px; }
+        .ef-verify { background: rgba(56,161,105,0.08); border: 2px solid #16a34a; border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px; }
         .ef-verify-head { display: flex; align-items: center; gap: 8px; font-weight: 800; color: var(--text-primary); font-size: 1.02rem; }
         .ef-verify-body { color: var(--text-secondary); font-size: 0.9rem; margin: 8px 0 12px; }
         .ef-code { display: block; width: 100%; text-align: left; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px; cursor: pointer; margin-bottom: 12px; }
@@ -145,7 +145,7 @@ export default function EmailForwarding() {
         .ef-verify-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--gradient-primary, var(--accent-primary)); color: #fff; border-radius: var(--radius-full); padding: 10px 20px; font-weight: 800; text-decoration: none; }
         .ef-verify-dismiss { display: block; margin: 12px auto 0; background: none; border: none; color: var(--text-secondary); font-weight: 600; cursor: pointer; }
         .ef-status { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-radius: var(--radius-md); margin-bottom: 14px; font-weight: 600; }
-        .ef-ok { background: rgba(56,161,105,0.1); border: 1px solid #38a169; color: var(--text-primary); }
+        .ef-ok { background: rgba(56,161,105,0.1); border: 1px solid #16a34a; color: var(--text-primary); }
         .ef-wait { background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary); }
         .ef-note { display: flex; align-items: center; gap: 8px; background: var(--glass-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px 12px; color: var(--text-secondary); font-size: 0.86rem; margin-bottom: 16px; }
         .ef-steps { margin: 10px 0 0; padding-left: 20px; color: var(--text-primary); line-height: 1.6; }

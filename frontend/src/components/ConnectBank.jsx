@@ -130,7 +130,7 @@ const ConnectBank = () => {
         </>
       )}
 
-      <style jsx="true">{`
+      <style>{`
         .connect-bank { padding: 20px; max-width: 760px; margin: 0 auto; }
         .cb-loading { text-align: center; padding: 60px; color: var(--text-secondary); }
         .cb-head { text-align: center; margin-bottom: 28px; }
@@ -152,7 +152,7 @@ const ConnectBank = () => {
         .cb-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
         .cb-btn { display: inline-flex; align-items: center; gap: 8px; border: none; border-radius: 12px; padding: 12px 22px; font-weight: 700; cursor: pointer; font-size: 1rem; }
         .cb-btn.lg { padding: 14px 28px; }
-        .cb-btn.primary { background: var(--gradient-primary, #00a862); color: #fff; }
+        .cb-btn.primary { background: var(--gradient-primary, #1DD3A8); color: #fff; }
         .cb-btn.ghost { background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); }
         .cb-btn:disabled { opacity: .6; cursor: default; }
         .cb-secure { color: var(--text-secondary); font-size: .82rem; margin-top: 14px; display: flex; align-items: center; justify-content: center; gap: 6px; }

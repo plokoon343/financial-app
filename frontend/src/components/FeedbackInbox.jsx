@@ -4,7 +4,7 @@ import { API_URL } from '../config';
 
 const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 const KIND_COLOR = {
-  bug: '#e53e3e', idea: '#6366f1', praise: '#38a169', other: '#718096',
+  bug: '#e53e3e', idea: '#139DA0', praise: '#16a34a', other: '#718096',
 };
 const fmtDate = (d) => new Date(d).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -50,8 +50,8 @@ export default function FeedbackInbox() {
           {[['open', 'Open'], ['all', 'All']].map(([id, lbl]) => (
             <button key={id} onClick={() => setFilter(id)} style={{
               padding: '5px 14px', borderRadius: 999, fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
-              border: `1px solid ${filter === id ? 'var(--accent-primary, #008751)' : 'var(--glass-border, #e2e8f0)'}`,
-              background: filter === id ? 'var(--accent-primary, #008751)' : 'transparent',
+              border: `1px solid ${filter === id ? 'var(--accent-primary, #139DA0)' : 'var(--glass-border, #e2e8f0)'}`,
+              background: filter === id ? 'var(--accent-primary, #139DA0)' : 'transparent',
               color: filter === id ? '#fff' : 'var(--text-secondary, #718096)',
             }}>{lbl}</button>
           ))}
@@ -70,7 +70,7 @@ export default function FeedbackInbox() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                 <span style={{ fontSize: '0.68rem', fontWeight: 800, textTransform: 'uppercase', color: '#fff', background: KIND_COLOR[f.kind] || '#718096', padding: '2px 8px', borderRadius: 6 }}>{f.kind}</span>
-                {f.betaTester && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#6366f1', background: 'rgba(99,102,241,0.12)', padding: '2px 8px', borderRadius: 6 }}>BETA</span>}
+                {f.betaTester && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#139DA0', background: 'rgba(19, 157, 160,0.12)', padding: '2px 8px', borderRadius: 6 }}>BETA</span>}
                 {f.platform && <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary, #718096)' }}>{f.platform}</span>}
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary, #718096)', marginLeft: 'auto' }}>{fmtDate(f.createdAt)}</span>
               </div>
@@ -79,8 +79,8 @@ export default function FeedbackInbox() {
                 <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary, #718096)' }}>{f.name || 'User'} · {f.email}</span>
                 <button onClick={() => setHandled(f._id, !f.handled)} disabled={busy === f._id} style={{
                   marginLeft: 'auto', padding: '5px 12px', borderRadius: 8, fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
-                  border: `1px solid ${f.handled ? 'var(--glass-border, #e2e8f0)' : '#38a169'}`,
-                  background: f.handled ? 'transparent' : '#38a169', color: f.handled ? 'var(--text-secondary, #718096)' : '#fff',
+                  border: `1px solid ${f.handled ? 'var(--glass-border, #e2e8f0)' : '#16a34a'}`,
+                  background: f.handled ? 'transparent' : '#16a34a', color: f.handled ? 'var(--text-secondary, #718096)' : '#fff',
                 }}>{busy === f._id ? '…' : f.handled ? 'Reopen' : 'Mark done'}</button>
               </div>
             </div>

@@ -69,7 +69,7 @@ function parseLabeledAlert(raw) {
 // part, and those must never become the description. Returns '' when nothing useful
 // is left, so the caller can fall back.
 const NARRATION_LABELS = 'description|desc|narration|narrative|remarks?|details|beneficiary(?: name)?|merchant(?: name)?|purpose|payment for|sender(?: name)?|recipient(?: name)?';
-const FIELD_LABELS = 'description|narration|narrative|remarks?|details|beneficiary|merchant|purpose|amount|value date|date|time|reference|ref|document number|account(?: number| no\\.?)?|acct|current balance|available balance|balance|branch|transaction type|txn type|channel|session id';
+const FIELD_LABELS = 'description|desc|narration|narrative|remarks?|details|beneficiary|merchant|purpose|amount|amt|value date|date|time|reference|ref|document number|account(?: number| no\\.?)?|acct|current balance|available balance|avail(?:able)?\\.? bal(?:ance)?|bal|balance|branch|transaction type|txn type|txn|channel|session id';
 const BOILERPLATE = [
   /\b(?:transaction|debit|credit|e-?mail)\s+(?:notification|alert)s?\b[:\s-]*/gi,
   /\b(?:gens|nip|instant)\s+alert\b[:\s-]*/gi,

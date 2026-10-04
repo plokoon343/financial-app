@@ -29,6 +29,7 @@ const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHT
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
 const { detectDirection, parseLabeledAlert, alertDescription } = require('./lib/alertParse');
+const capture = require('./lib/capture');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
@@ -263,6 +264,11 @@ const userSchema = new mongoose.Schema({
   // can forward bank-alert emails to <token>@in.automonie.com and have them parsed
   // automatically. lastAt drives the "we're receiving your alerts ✓" status.
   inboundEmailToken: { type: String, index: true, sparse: true },
+  // Background capture (phone notifications, iPhone Shortcuts, quiet share): only the
+  // SHA-256 of the user's capture key is stored.
+  captureKeyHash: { type: String, index: true, sparse: true },
+  captureLastAt: { type: Date },
+  captureCount: { type: Number, default: 0 },
   inboundEmailLastAt: { type: Date },
   inboundEmailCount:  { type: Number, default: 0 },
   // Gmail forwarding confirmation captured from Google's noreply mail (spec 3.4), so
@@ -376,7 +382,7 @@ const transactionSchema = new mongoose.Schema({
   // same way (they are neither 'income' nor 'expense', so aggregations skip them).
   type: { type: String, enum: ['income', 'expense', 'internal_transfer', 'cash_withdrawal', 'loan_in', 'debt_repayment', 'reversal', 'failed'], required: true },
   // Origin tracking so transactions can be grouped/deleted by bank statement.
-  source: { type: String, enum: ['manual', 'import', 'email', 'share'], default: 'manual' },
+  source: { type: String, enum: ['manual', 'import', 'email', 'share', 'sms', 'notification'], default: 'manual' },
   bank: { type: String, default: '' },           // e.g. 'GTBank', 'Union', 'Kuda'
   // Account fingerprint (spec Addendum A, slice 2): the resolved bank code plus the
   // masked account tail (last 3-4 digits) the alert/statement referenced. Together
@@ -3826,7 +3832,10 @@ app.post('/api/inbound-email/gmail-verification/clear', auth, async (req, res) =
 // (Addendum A slice 3), and save. Returns 1 if a transaction was created, else 0.
 // Called once per alert: a digest email (spec 3.6) drives this several times; each
 // call re-queries so rows created earlier in the same digest also dedupe.
-async function ingestEmailAlert(user, parsed) {
+// Save one parsed alert for a user unless it duplicates a row within a day (any
+// source). Returns 1 when saved, 0 for a duplicate. Shared by email, background
+// capture and the quiet share target.
+async function ingestAlert(user, parsed, source = 'email') {
   const when = new Date(parsed.date);
   const gte = new Date(when.getTime() - 86400000), lte = new Date(when.getTime() + 86400000);
   const existing = await Transaction.find({ userId: user._id, date: { $gte: gte, $lte: lte } })
@@ -3843,13 +3852,14 @@ async function ingestEmailAlert(user, parsed) {
   if (!eCode && eSender) {
     const learned = await learnedBankFor(user._id, eSender);
     if (learned) { eCode = learned.code; if (!eBank) eBank = learned.name; eSender = ''; }
-    else { await logUnknownSender(eSender, parsed.raw || parsed.description || '', 'email'); }
+    else { await logUnknownSender(eSender, parsed.raw || parsed.description || '', source); }
   }
   await new Transaction({
     userId: user._id, date: when, description: parsed.description, amount: signed,
     category: parsed.category || 'Other', type: kind || parsed.type,
-    source: 'email', bank: eBank, importedAt: new Date(),
+    source, bank: eBank, importedAt: new Date(),
     bankCode: eCode, accountMask: eMask, senderKey: eSender,
+    ...(parsed.confidence ? { parseConfidence: String(parsed.confidence).slice(0, 8) } : {}),
   }).save();
   await touchUserAccount(user._id, { bankCode: eCode, bankName: eBank, accountMask: eMask }, when);
   await maybeLinkSubscription(user._id, { description: parsed.description, amount: parsed.amount, category: parsed.category, date: when, bankName: eBank });
@@ -4009,7 +4019,7 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
         parsed.description = bodyDescription;
         parsed.category = categorizeTransaction(bodyDescription, parsed.type);
       }
-      created += await ingestEmailAlert(user, parsed);
+      created += await ingestAlert(user, parsed, 'email');
     }
     if (created) {
       user.inboundEmailCount = (user.inboundEmailCount || 0) + created;
@@ -4018,6 +4028,145 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     await user.save();
     return res.json({ ok: true, created });
   } catch (e) { console.error('[inbound-email/webhook]', e.message); return res.status(500).json({ message: 'Server error' }); }
+});
+
+// ─── Background capture ─────────────────────────────────────────────────────────
+// Android bank-app notifications, iPhone Shortcuts on bank SMS, and the quiet share
+// target post here from the phone without opening the app. They authenticate with
+// the user's capture key (x-capture-key), not a login session. Alerts go through the
+// same deterministic parser and duplicate check as everything else; low-confidence
+// rows are saved with parseConfidence 'low' so they surface for review.
+const captureLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `cap:${String(req.headers['x-capture-key'] || '').slice(0, 64) || rateLimit.ipKeyGenerator(req.ip)}`,
+  message: { message: 'Too many captures at once. They will be retried.' },
+});
+
+const captureUser = async (req) => {
+  const key = String(req.headers['x-capture-key'] || req.body?.key || '');
+  if (!capture.looksLikeCaptureKey(key)) return null;
+  return User.findOne({ captureKeyHash: capture.hashCaptureKey(key), isActive: { $ne: false } })
+    .select('_id name captureCount captureLastAt');
+};
+
+// Create (or replace) the signed-in user's capture key. The key is returned once;
+// replacing it disconnects every phone or Shortcut that used the old one.
+app.post('/api/capture/key', auth, async (req, res) => {
+  try {
+    const key = capture.newCaptureKey();
+    req.user.captureKeyHash = capture.hashCaptureKey(key);
+    await req.user.save();
+    res.json({ key, endpoint: `${process.env.PUBLIC_API_URL || 'https://financial-app-w2ai.onrender.com'}/api/ingest/capture` });
+  } catch (e) { console.error('[capture/key]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.get('/api/capture/status', auth, async (req, res) => {
+  res.json({ connected: !!req.user.captureKeyHash, lastAt: req.user.captureLastAt || null, count: req.user.captureCount || 0 });
+});
+
+app.delete('/api/capture/key', auth, async (req, res) => {
+  try {
+    req.user.captureKeyHash = undefined;
+    await req.user.save();
+    res.json({ connected: false });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Parse a captured alert text and save it. Returns { saved, duplicate, ignored }.
+async function ingestCapturedText(user, { text, sender = '', source, day }) {
+  const parsed = parseOneAlert(text, source, sender);
+  if (!parsed || !(parsed.amount > 0)) return { saved: false, ignored: true };
+  if (day && parsed.dateFromText === false) parsed.date = day;
+  const created = await ingestAlert(user, parsed, source);
+  if (created) {
+    user.captureCount = (user.captureCount || 0) + 1;
+    try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
+    if (parsed.confidence !== 'high') {
+      await createNotification(user._id, {
+        type: 'info', title: 'Check a captured transaction',
+        message: `We saved ${naira(parsed.amount)} (${parsed.description.slice(0, 40)}) but weren't sure about it. Give it a quick look.`,
+      }).catch(() => {});
+    }
+  }
+  return { saved: !!created, duplicate: !created, amount: parsed.amount, type: parsed.type, description: parsed.description };
+}
+
+// Text capture: { source: 'notification' | 'sms', title?, text, bigText?, app?, sender?, postedAt? }
+app.post('/api/ingest/capture', captureLimiter, async (req, res) => {
+  try {
+    const user = await captureUser(req);
+    if (!user) return res.status(401).json({ message: 'Unknown capture key. Reconnect from the app.' });
+    const b = req.body || {};
+    const source = b.source === 'notification' ? 'notification' : 'sms';
+    const text = capture.captureText({ title: b.title, text: b.text, bigText: b.bigText });
+    if (!text.trim()) return res.status(400).json({ message: 'Nothing to read.' });
+    // The bank app's name helps resolve the bank when the alert text doesn't say it.
+    const sender = String(b.sender || capture.bankForApp(b.app) || '').slice(0, 60);
+    const result = await ingestCapturedText(user, { text, sender, source, day: capture.captureDay(b.postedAt) });
+    user.captureLastAt = new Date();
+    await user.save();
+    res.json({ ok: true, ...result });
+  } catch (e) { console.error('[ingest/capture]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Read the text out of an image (a receipt screenshot) with the vision model. The
+// model only transcribes; amounts and direction still come from the deterministic
+// parser reading that text.
+async function transcribeImage(buffer, mime) {
+  const cfg = llmConfig();
+  if (!cfg) return '';
+  const r = await fetch(`${cfg.baseURL}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+    body: JSON.stringify({
+      model: cfg.model,
+      temperature: 0,
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: 'Transcribe every piece of text in this image exactly as written, line by line. Output only the text, nothing else.' },
+        { type: 'image_url', image_url: { url: `data:${mime};base64,${buffer.toString('base64')}` } },
+      ] }],
+    }),
+  });
+  if (!r.ok) throw new Error(`vision ${r.status}`);
+  const j = await r.json();
+  return String(j.choices?.[0]?.message?.content || '').slice(0, capture.MAX_CAPTURE_CHARS);
+}
+
+const captureUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, file.mimetype === 'application/pdf' || /^image\/(png|jpe?g|webp)$/.test(file.mimetype)),
+});
+
+// File capture from the quiet share target: a PDF receipt or a receipt screenshot.
+app.post('/api/ingest/capture-file', captureLimiter, (req, res, next) => {
+  captureUpload.single('file')(req, res, (err) => {
+    if (err) return res.status(400).json({ message: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (8 MB max).' : 'Unsupported file.' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const user = await captureUser(req);
+    if (!user) return res.status(401).json({ message: 'Unknown capture key. Reconnect from the app.' });
+    if (!req.file) return res.status(400).json({ message: 'Send a PDF receipt or a screenshot.' });
+    let text = '';
+    if (req.file.mimetype === 'application/pdf') {
+      try { text = await extractPdfText(req.file.buffer); }
+      catch (e) { if (isPdfPasswordError(e)) return res.status(422).json({ message: 'That PDF is password protected. Upload it from the app instead.' }); throw e; }
+    } else {
+      text = await transcribeImage(req.file.buffer, req.file.mimetype);
+      if (!text) return res.status(503).json({ message: 'Reading screenshots is not switched on yet.' });
+    }
+    // A long PDF is a statement, not a receipt: point the user at statement upload.
+    if (text.length > capture.MAX_CAPTURE_CHARS) return res.status(422).json({ message: 'This looks like a full statement. Upload it from Import instead.' });
+    const result = await ingestCapturedText(user, { text, source: 'share', day: capture.captureDay(Date.now()) });
+    user.captureLastAt = new Date();
+    await user.save();
+    res.json({ ok: true, ...result });
+  } catch (e) { console.error('[ingest/capture-file]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Import selected transactions

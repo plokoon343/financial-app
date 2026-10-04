@@ -71,6 +71,8 @@ const prose = 'Transaction Notification\nDear Customer,\nYour account 0123***45 
 check('desc: prose -> the counterparty', alertDescription(prose) === 'BOLT RIDE LAGOS');
 const credited = 'Credit Alert\nDear Customer, your account 0123***45 has been credited with NGN 20,000.00 from JOHN DOE. Ref: 123456789. Avail Bal: NGN 28,000.00';
 check('desc: credit from a person', alertDescription(credited) === 'JOHN DOE');
+const oneLine = 'Acct: 0123***384 Amt: NGN2,100.00 DR Desc: POS PURCHASE SPAR LEKKI Avail Bal: NGN30,251.48 Date: 03-Oct-2026';
+check('desc: single-line SMS stops at the next label', alertDescription(oneLine) === 'POS PURCHASE SPAR LEKKI');
 check('desc: only boilerplate -> empty', alertDescription('Transaction Notification\nDear Customer,') === '');
 
 console.log(`\n${pass} passed, ${fail} failed`);

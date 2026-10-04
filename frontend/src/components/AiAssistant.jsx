@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import './AiAssistant.css';
+import RichText from './RichText';
 
 const SUGGESTIONS = [
   'Give me a spending report for this month',
@@ -114,7 +115,7 @@ const AiAssistant = () => {
               <i className="fas fa-robot ai-msg-avatar" aria-hidden="true"></i>
             )}
             <div className="ai-bubble">
-              {m.content}
+              {m.role === 'assistant' && !m.error ? <RichText text={m.content} /> : m.content}
               {Array.isArray(m.actions) && m.actions.length > 0 && (
                 <div className="ai-actions">
                   {m.actions.map((a, j) => (

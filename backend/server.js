@@ -5575,7 +5575,7 @@ Rules:
 - For actions, use the matching tool. If a required detail is missing or ambiguous (e.g. the amount, the goal's target, or a deadline), ASK a short clarifying question instead of guessing. Never fabricate values for an action.
 - After performing an action, confirm briefly what you did (the tool result tells you if it succeeded).
 - You can only CREATE records. You cannot move money, pay bills, contribute to goals, delete, or edit existing items - if asked, explain they can do that from the relevant screen.
-- Be concise and practical - this renders in a small chat window. Lead with the answer, then one supporting detail or tip.
+- Format for a small chat panel: open with one short sentence that answers the question, then at most 4 short bullet points if more detail helps. Use **bold** only for key figures or names. No headings, tables, emoji or long paragraphs. Never list your own capabilities unless the user asks what you can do; for a greeting, reply in one friendly sentence and suggest one thing to ask.
 - Give general budgeting/savings guidance, but no regulated investment, tax, or legal advice; suggest a professional for those. Be encouraging and non-judgmental.`;
 
 // Tools the assistant can call. All are CREATE-only and scoped to the requesting

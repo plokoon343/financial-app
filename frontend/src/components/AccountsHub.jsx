@@ -11,10 +11,12 @@ import { useServerFeatures } from '../lib/useServerFeatures';
 const Accounts = lazy(() => import('./Accounts'));
 const EmailForwarding = lazy(() => import('./EmailForwarding'));
 const ConnectBank = lazy(() => import('./ConnectBank'));
+const AutoCapture = lazy(() => import('./AutoCapture'));
 
 const ALL_TABS = [
   { key: 'accounts', label: 'My accounts', icon: 'fa-credit-card', render: () => <Accounts /> },
   { key: 'email', label: 'Email alerts', icon: 'fa-envelope-open-text', render: () => <EmailForwarding /> },
+  { key: 'capture', label: 'Auto-capture', icon: 'fa-bolt', render: () => <AutoCapture /> },
   { key: 'bank', label: 'Connect bank', icon: 'fa-building-columns', render: () => <ConnectBank />, needs: 'bankLink' },
 ];
 

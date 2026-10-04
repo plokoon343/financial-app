@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import axios from 'axios';
+import { API_URL } from '../config';
 import { LogoFull } from './Logo';
 import { useServerFeatures } from '../lib/useServerFeatures';
 const Sidebar = () => {
@@ -9,6 +11,16 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const live = useServerFeatures();
+  const [actionCount, setActionCount] = useState(0);
+
+  // Action Center badge: refreshed on navigation and whenever an action resolves.
+  useEffect(() => {
+    const refresh = () => axios.get(`${API_URL}/api/action-center?summary=1`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+      .then((r) => setActionCount(r.data.total || 0)).catch(() => {});
+    refresh();
+    window.addEventListener('automonie:actions-changed', refresh);
+    return () => window.removeEventListener('automonie:actions-changed', refresh);
+  }, [location.pathname]);
 
   // Open the drawer when the mobile bottom-nav "Menu" button is tapped
   useEffect(() => {
@@ -30,6 +42,7 @@ const Sidebar = () => {
   const navGroups = [
     { title: 'Home', items: [
       { path: '/', label: 'Dashboard', icon: 'fa-house' },
+      { path: '/actions', label: 'Action Center', icon: 'fa-list-check', count: actionCount },
       ...(live.assistant ? [{ path: '/assistant', label: 'AI Assistant', icon: 'fa-robot' }] : []),
     ]},
     { title: 'Money', items: [
@@ -101,6 +114,7 @@ const Sidebar = () => {
                   <i className={`fas ${item.icon}`} aria-hidden="true"></i>
                   <span>{item.label}</span>
                   {item.key && <span className="sidebar-key-badge">New</span>}
+                  {item.count > 0 && <span className="sidebar-key-badge" aria-label={`${item.count} to review`}>{item.count}</span>}
                 </Link>
               ))}
             </div>

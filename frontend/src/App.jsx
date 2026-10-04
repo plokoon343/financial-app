@@ -39,6 +39,7 @@ const MoneyWrapped = lazy(() => import('./components/MoneyWrapped'));
 const Recap = lazy(() => import('./components/Recap'));
 const SharedExpenses = lazy(() => import('./components/SharedExpenses'));
 const People = lazy(() => import('./components/People'));
+const ActionCenter = lazy(() => import('./components/ActionCenter'));
 const NewsletterComposer = lazy(() => import('./components/NewsletterComposer'));
 const Transactions = lazy(() => import('./components/Transactions'));
 const AiAssistant = lazy(() => import('./components/AiAssistant'));
@@ -139,6 +140,7 @@ function AppContent() {
           <Route path="recap" element={<Recap />} />
           <Route path="shared" element={<SharedExpenses />} />
           <Route path="people" element={<People />} />
+          <Route path="actions" element={<ActionCenter />} />
           <Route path="support" element={<Support />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />

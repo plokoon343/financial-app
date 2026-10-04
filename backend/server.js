@@ -4124,31 +4124,35 @@ async function findPossibleDuplicates(userId, kept) {
 
 const slimTxn = (t) => ({ id: t._id, date: t.date, amount: Math.abs(t.amount), type: t.type, description: t.description, bank: t.bank || '', source: t.source || 'manual', category: t.category });
 
+async function actionCenterItems(userId) {
+  const keptRows = await KeptPair.find({ userId }, { pairKey: 1 }).lean();
+  const kept = new Set(keptRows.map((k) => k.pairKey));
+  const [lowConf, dupes, unnamedSubs, detected, accounts, senders] = await Promise.all([
+    Transaction.find({ userId, parseConfidence: 'low', reviewedAt: { $exists: false } }).sort({ date: -1 }).limit(30).lean(),
+    findPossibleDuplicates(userId, kept),
+    Subscription.find({ userId, needsName: true, status: { $ne: 'cancelled' } }).sort({ lastCharge: -1 }).limit(20).lean(),
+    detectSubscriptions(userId).catch(() => []),
+    UserAccount.find({ userId, hidden: { $ne: true }, active: { $ne: false }, label: { $in: ['', null] }, txnCount: { $gt: 0 } }).sort({ txnCount: -1 }).limit(10).lean(),
+    Transaction.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(userId), senderKey: { $type: 'string', $ne: '' } } },
+      { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' } } },
+      { $sort: { count: -1 } }, { $limit: 10 },
+    ]),
+  ]);
+  const items = [
+    ...lowConf.map((t) => ({ type: 'review_transaction', id: String(t._id), transaction: slimTxn(t) })),
+    ...dupes.map(({ a, b, score }) => ({ type: 'possible_duplicate', id: pairKeyOf(a._id, b._id), score, first: slimTxn(a), second: slimTxn(b) })),
+    ...unnamedSubs.map((s) => ({ type: 'name_subscription', id: String(s._id), name: s.name, cost: s.cost, lastCharge: s.lastCharge || null })),
+    ...detected.map((d) => ({ type: 'track_subscription', id: `detect:${d.name}`, name: d.name, cost: d.cost, occurrences: d.occurrences, lastSeen: d.lastSeen })),
+    ...accounts.map((a) => ({ type: 'name_account', id: String(a._id), bankName: a.bankName || '', bankCode: a.bankCode, accountMask: a.accountMask, txnCount: a.txnCount || 0 })),
+    ...senders.map((s) => ({ type: 'tag_sender', id: `sender:${s._id}`, senderKey: s._id, sample: (s.sample || '').slice(0, 80), count: s.count })),
+  ];
+  return items;
+}
+
 app.get('/api/action-center', auth, async (req, res) => {
   try {
-    const userId = req.user._id;
-    const keptRows = await KeptPair.find({ userId }, { pairKey: 1 }).lean();
-    const kept = new Set(keptRows.map((k) => k.pairKey));
-    const [lowConf, dupes, unnamedSubs, detected, accounts, senders] = await Promise.all([
-      Transaction.find({ userId, parseConfidence: 'low', reviewedAt: { $exists: false } }).sort({ date: -1 }).limit(30).lean(),
-      findPossibleDuplicates(userId, kept),
-      Subscription.find({ userId, needsName: true, status: { $ne: 'cancelled' } }).sort({ lastCharge: -1 }).limit(20).lean(),
-      detectSubscriptions(userId).catch(() => []),
-      UserAccount.find({ userId, hidden: { $ne: true }, active: { $ne: false }, label: { $in: ['', null] }, txnCount: { $gt: 0 } }).sort({ txnCount: -1 }).limit(10).lean(),
-      Transaction.aggregate([
-        { $match: { userId: new mongoose.Types.ObjectId(userId), senderKey: { $type: 'string', $ne: '' } } },
-        { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' } } },
-        { $sort: { count: -1 } }, { $limit: 10 },
-      ]),
-    ]);
-    const items = [
-      ...lowConf.map((t) => ({ type: 'review_transaction', id: String(t._id), transaction: slimTxn(t) })),
-      ...dupes.map(({ a, b, score }) => ({ type: 'possible_duplicate', id: pairKeyOf(a._id, b._id), score, first: slimTxn(a), second: slimTxn(b) })),
-      ...unnamedSubs.map((s) => ({ type: 'name_subscription', id: String(s._id), name: s.name, cost: s.cost, lastCharge: s.lastCharge || null })),
-      ...detected.map((d) => ({ type: 'track_subscription', id: `detect:${d.name}`, name: d.name, cost: d.cost, occurrences: d.occurrences, lastSeen: d.lastSeen })),
-      ...accounts.map((a) => ({ type: 'name_account', id: String(a._id), bankName: a.bankName || '', bankCode: a.bankCode, accountMask: a.accountMask, txnCount: a.txnCount || 0 })),
-      ...senders.map((s) => ({ type: 'tag_sender', id: `sender:${s._id}`, senderKey: s._id, sample: (s.sample || '').slice(0, 80), count: s.count })),
-    ];
+    const items = await actionCenterItems(req.user._id);
     const counts = items.reduce((m, it) => { m[it.type] = (m[it.type] || 0) + 1; return m; }, {});
     if (req.query.summary === '1') return res.json({ total: items.length, counts });
     res.json({ total: items.length, counts, items });
@@ -6335,6 +6339,19 @@ app.get('/api/reminders', auth, async (req, res) => {
         });
       }
     }
+
+    // 3) Action Center: things we need the user to decide.
+    try {
+      const pending = (await actionCenterItems(userId)).length;
+      if (pending > 0) {
+        reminders.push({
+          id: 'actions', type: 'review', severity: 'medium', icon: 'list',
+          title: `${pending} thing${pending === 1 ? '' : 's'} to review`,
+          message: 'Transactions we weren’t sure about, possible duplicates and unclear names.',
+          action: { label: 'Open Action Center', route: '/actions' },
+        });
+      }
+    } catch (e) { console.error('[reminders/actions]', e.message); }
 
     // 4) Profile completion.
     if (!req.user.monthlyIncome) {

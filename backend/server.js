@@ -14,7 +14,7 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const axios = require('axios');
 const crypto = require('crypto');
-const { fingerprint, matchScore, MERGE } = require('./lib/dedupe');
+const { fingerprint, matchScore, MERGE, PROBABLE: PROBABLE_DUP } = require('./lib/dedupe');
 const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
 const { pairReversals } = require('./lib/reversals');
@@ -407,6 +407,8 @@ const transactionSchema = new mongoose.Schema({
   parseConfidence: { type: String, default: '' },   // 'high' | 'low' at confirm time
   parseId:         { type: String, default: '' },   // ties the saved row to its parse
   dedupeGroupId:   { type: String, default: '' },   // shared with a merged auto-forward twin
+  // Set when the user confirms a low-confidence row in the Action Center.
+  reviewedAt:      { type: Date },
 }, { timestamps: true });
 
 // Confirmed self-transfer routes (a pair of the user's own banks). Once a user
@@ -825,6 +827,15 @@ const dismissedDetectionSchema = new mongoose.Schema({
 }, { timestamps: true });
 dismissedDetectionSchema.index({ userId: 1, key: 1 }, { unique: true });
 const DismissedDetection = mongoose.model('DismissedDetection', dismissedDetectionSchema);
+
+// Pairs of transactions the user said are both real (not a duplicate), so the Action
+// Center stops asking. pairKey = the two ids sorted and joined.
+const keptPairSchema = new mongoose.Schema({
+  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  pairKey: { type: String, required: true },
+}, { timestamps: true });
+keptPairSchema.index({ userId: 1, pairKey: 1 }, { unique: true });
+const KeptPair = mongoose.model('KeptPair', keptPairSchema);
 
 // --------------------------
 // File Parsing Helpers (same as before)
@@ -2383,7 +2394,7 @@ async function deleteUserData(userId, email) {
   await Promise.all([
     Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
-    Feedback, Activity, DismissedDetection,
+    Feedback, Activity, DismissedDetection, KeptPair,
   ].map((M) => M.deleteMany({ userId: uid })));
   await Promise.all(LEGACY_USER_COLLECTIONS.map((name) =>
     mongoose.connection.collection(name).deleteMany({ userId: uid }).catch(() => null)));
@@ -4078,6 +4089,93 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
   } catch (e) { console.error('[inbound-email/webhook]', e.message); return res.status(500).json({ message: 'Server error' }); }
 });
 
+// ─── Action Center ──────────────────────────────────────────────────────────────
+// Everything that needs the user's decision, in one list: transactions we weren't
+// sure about, possible duplicates, subscriptions we couldn't name, charges that look
+// like untracked subscriptions, accounts to name and banks we don't recognise.
+const pairKeyOf = (a, b) => [String(a), String(b)].sort().join(':');
+
+async function findPossibleDuplicates(userId, kept) {
+  const since = new Date(Date.now() - 120 * 86400000);
+  const txns = await Transaction.find({ userId, type: { $in: ['income', 'expense'] }, date: { $gte: since } })
+    .select('date amount type description bank source').sort({ date: 1 }).lean();
+  const byAmount = new Map();
+  for (const t of txns) {
+    const k = `${t.type}:${Math.abs(t.amount).toFixed(2)}`;
+    if (!byAmount.has(k)) byAmount.set(k, []);
+    byAmount.get(k).push(t);
+  }
+  const fp = (t) => fingerprint({ amount: Math.abs(t.amount), type: t.type, date: new Date(t.date).toISOString().slice(0, 10), bank: t.bank, description: t.description });
+  const pairs = [];
+  for (const group of byAmount.values()) {
+    if (group.length < 2) continue;
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        const a = group[i], b = group[j];
+        if (Math.abs(new Date(b.date) - new Date(a.date)) > 86400000) continue;
+        if (kept.has(pairKeyOf(a._id, b._id))) continue;
+        const score = matchScore(fp(a), fp(b));
+        if (score >= PROBABLE_DUP) pairs.push({ a, b, score });
+      }
+    }
+  }
+  return pairs.sort((x, y) => y.score - x.score).slice(0, 20);
+}
+
+const slimTxn = (t) => ({ id: t._id, date: t.date, amount: Math.abs(t.amount), type: t.type, description: t.description, bank: t.bank || '', source: t.source || 'manual', category: t.category });
+
+app.get('/api/action-center', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const keptRows = await KeptPair.find({ userId }, { pairKey: 1 }).lean();
+    const kept = new Set(keptRows.map((k) => k.pairKey));
+    const [lowConf, dupes, unnamedSubs, detected, accounts, senders] = await Promise.all([
+      Transaction.find({ userId, parseConfidence: 'low', reviewedAt: { $exists: false } }).sort({ date: -1 }).limit(30).lean(),
+      findPossibleDuplicates(userId, kept),
+      Subscription.find({ userId, needsName: true, status: { $ne: 'cancelled' } }).sort({ lastCharge: -1 }).limit(20).lean(),
+      detectSubscriptions(userId).catch(() => []),
+      UserAccount.find({ userId, hidden: { $ne: true }, active: { $ne: false }, label: { $in: ['', null] }, txnCount: { $gt: 0 } }).sort({ txnCount: -1 }).limit(10).lean(),
+      Transaction.aggregate([
+        { $match: { userId: new mongoose.Types.ObjectId(userId), senderKey: { $type: 'string', $ne: '' } } },
+        { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' } } },
+        { $sort: { count: -1 } }, { $limit: 10 },
+      ]),
+    ]);
+    const items = [
+      ...lowConf.map((t) => ({ type: 'review_transaction', id: String(t._id), transaction: slimTxn(t) })),
+      ...dupes.map(({ a, b, score }) => ({ type: 'possible_duplicate', id: pairKeyOf(a._id, b._id), score, first: slimTxn(a), second: slimTxn(b) })),
+      ...unnamedSubs.map((s) => ({ type: 'name_subscription', id: String(s._id), name: s.name, cost: s.cost, lastCharge: s.lastCharge || null })),
+      ...detected.map((d) => ({ type: 'track_subscription', id: `detect:${d.name}`, name: d.name, cost: d.cost, occurrences: d.occurrences, lastSeen: d.lastSeen })),
+      ...accounts.map((a) => ({ type: 'name_account', id: String(a._id), bankName: a.bankName || '', bankCode: a.bankCode, accountMask: a.accountMask, txnCount: a.txnCount || 0 })),
+      ...senders.map((s) => ({ type: 'tag_sender', id: `sender:${s._id}`, senderKey: s._id, sample: (s.sample || '').slice(0, 80), count: s.count })),
+    ];
+    const counts = items.reduce((m, it) => { m[it.type] = (m[it.type] || 0) + 1; return m; }, {});
+    if (req.query.summary === '1') return res.json({ total: items.length, counts });
+    res.json({ total: items.length, counts, items });
+  } catch (e) { console.error('[action-center]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Confirm a transaction we weren't sure about (after the user checked or edited it).
+app.post('/api/transactions/:id/reviewed', auth, async (req, res) => {
+  try {
+    const t = await Transaction.findOneAndUpdate({ _id: req.params.id, userId: req.user._id }, { $set: { reviewedAt: new Date(), parseConfidence: 'high' } }, { new: true });
+    if (!t) return res.status(404).json({ message: 'Transaction not found' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Both rows of a suspected duplicate are real: stop flagging the pair.
+app.post('/api/action-center/keep-both', auth, async (req, res) => {
+  try {
+    const { first, second } = req.body || {};
+    if (!first || !second) return res.status(400).json({ message: 'Missing transactions.' });
+    const owned = await Transaction.countDocuments({ _id: { $in: [first, second] }, userId: req.user._id });
+    if (owned !== 2) return res.status(404).json({ message: 'Transaction not found' });
+    await KeptPair.updateOne({ userId: req.user._id, pairKey: pairKeyOf(first, second) }, { $setOnInsert: { userId: req.user._id, pairKey: pairKeyOf(first, second) } }, { upsert: true });
+    res.json({ ok: true });
+  } catch (e) { if (e && e.code === 11000) return res.json({ ok: true }); res.status(500).json({ message: 'Server error' }); }
+});
+
 // ─── Background capture ─────────────────────────────────────────────────────────
 // Android bank-app notifications, iPhone Shortcuts on bank SMS, and the quiet share
 // target post here from the phone without opening the app. They authenticate with
@@ -4686,59 +4784,59 @@ app.get('/api/subscriptions', auth, async (req, res) => {
 
 // Auto-detect likely subscriptions from the user's transactions: recurring
 // charges to the same merchant, similar amount, across multiple months.
-app.get('/api/subscriptions/detect', auth, async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const [txns, existing] = await Promise.all([
-      Transaction.find({ userId, type: 'expense' }, { description: 1, amount: 1, date: 1, category: 1 }).lean(),
-      Subscription.find({ userId }, { name: 1 }).lean(),
-    ]);
-    const dismissed = await DismissedDetection.find({ userId }, { key: 1 }).lean();
-    const existingKeys = new Set([
-      ...existing.map(s => subscriptionKey(s.name)),
-      ...dismissed.map(d => d.key),
-    ].filter(Boolean));
+// Recurring charges that look like subscriptions the user isn't tracking yet.
+async function detectSubscriptions(userId) {
+  const [txns, existing] = await Promise.all([
+    Transaction.find({ userId, type: 'expense' }, { description: 1, amount: 1, date: 1, category: 1 }).lean(),
+    Subscription.find({ userId }, { name: 1 }).lean(),
+  ]);
+  const dismissed = await DismissedDetection.find({ userId }, { key: 1 }).lean();
+  const existingKeys = new Set([
+    ...existing.map(s => subscriptionKey(s.name)),
+    ...dismissed.map(d => d.key),
+  ].filter(Boolean));
 
-    // Group transactions by merchant signature.
-    const groups = new Map();
-    for (const t of txns) {
-      const key = subscriptionKey(t.description);
-      if (!key) continue;
-      const g = groups.get(key) || { key, brand: brandFor(t.description), amounts: [], months: new Set(), descs: {}, category: t.category, lastDate: t.date };
-      g.amounts.push(Math.abs(t.amount));
-      g.months.add(new Date(t.date).toISOString().slice(0, 7));
-      g.descs[t.description] = (g.descs[t.description] || 0) + 1;
-      if (new Date(t.date) > new Date(g.lastDate)) g.lastDate = t.date;
-      groups.set(key, g);
-    }
-
-    const median = (arr) => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
-    const candidates = [];
-    for (const g of groups.values()) {
-      if (existingKeys.has(g.key)) continue;          // already tracked
-      if (g.months.size < 2) continue;                // must recur across months
-      const med = median(g.amounts);
-      if (med <= 0) continue;
-      // Amounts should be roughly consistent (within 25% of the median).
-      const consistent = g.amounts.filter(a => Math.abs(a - med) <= med * 0.25).length;
-      if (consistent < 2) continue;
-      // Representative name = most frequent original description, trimmed.
-      const name = g.brand ? g.brand.name : Object.entries(g.descs).sort((a, b) => b[1] - a[1])[0][0].slice(0, 40).trim();
-      candidates.push({
-        name,
-        cost: Math.round(med),
-        frequency: 'monthly',
-        category: g.category || 'Subscriptions',
-        occurrences: g.months.size,
-        lastSeen: g.lastDate,
-      });
-    }
-    candidates.sort((a, b) => b.occurrences - a.occurrences || b.cost - a.cost);
-    res.json(candidates.slice(0, 12));
-  } catch (e) {
-    console.error('[subscriptions/detect]', e.message);
-    res.status(500).json({ message: 'Server error' });
+  // Group transactions by merchant signature.
+  const groups = new Map();
+  for (const t of txns) {
+    const key = subscriptionKey(t.description);
+    if (!key) continue;
+    const g = groups.get(key) || { key, brand: brandFor(t.description), amounts: [], months: new Set(), descs: {}, category: t.category, lastDate: t.date };
+    g.amounts.push(Math.abs(t.amount));
+    g.months.add(new Date(t.date).toISOString().slice(0, 7));
+    g.descs[t.description] = (g.descs[t.description] || 0) + 1;
+    if (new Date(t.date) > new Date(g.lastDate)) g.lastDate = t.date;
+    groups.set(key, g);
   }
+
+  const median = (arr) => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const candidates = [];
+  for (const g of groups.values()) {
+    if (existingKeys.has(g.key)) continue;          // already tracked
+    if (g.months.size < 2) continue;                // must recur across months
+    const med = median(g.amounts);
+    if (med <= 0) continue;
+    // Amounts should be roughly consistent (within 25% of the median).
+    const consistent = g.amounts.filter(a => Math.abs(a - med) <= med * 0.25).length;
+    if (consistent < 2) continue;
+    // Representative name = most frequent original description, trimmed.
+    const name = g.brand ? g.brand.name : Object.entries(g.descs).sort((a, b) => b[1] - a[1])[0][0].slice(0, 40).trim();
+    candidates.push({
+      name,
+      cost: Math.round(med),
+      frequency: 'monthly',
+      category: g.category || 'Subscriptions',
+      occurrences: g.months.size,
+      lastSeen: g.lastDate,
+    });
+  }
+  candidates.sort((a, b) => b.occurrences - a.occurrences || b.cost - a.cost);
+  return candidates.slice(0, 12);
+}
+
+app.get('/api/subscriptions/detect', auth, async (req, res) => {
+  try { res.json(await detectSubscriptions(req.user._id)); }
+  catch (e) { console.error('[subscriptions/detect]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 app.post('/api/subscriptions', auth, async (req, res) => {
   try {
@@ -4801,7 +4899,7 @@ app.delete('/api/subscriptions/:id', auth, async (req, res) => {
 // resurfacing it. Keyed by the merchant signature the detector groups on.
 app.post('/api/subscriptions/dismiss-detected', auth, async (req, res) => {
   try {
-    const key = deriveCategoryKey((req.body?.name || '').toString());
+    const key = subscriptionKey((req.body?.name || '').toString());
     if (!key) return res.status(400).json({ message: 'Nothing to dismiss.' });
     await DismissedDetection.updateOne(
       { userId: req.user._id, key },

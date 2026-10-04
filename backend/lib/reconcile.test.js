@@ -81,5 +81,19 @@ const e2e = reconcile({
 });
 check('e2e -> ok', e2e.ok === true);
 
+// amount-column check (no closing balance printed, e.g. GTBank)
+const col = (type, amount, balance, columnAmount) => ({ type, amount, balance, columnAmount });
+const gtOk = reconcile({ transactions: [col('income', 10000, 26798.43, 10000), col('expense', 2954.32, 23844.11, 2954.32)], openingBalance: 16798.43 });
+check('column check -> checked', gtOk.checked === true);
+check('column check -> ok', gtOk.ok === true);
+check('column check uses last balance as closing', gtOk.closingBalance === 23844.11);
+// a lost row: the balance jumped by 3,000 but the row only printed 1,000
+const gtLost = reconcile({ transactions: [col('income', 10000, 26798.43, 10000), col('expense', 3000, 23798.43, 1000)], openingBalance: 16798.43 });
+check('lost row -> not ok', gtLost.ok === false);
+check('lost row -> points at row 2', gtLost.firstDivergenceIndex === 1 && gtLost.amountMismatches.length === 1);
+// a printed closing balance still takes precedence
+const both = reconcile({ transactions: [col('income', 100, 200, 100)], openingBalance: 100, closingBalance: 200 });
+check('equation wins when closing printed', both.ok === true && /closing/.test(both.reason));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

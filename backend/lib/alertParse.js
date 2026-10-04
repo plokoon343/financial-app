@@ -63,4 +63,54 @@ function parseLabeledAlert(raw) {
   return { amount, type, description, date, labeled: true };
 }
 
-module.exports = { detectDirection, parseLabeledAlert, CREDIT_STRONG, DEBIT_STRONG, CREDIT_WEAK, DEBIT_WEAK };
+// The best human-readable description in an alert: a labelled narration field when
+// there is one, else the alert text with bank boilerplate removed. Email alerts carry
+// a generic subject ("Transaction Notification") and a greeting before the useful
+// part, and those must never become the description. Returns '' when nothing useful
+// is left, so the caller can fall back.
+const NARRATION_LABELS = 'description|desc|narration|narrative|remarks?|details|beneficiary(?: name)?|merchant(?: name)?|purpose|payment for|sender(?: name)?|recipient(?: name)?';
+const FIELD_LABELS = 'description|narration|narrative|remarks?|details|beneficiary|merchant|purpose|amount|value date|date|time|reference|ref|document number|account(?: number| no\\.?)?|acct|current balance|available balance|balance|branch|transaction type|txn type|channel|session id';
+const BOILERPLATE = [
+  /\b(?:transaction|debit|credit|e-?mail)\s+(?:notification|alert)s?\b[:\s-]*/gi,
+  /\b(?:gens|nip|instant)\s+alert\b[:\s-]*/gi,
+  /\bdear\s+[^,\n]{0,60}[,\n]/gi,
+  /\bwe wish to (?:inform|notify) you that[^.\n]*?(?:account|with us)[^.\n]*[.\n]?/gi,
+  /\bthis is to (?:inform|notify) you that[^.\n]*?(?:account|with us)[^.\n]*[.\n]?/gi,
+  /\b(?:a|the following)\s+(?:debit|credit)\s+transaction\s+(?:has\s+)?occurred[^.\n]*[.\n]?/gi,
+  /\bthank you for (?:banking|choosing)[^.\n]*[.\n]?/gi,
+  /\b(?:for (?:any )?(?:enquiries|inquiries|complaints)|please do not reply)[^\n]*/gi,
+  /\b(?:current|available|ledger|book|cleared)\s+balance\b[^\n]*/gi,
+  /\b(?:avail(?:able)?\.?\s+bal(?:ance)?|bal)\b\s*[:=-]?[^\n]*/gi,
+  /\b(?:your\s+)?(?:account|acct)\s*(?:number|no\.?|#)?\s*[:=-]?\s*[\dX*]{3,}\b/gi,
+];
+
+// Prose alerts name the other party in a phrase: "debited with NGN 4,200.00 for BOLT
+// RIDE LAGOS on 02/10", "credited with NGN 20,000.00 from JOHN DOE." Only an
+// all-caps name is taken, which is how banks print counterparties.
+const COUNTERPARTY_RE = /\b(?:for|to|from|at|by)\s+([A-Z][A-Z0-9&'.\/\- ]{1,58}[A-Z0-9])(?=\s+(?:on|at|ref|via)\b|\s*[.,;\n]|\s*$)/;
+
+function alertDescription(raw) {
+  const t = (raw || '').replace(/\r/g, '');
+  const field = t.match(new RegExp(`\\b(?:${NARRATION_LABELS})\\b\\s*[:=-]\\s*([^\\n]+)`, 'i'));
+  if (field) {
+    const v = field[1]
+      .replace(new RegExp(`\\s*\\b(?:${FIELD_LABELS})\\b\\s*[:=-].*$`, 'i'), '')
+      .replace(/\s{2,}/g, ' ').trim();
+    if (/[A-Za-z]{2,}/.test(v)) return v.slice(0, 140);
+  }
+  const cp = t.match(COUNTERPARTY_RE);
+  if (cp && /[A-Z]{3,}/.test(cp[1]) && !/^(?:NGN|ACCOUNT|ACCT)\b/.test(cp[1])) return cp[1].trim();
+  let body = t;
+  for (const re of BOILERPLATE) body = body.replace(re, ' ');
+  body = body
+    .replace(/(?:ngn|naira|₦|n)\s?[\d,]+(?:\.\d{1,2})?/gi, ' ')
+    .replace(/\b\d{1,2}[\/-](?:\d{1,2}|[A-Za-z]{3})[\/-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?)?/gi, ' ')
+    .replace(/\b(?:ref|txn|transaction id|receipt|session id)[:#\s]*[A-Za-z0-9]+/gi, ' ')
+    .replace(/\b\d{6,}\b/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s:;,.\-]+|[\s:;,.\-]+$/g, '')
+    .trim();
+  return /[A-Za-z]{3,}/.test(body) ? body.slice(0, 140) : '';
+}
+
+module.exports = { detectDirection, parseLabeledAlert, alertDescription, CREDIT_STRONG, DEBIT_STRONG, CREDIT_WEAK, DEBIT_WEAK };

@@ -28,7 +28,7 @@ const shareIngest = require('./lib/shareIngest');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
-const { detectDirection, parseLabeledAlert } = require('./lib/alertParse');
+const { detectDirection, parseLabeledAlert, alertDescription } = require('./lib/alertParse');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
@@ -1152,7 +1152,11 @@ const stripBranchPrefix = (transactions) => {
     lcp = lcp.slice(0, i);
     if (!lcp) return; // no shared branch → don't risk mangling descriptions
   }
-  lcp = lcp.replace(/\s+\S*$/, '').trim();               // drop any trailing partial word
+  // Drop a trailing partial word, unless most rows end that word right there (a row
+  // like "...ADESOLAInstant Payment" glues the next word on; that is not a partial).
+  const wordEnds = present.filter((t) => t.length === lcp.length || /^(?:[\s:;,'"’.\-]|[A-Z][a-z])/.test(t.slice(lcp.length, lcp.length + 2))).length;
+  if (wordEnds < present.length * 0.5) lcp = lcp.replace(/\s+\S*$/, '');
+  lcp = lcp.trim();
   if (!/^\d{3}\s+[A-Za-z]/.test(lcp) || lcp.length < 4 || lcp.length > 48) return;
   for (let i = 0; i < transactions.length; i++) {
     if (starts[i] === -1) continue;
@@ -1211,13 +1215,15 @@ const parseStatementByBalance = (rawText) => {
     if (monies.length === 0) continue;
     const balance = monies[monies.length - 1]; // last money on the record is the balance
 
-    let type, amount, confidenceLevel;
+    let type, amount, confidenceLevel, columnAmount = null;
     if (prevBalance !== null && Math.abs(balance - prevBalance) > 0.005) {
       // Derive amount + direction from how the running balance moved: the balance
       // column validates both, so this is our high-confidence path (A6).
       amount = Math.abs(balance - prevBalance);
       type = balance >= prevBalance ? 'income' : 'expense';
       confidenceLevel = 'high';
+      // The printed debit/credit, used to catch a lost row hiding in this jump.
+      if (monies.length >= 2) columnAmount = monies[monies.length - 2];
     } else {
       // No usable balance baseline - fall back to the amount column + keywords.
       // Unvalidated → medium confidence, flagged for a look in the review gate.
@@ -1254,6 +1260,7 @@ const parseStatementByBalance = (rawText) => {
       reference: null,
       balance,
       confidenceLevel,
+      ...(columnAmount != null ? { columnAmount } : {}),
     });
   }
   // Reduce each description to the bank's "Remarks" narration where the layout has a
@@ -1276,9 +1283,12 @@ const parseStatementByBalance = (rawText) => {
   // any more (drop high→medium), and the first divergent row and everything after it
   // are where the error lives (→ low). This is A6 confidence driven by A5.
   if (rec.checked && rec.ok === false) {
+    const flagged = new Set(rec.amountMismatches || []);
     transactions.forEach((t, i) => {
       if (t.confidenceLevel === 'high') t.confidenceLevel = 'medium';
-      if (rec.firstDivergenceIndex != null && i >= rec.firstDivergenceIndex) t.confidenceLevel = 'low';
+      // Amount-column mismatches pinpoint the rows; otherwise everything from the
+      // first divergence on is suspect.
+      if (flagged.size ? flagged.has(i) : (rec.firstDivergenceIndex != null && i >= rec.firstDivergenceIndex)) t.confidenceLevel = 'low';
     });
   }
   return transactions;
@@ -3520,12 +3530,14 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
   const dir = labeled ? { type: labeled.type, conf: 'high' } : detectDirection(raw);
   const type = dir.type;
   const dirConf = dir.conf;
-  // Date: labelled Value Date, else first date-looking token, else today.
+  // Date: labelled Value Date, else first date-looking token, else today. The caller
+  // can see whether the text had a date (email falls back to when it was received).
   const dm = raw.match(SMS_DATE_RE);
-  const date = (labeled && labeled.date && normalizeAnyDate(labeled.date))
-    || (dm && normalizeAnyDate(dm[1])) || new Date().toISOString().slice(0, 10);
-  // Description: labelled field, else strip money/dates/long refs from the body.
-  const description = (labeled && labeled.description) || (raw
+  const textDate = (labeled && labeled.date && normalizeAnyDate(labeled.date)) || (dm && normalizeAnyDate(dm[1])) || null;
+  const date = textDate || new Date().toISOString().slice(0, 10);
+  // Description: labelled field, else a narration field or the counterparty phrase
+  // (never the email subject or greeting), else strip money/dates/refs from the body.
+  const description = (labeled && labeled.description) || alertDescription(raw) || (raw
     .replace(SMS_MONEY_RE, ' ')
     .replace(SMS_DATE_RE, ' ')
     .replace(/\b(?:ref|txn|transaction id|receipt)[:#\s]*[A-Za-z0-9]+/gi, ' ')
@@ -3538,7 +3550,7 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
   const category = categorizeTransaction(description, type);
   const confidence = amount != null && dirConf === 'high' && amtConf !== 'low' ? 'high' : (amount != null ? 'medium' : 'low');
   return {
-    date, description, amount: amount != null ? +Number(amount).toFixed(2) : 0,
+    date, dateFromText: !!textDate, description, amount: amount != null ? +Number(amount).toFixed(2) : 0,
     type, category, bank, bankCode, accountMask, senderKey, reference: null, raw,
     // low-confidence amount is left visibly empty for the user to fill (spec A6).
     needsReview: confidence === 'low',
@@ -3983,8 +3995,20 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
       const [one] = await parseAlertsWithRescue([resolved.fullText], 'email', bankFrom);
       parsedRows = one && one.amount > 0 ? [one] : [];
     }
+    // An alert with no readable date happened when the bank emailed it, not "today"
+    // (forwards and retries can land days later).
+    const sent = b.Date || b.date || (b.timestamp ? Number(b.timestamp) * 1000 : null);
+    const sentDay = sent && !isNaN(new Date(sent)) ? new Date(sent).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }) : null;
+    // For a single alert the subject was parsed with the body (for amount/direction);
+    // the description must come from the body alone, never the subject line.
+    const bodyDescription = segments.length > 1 ? '' : alertDescription(resolved.bodyOnly);
     let created = 0;
     for (const parsed of parsedRows) {
+      if (sentDay && parsed.dateFromText === false) parsed.date = sentDay;
+      if (bodyDescription) {
+        parsed.description = bodyDescription;
+        parsed.category = categorizeTransaction(bodyDescription, parsed.type);
+      }
       created += await ingestEmailAlert(user, parsed);
     }
     if (created) {

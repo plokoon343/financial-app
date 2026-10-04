@@ -2,7 +2,7 @@
 // Run: node backend/lib/alertParse.test.js
 // Corpus of REAL GTBank GeNS email alerts (account numbers/names/refs already masked),
 // with the correct amount + direction. Guards the parser against regressions.
-const { parseLabeledAlert, detectDirection } = require('./alertParse');
+const { parseLabeledAlert, detectDirection, alertDescription } = require('./alertParse');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -61,6 +61,17 @@ check('dir: CREDIT transaction -> income', detectDirection('a CREDIT transaction
 check('dir: DEBIT transaction -> expense', detectDirection('a DEBIT transaction occurred').type === 'expense');
 check('dir: credit w/ debit footer -> income', detectDirection('credited with NGN5000. report unauthorized debit to 0700').type === 'income');
 check('dir: pos debit -> expense', detectDirection('NGN2000 POS purchase at SHOPRITE').type === 'expense');
+
+// --- alertDescription: never the email subject or greeting ---------------------
+const gtEmail = 'Transaction Notification\nDear CHIDUMEBI ONUKOGU,\nWe wish to inform you that a Debit transaction occurred on your account with us.\nAccount Number : 0123***384\nTransaction Location : 635\nDescription : NIP TRANSFER TO OPAY - MSQ MARYLAND\nAmount : NGN 2,845.00\nValue Date : 02-Aug-2026\nRemarks : -\nCurrent Balance : NGN 32,351.48';
+check('desc: labelled description field', alertDescription(gtEmail) === 'NIP TRANSFER TO OPAY - MSQ MARYLAND');
+const narration = 'Debit Alert\nAcct: 089****384\nAmt: NGN5,000.00\nNarration: POS PURCHASE SHOPRITE IKEJA\nDate: 03-Oct-2026\nAvail Bal: NGN12,000.00';
+check('desc: narration field', alertDescription(narration) === 'POS PURCHASE SHOPRITE IKEJA');
+const prose = 'Transaction Notification\nDear Customer,\nYour account 0123***45 has been debited with NGN 4,200.00 for BOLT RIDE LAGOS on 02/10/2026 12:41. Available balance: NGN 8,000.00. Thank you for banking with us.';
+check('desc: prose -> the counterparty', alertDescription(prose) === 'BOLT RIDE LAGOS');
+const credited = 'Credit Alert\nDear Customer, your account 0123***45 has been credited with NGN 20,000.00 from JOHN DOE. Ref: 123456789. Avail Bal: NGN 28,000.00';
+check('desc: credit from a person', alertDescription(credited) === 'JOHN DOE');
+check('desc: only boilerplate -> empty', alertDescription('Transaction Notification\nDear Customer,') === '');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

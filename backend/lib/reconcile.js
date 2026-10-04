@@ -78,6 +78,30 @@ function reconcile({ transactions = [], openingBalance = null, closingBalance = 
     }
   }
 
+  // Amount-column check: when amounts were derived from the running balance, a lost
+  // row hides inside the next row's amount (the balance jump covers both). Each row's
+  // printed debit/credit (`columnAmount`) catches that: it must equal the derived
+  // amount. Used when the statement prints no closing balance (e.g. GTBank).
+  const withCol = transactions.filter((t) => isNum(t.columnAmount));
+  result.amountMismatches = [];
+  if (withCol.length && withCol.length >= transactions.length * 0.5) {
+    transactions.forEach((t, i) => {
+      if (isNum(t.columnAmount) && Math.abs(round2(Math.abs(t.amount)) - round2(t.columnAmount)) > 0.01) {
+        result.amountMismatches.push(i);
+      }
+    });
+    if (!result.checked) {
+      const last = transactions[transactions.length - 1];
+      if (result.closingBalance == null && last && isNum(last.balance)) result.closingBalance = round2(last.balance);
+      result.checked = true;
+      result.ok = result.amountMismatches.length === 0;
+      result.reason = result.ok
+        ? 'balanced: every row matches its running balance and its amount column'
+        : `${result.amountMismatches.length} row(s) don't match their amount column: a transaction may be missing just before them`;
+      if (!result.ok && result.firstDivergenceIndex == null) result.firstDivergenceIndex = result.amountMismatches[0];
+    }
+  }
+
   return result;
 }
 

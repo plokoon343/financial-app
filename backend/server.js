@@ -30,6 +30,7 @@ const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGu
 const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
 const { detectDirection, parseLabeledAlert, alertDescription } = require('./lib/alertParse');
 const capture = require('./lib/capture');
+const { brandFor } = require('./lib/subscriptionBrands');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
@@ -809,6 +810,9 @@ const subscriptionSchema = new mongoose.Schema({
   // nudge. No money moves: this only powers a "renews soon" notification.
   renewalDay:       { type: Number, min: 1, max: 31 },
   remindDaysBefore: { type: Number, default: 3, min: 0, max: 30 },
+  // Auto-detected from a charge we couldn't name (e.g. 'N FLX' we don't know): the
+  // user is asked what it is. Cleared once they rename it.
+  needsName: { type: Boolean, default: false },
 }, { timestamps: true });
 subscriptionSchema.index({ userId: 1, sourceKey: 1 });
 const Subscription = mongoose.model('Subscription', subscriptionSchema);
@@ -1553,26 +1557,69 @@ const deriveCategoryKey = (description) => {
 // Triggered when a transaction's category is 'Subscriptions': upsert a Subscription
 // keyed by the merchant signature. Never clobbers a user's edits: only auto-detected
 // rows are kept current from the ledger. Fire-and-forget safe.
-async function maybeLinkSubscription(userId, { description, amount, category, date, bankName, bankCode }) {
+// One key per service: the recognised brand when we know it, else the merchant words.
+const subscriptionKey = (text) => {
+  const brand = brandFor(text);
+  return brand ? `brand:${brand.slug}` : deriveCategoryKey(text || '');
+};
+
+// Fold duplicate subscriptions of the same service into one. Rows the user created
+// or edited win over auto-detected ones; among auto rows the most recently charged
+// survives. Auto rows also take the brand's clean name once we recognise it.
+async function mergeDuplicateSubscriptions(userId) {
+  const subs = await Subscription.find({ userId, status: { $ne: 'cancelled' } });
+  const groups = new Map();
+  for (const s of subs) {
+    const key = subscriptionKey(s.name) || s.sourceKey;
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
+  }
+  for (const group of groups.values()) {
+    const brand = brandFor(group[0].name);
+    if (group.length > 1) {
+      group.sort((a, b) => (a.autoDetected - b.autoDetected)
+        || (new Date(b.lastCharge || b.createdAt) - new Date(a.lastCharge || a.createdAt)));
+      const [keep, ...dupes] = group;
+      const autoDupes = dupes.filter((d) => d.autoDetected);
+      if (autoDupes.length) {
+        const latest = autoDupes.reduce((m, d) => (new Date(d.lastCharge || 0) > new Date(m || 0) ? d.lastCharge : m), keep.lastCharge);
+        if (latest) keep.lastCharge = latest;
+        await Subscription.deleteMany({ _id: { $in: autoDupes.map((d) => d._id) }, userId, autoDetected: true });
+      }
+      if (brand && keep.autoDetected && keep.name !== brand.name) { keep.name = brand.name; keep.needsName = false; }
+      await keep.save();
+    } else if (brand && group[0].autoDetected && group[0].name !== brand.name) {
+      group[0].name = brand.name;
+      group[0].needsName = false;
+      await group[0].save();
+    }
+  }
+}
+
+async function maybeLinkSubscription(userId, { description, amount, category, date }) {
   if ((category || '').toString().trim().toLowerCase() !== 'subscriptions') return;
   const cost = Math.abs(Number(amount) || 0);
   if (!(cost > 0)) return;
-  const key = deriveCategoryKey(description || '');
+  const brand = brandFor(description);
+  const key = subscriptionKey(description);
   if (!key) return;
   const when = date ? new Date(date) : new Date();
   try {
-    const existing = await Subscription.findOne({ userId, sourceKey: key });
+    // The same service under any spelling, or one the user added by hand by name.
+    const or = [{ sourceKey: key }];
+    if (brand) or.push({ name: new RegExp(`^${brand.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+    const existing = await Subscription.findOne({ userId, $or: or });
     if (existing) {
       const patch = { lastCharge: when };
       if (existing.autoDetected) patch.cost = Math.round(cost); // keep auto ones current; respect edits
       await Subscription.updateOne({ _id: existing._id }, { $set: patch });
       return;
     }
-    const name = ((description || '').toString().replace(/\s{2,}/g, ' ').trim().slice(0, 40)) || 'Subscription';
+    const name = brand ? brand.name : (((description || '').toString().replace(/\s{2,}/g, ' ').trim().slice(0, 40)) || 'Subscription');
     await new Subscription({
       userId, name, cost: Math.round(cost), frequency: 'monthly', category: 'Subscriptions',
-      status: 'active', autoDetected: true, sourceKey: key, lastCharge: when,
-      bankName: bankName || '', bankCode: bankCode || '',
+      status: 'active', autoDetected: true, sourceKey: key, lastCharge: when, needsName: !brand,
     }).save();
   } catch (e) { if (e && e.code !== 11000) console.error('[maybeLinkSubscription]', e.message); }
 }
@@ -2609,6 +2656,7 @@ app.post('/api/transactions', auth, async (req, res) => {
   });
   await transaction.save();
   if (shared && bCode) { try { await touchUserAccount(req.user._id, { bankCode: bCode, bankName: bank || '', accountMask: bMask }, transaction.date); } catch { /* non-fatal */ } }
+  await maybeLinkSubscription(req.user._id, { description: transaction.description, amount: transaction.amount, category: transaction.category, date: transaction.date });
   if (transaction.type === 'expense') {
     checkBudgetAlert(req.user._id, transaction.category, new Date(transaction.date).toISOString().slice(0, 7));
   }
@@ -4602,6 +4650,7 @@ app.post('/api/admin/senders/:key/dismiss', auth, superAdminAuth, async (req, re
 app.get('/api/subscriptions', auth, async (req, res) => {
   try {
     const uid = req.user._id;
+    try { await mergeDuplicateSubscriptions(uid); } catch (e) { console.error('[subs/merge]', e.message); }
     const subs = await Subscription.find({ userId: uid }).sort({ createdAt: -1 }).lean();
     const cancelling = subs.filter((s) => s.status === 'cancelling' && s.cancelRequestedAt);
     let txns = [];
@@ -4617,8 +4666,8 @@ app.get('/api/subscriptions', auth, async (req, res) => {
       const guide = pro ? full : { name: full.name, method: full.method, matched: full.matched, steps: [], url: '', locked: true };
       let cancelCheck = null;
       if (s.status === 'cancelling' && s.cancelRequestedAt) {
-        const key = deriveCategoryKey(s.name);
-        const chargedAfter = !!key && txns.some((t) => deriveCategoryKey(t.description) === key && new Date(t.date) > new Date(s.cancelRequestedAt));
+        const key = subscriptionKey(s.name);
+        const chargedAfter = !!key && txns.some((t) => subscriptionKey(t.description) === key && new Date(t.date) > new Date(s.cancelRequestedAt));
         cancelCheck = verifyCancellation({ requestedAt: s.cancelRequestedAt, frequency: s.frequency, chargedAfter });
         if (cancelCheck.state === 'confirmed') promote.push(s._id);
       }
@@ -4646,16 +4695,16 @@ app.get('/api/subscriptions/detect', auth, async (req, res) => {
     ]);
     const dismissed = await DismissedDetection.find({ userId }, { key: 1 }).lean();
     const existingKeys = new Set([
-      ...existing.map(s => deriveCategoryKey(s.name)),
+      ...existing.map(s => subscriptionKey(s.name)),
       ...dismissed.map(d => d.key),
     ].filter(Boolean));
 
     // Group transactions by merchant signature.
     const groups = new Map();
     for (const t of txns) {
-      const key = deriveCategoryKey(t.description);
+      const key = subscriptionKey(t.description);
       if (!key) continue;
-      const g = groups.get(key) || { key, amounts: [], months: new Set(), descs: {}, category: t.category, lastDate: t.date };
+      const g = groups.get(key) || { key, brand: brandFor(t.description), amounts: [], months: new Set(), descs: {}, category: t.category, lastDate: t.date };
       g.amounts.push(Math.abs(t.amount));
       g.months.add(new Date(t.date).toISOString().slice(0, 7));
       g.descs[t.description] = (g.descs[t.description] || 0) + 1;
@@ -4674,7 +4723,7 @@ app.get('/api/subscriptions/detect', auth, async (req, res) => {
       const consistent = g.amounts.filter(a => Math.abs(a - med) <= med * 0.25).length;
       if (consistent < 2) continue;
       // Representative name = most frequent original description, trimmed.
-      const name = Object.entries(g.descs).sort((a, b) => b[1] - a[1])[0][0].slice(0, 40).trim();
+      const name = g.brand ? g.brand.name : Object.entries(g.descs).sort((a, b) => b[1] - a[1])[0][0].slice(0, 40).trim();
       candidates.push({
         name,
         cost: Math.round(med),
@@ -4726,7 +4775,7 @@ app.put('/api/subscriptions/:id', auth, async (req, res) => {
     const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
     if (!sub) return res.status(404).json({ message: 'Not found' });
     const { name, cost, frequency, category, status, renewalDay, remindDaysBefore } = req.body;
-    if (name !== undefined) sub.name = name;
+    if (name !== undefined) { sub.name = name; sub.needsName = false; }
     if (cost !== undefined) sub.cost = parseFloat(cost);
     if (frequency !== undefined) sub.frequency = frequency;
     if (category !== undefined) sub.category = category;

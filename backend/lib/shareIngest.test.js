@@ -41,6 +41,9 @@ eq('fallback direction credit', toCandidate(noDir).direction, 'credit');
 eq('medium tier is low', confidenceTier(noDir), 'low');
 
 // Ambiguous (no clean amount) → null candidate (endpoint answers 422).
+// Bug 2.1/2.2: no debit/credit wording means the user picks, never a guessed "money out".
+eq('unknown direction -> null', toCandidate({ amount: 500, type: 'expense', directionKnown: false, confidence: 'low' }).direction, null);
+eq('description passed through', toCandidate({ amount: 500, type: 'expense', description: 'POS PURCHASE SPAR' }).description, 'POS PURCHASE SPAR');
 eq('no amount -> null', toCandidate({ amount: 0, type: 'expense', confidence: 'low' }), null);
 eq('missing parse -> null', toCandidate(null), null);
 eq('low tier for no-amount', confidenceTier({ amount: 0, confidence: 'low' }), 'low');

@@ -16,8 +16,10 @@ const { extractCounterparty } = require('./counterparty');
 function toCandidate(parsed) {
   if (!parsed || !(Number(parsed.amount) > 0)) return null;
   // Direction is deterministic: the parser's own credit/debit, else income→credit.
-  const direction = (parsed._parse && parsed._parse.direction)
-    || (parsed.type === 'income' ? 'credit' : 'debit');
+  // When the text has no debit/credit wording at all it is null and the user picks;
+  // guessing "money out" is how credits ended up shown as spending.
+  const direction = parsed.directionKnown === false ? null
+    : (parsed._parse && parsed._parse.direction) || (parsed.type === 'income' ? 'credit' : 'debit');
   const cp = extractCounterparty(parsed.description || parsed.raw || '');
   let occurredAt = null;
   if (parsed.date) { const d = new Date(parsed.date); if (!isNaN(d)) occurredAt = d.toISOString(); }
@@ -25,6 +27,7 @@ function toCandidate(parsed) {
     amount: +Number(parsed.amount).toFixed(2),
     direction,
     counterparty: (cp && cp.name) || null,
+    description: parsed.description || null,
     sourceBank: parsed.bank || null,
     suggestedCategory: parsed.category || null,
     account: parsed.accountMask || null,

@@ -103,6 +103,17 @@ async function main() {
   un = (await call('GET', '/api/senders/unknown')).body.senders;
   check('2.4 undo brings the sender back', un.some((u) => u.senderKey === 'XYZMFB'));
 
+  // ── 2.2: share to Automonie ──
+  const share = (sharedText) => call('POST', '/api/ingest/share', { source: 'share', platform: 'android', sharedText, clientIdempotencyKey: `t-${Math.random()}` });
+  const s1 = await share('You have received NGN 7,500.00 from ADA OBI. Ref: 5566. Bal: NGN 40,000.00');
+  check('2.2 shared credit pre-fills as money in', s1.body?.candidate?.direction === 'credit' && s1.body.candidate.amount === 7500, JSON.stringify(s1.body));
+  const s2 = await share('Debit Alert\nAcct: 22*****555\nAmt: NGN2,000.00\nDesc: POS PURCHASE MAMA PUT\nAvail Bal: NGN8,000.00');
+  check('2.2 an alert already captured is flagged as a duplicate', s2.body?.candidate?.dedupe?.verdict === 'duplicate_suspected', JSON.stringify(s2.body?.candidate));
+  const s3 = await share('OPay: NGN 3,100.00 at 14:02. Ref 77812');
+  check('2.2 unclear direction is left for the user', s3.status === 200 && s3.body.candidate.direction === null, JSON.stringify(s3.body));
+  const s4 = await share('Your OTP is 482913. Do not share it.');
+  check('2.2 an OTP is not a transaction', s4.status === 422);
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

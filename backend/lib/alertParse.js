@@ -18,7 +18,13 @@ const DEBIT_STRONG  = /\bdebited\b|debit\s+alert|debit\s+transaction|money\s+out
 const CREDIT_WEAK   = /\b(sent to you|paid you|received from)\b/i;
 const DEBIT_WEAK    = /\b(withdrawn|payment|paid|pos|transfer to|sent|charged)\b/i;
 
+// Some banks state the direction as a heading ("Debit" / "Credit" on its own first
+// line) or a field ("Credit: NGN5,000"), which is as explicit as it gets.
+const DIRECTION_HEAD = /^\s*(credit|debit)\b(?!\s*card)|\b(credit|debit)\s*:\s*(?:ngn|naira|₦|n)?\s*\d/i;
+
 function detectDirection(raw) {
+  const head = (raw || '').match(DIRECTION_HEAD);
+  if (head) return { type: /^credit$/i.test(head[1] || head[2]) ? 'income' : 'expense', conf: 'high' };
   const cs = CREDIT_STRONG.test(raw), ds = DEBIT_STRONG.test(raw);
   if (cs && !ds) return { type: 'income', conf: 'high' };
   if (ds && !cs) return { type: 'expense', conf: 'high' };
@@ -113,4 +119,39 @@ function alertDescription(raw) {
   return /[A-Za-z]{3,}/.test(body) ? body.slice(0, 140) : '';
 }
 
-module.exports = { detectDirection, parseLabeledAlert, alertDescription, CREDIT_STRONG, DEBIT_STRONG, CREDIT_WEAK, DEBIT_WEAK };
+// ── Is this even a transaction? ──
+// Banks and wallet apps push OTPs, loan offers, promos and balance notices through the
+// same channel as real alerts, often with an amount and the word "account" in them.
+// Returns why a message should be dropped, or null to parse it. Two kinds of message
+// are never a completed transaction however much they look like one: a code to
+// approve a payment, and an offer of money. Everything else that carries a real
+// debit/credit signature is kept, since a false drop is silent data loss.
+const MONEY_RE = /(?:ngn|naira|₦)\s*[\d,]+(?:\.\d{1,2})?|\bn\d[\d,]*(?:\.\d{1,2})?|\b[\d,]+\.\d{2}\b/i;
+const ALERT_DIRECTION_RE = /\b(debit(?:ed)?|credit(?:ed)?|dr|cr|withdraw(?:n|al)?|deposit(?:ed)?|received|transfer(?:red)?|pos\b|reversal)\b/i;
+const ALERT_CONTEXT_RE = /\b(bal(?:ance)?|avail|a\/c|acct|account|ref|value date|txn|transaction|desc)\b/i;
+// A code is present, not just a "never share your OTP" footer.
+const OTP_RE = /\b(?:otp|code|token|password)\b[^\n]{0,100}?\bis\s*:?\s*\d{4,8}\b|\b(?:otp|code|token)\s*[:\-]?\s*\d{4,8}\b|\b\d{4,8}\s+is your\b|\buse\s+\d{4,8}\s+to\b/i;
+const OFFER_RE = /\b(get a loan|borrow up to|loan offer|apply now|you(?:'?re| are) eligible|eligible for|up to (?:ngn|naira|₦|n)\s?[\d,]+|win a|limited time)\b/i;
+
+function alertLooksTransactional(raw) {
+  return ALERT_DIRECTION_RE.test(raw) && MONEY_RE.test(raw) && ALERT_CONTEXT_RE.test(raw);
+}
+
+function alertIgnoreReason(raw) {
+  const s = (raw || '').toLowerCase();
+  if (!s.trim()) return 'empty';
+  if (OTP_RE.test(s)) return 'otp';
+  if (OFFER_RE.test(s)) return 'promo';
+  if (alertLooksTransactional(raw)) return null;
+  if (/\b(otp|one[-\s]?time (?:password|pin|code)|verification code|is your (?:code|otp|pin|token))\b/.test(s)) return 'otp';
+  if (/\b(enjoy|special offer|promo(?:tion)?|discount|cash ?back|congratulations|download our app|dial \*\d|upgrade to)\b/.test(s)) return 'promo';
+  if (/\b(login|log[-\s]?in|sign[-\s]?in|new device|password (?:has been|was|is) (?:changed|reset|updated)|security alert)\b/.test(s)) return 'login';
+  if (/\b(balance (?:enquiry|inquiry)|bal(?:ance)? enq|your (?:available )?balance is)\b/.test(s)) return 'balance_enquiry';
+  if (/\b(card (?:is )?(?:ready|delivered|activated|blocked)|cheque ?book|statement (?:is )?ready|e-?statement (?:is )?ready)\b/.test(s)) return 'notice';
+  return null;
+}
+
+module.exports = {
+  detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason, alertLooksTransactional,
+  CREDIT_STRONG, DEBIT_STRONG, CREDIT_WEAK, DEBIT_WEAK,
+};

@@ -75,5 +75,37 @@ const oneLine = 'Acct: 0123***384 Amt: NGN2,100.00 DR Desc: POS PURCHASE SPAR LE
 check('desc: single-line SMS stops at the next label', alertDescription(oneLine) === 'POS PURCHASE SPAR LEKKI');
 check('desc: only boilerplate -> empty', alertDescription('Transaction Notification\nDear Customer,') === '');
 
+// --- What a bank-app notification really is (bug 2.1) ----------------------------
+// Direction comes from the rules only; anything that isn't a completed transaction is
+// dropped; a message with no debit/credit wording is never saved as spending.
+const { alertIgnoreReason } = require('./alertParse');
+const { classifyKind } = require('./txnKinds');
+const { mentionsSelf } = require('./internalTransfers');
+const kindOf = (raw) => {
+  if (alertIgnoreReason(raw)) return `ignored:${alertIgnoreReason(raw)}`;
+  const d = detectDirection(raw);
+  return d.conf === 'low' ? 'unclear' : d.type;
+};
+const debitPush = 'Debit Alert\nAcct: 089****384\nAmt: NGN5,000.00\nDesc: POS PURCHASE SHOPRITE IKEJA\nAvail Bal: NGN12,000.00';
+check('notif: debit -> expense', kindOf(debitPush) === 'expense');
+check('notif: credit -> income', kindOf('You have received NGN 20,000.00 from JOHN DOE. Ref: 123456789. Bal: NGN 28,000.00') === 'income');
+const reversal = 'Reversal: NGN 3,000.00 has been credited back to your account. Ref: 99812';
+check('notif: reversal is a credit', kindOf(reversal) === 'income');
+check('notif: reversal is not income', classifyKind({ type: 'income', description: reversal }) === 'reversal');
+check('notif: OTP for a debit is not a transaction', kindOf('Your OTP to authorise a debit of NGN 5,000.00 on account 012***45 is 482913. Do not share it.') === 'ignored:otp');
+check('notif: code first', kindOf('482913 is your verification code for a transfer of NGN 5,000.00') === 'ignored:otp');
+check('notif: real debit with an OTP warning footer is kept', kindOf(`${debitPush}\nNever share your OTP or PIN with anyone.`) === 'expense');
+check('notif: loan offer mentioning "credited" is a promo', kindOf('Get a loan of up to N500,000 credited to your account in 5 minutes. Apply now!') === 'ignored:promo');
+check('notif: promo', kindOf('Enjoy 10% cashback on airtime this weekend! Dial *894#') === 'ignored:promo');
+check('notif: balance enquiry', kindOf('Your available balance is NGN 12,450.00 as at 03-Oct-2026') === 'ignored:balance_enquiry');
+check('notif: balance-only push is never spending', kindOf('OWealth update: acct bal NGN 52,000.00 at 08:00') === 'unclear');
+check('notif: "Credit" heading is a credit', kindOf('Credit\nAmt:NGN5,000.00\nAcc:003******915\nDesc:086HYDR26187000e/NIP TFR FROM PIGGYTECH LIMITED\nDate:06/07/2026\nAvail Bal:NGN5,546.86') === 'income');
+check('notif: "Debit" heading is a debit', kindOf('Debit\nAmt:NGN50.00\nAcc:003******915\nDesc:086ZSTM2620600UE/FGN Stamp Duty for 1 txns\nDate:25/07/2026') === 'expense');
+check('notif: "Debit card" heading is not a direction', detectDirection('Debit card ending 1234 is ready for pickup').conf === 'low');
+check('notif: login notice', kindOf('New login to your OPay account from a new device') === 'ignored:login');
+const own = 'Debit Alert: NGN 10,000.00 transferred to CHIDUMEBI ONUKOGU OPAY. Ref 1234. Avail bal NGN 2,000.00';
+check('notif: transfer to own account reads as a debit', kindOf(own) === 'expense');
+check('notif: and is recognised as the user\'s own account', mentionsSelf(own, 'Chidumebi Onukogu'));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

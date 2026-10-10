@@ -28,7 +28,7 @@ const shareIngest = require('./lib/shareIngest');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
-const { detectDirection, parseLabeledAlert, alertDescription } = require('./lib/alertParse');
+const { detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason } = require('./lib/alertParse');
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
 const { categorizeTransaction } = require('./lib/categorize');
@@ -3545,28 +3545,6 @@ const SMS_MONEY_RE = /(?:ngn|naira|₦)\s*([\d,]+(?:\.\d{1,2})?)|\bn(\d[\d,]*(?:
 // tested against real bank emails.
 const SMS_DATE_RE = /\b(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/i;
 
-// Stage 1.3: "is this even a transaction?" Drop OTP/promo/login/balance-enquiry/
-// card notices before parsing (mirrors the mobile parser's ignoreReason). Conservative:
-// a message with a real debit/credit signature is never ignored.
-const ALERT_DIRECTION_RE = /\b(debit(?:ed)?|credit(?:ed)?|dr|cr|withdraw(?:n|al)?|deposit(?:ed)?|received|transfer(?:red)?|pos\b|reversal)\b/i;
-const ALERT_CONTEXT_RE = /\b(bal(?:ance)?|avail|a\/c|acct|account|ref|value date|txn|transaction|desc)\b/i;
-function alertLooksTransactional(s) {
-  return ALERT_DIRECTION_RE.test(s) && SMS_MONEY_RE.test(s) && ALERT_CONTEXT_RE.test(s);
-}
-function alertIgnoreReason(raw) {
-  const s = (raw || '').toLowerCase();
-  if (!s.trim()) return 'empty';
-  SMS_MONEY_RE.lastIndex = 0;
-  if (alertLooksTransactional(raw)) { SMS_MONEY_RE.lastIndex = 0; return null; }
-  SMS_MONEY_RE.lastIndex = 0;
-  if (/\b(otp|one[-\s]?time (?:password|pin|code)|verification code|do not (?:share|disclose)|is your (?:code|otp|pin|token))\b/.test(s)) return 'otp';
-  if (/\b(enjoy|special offer|promo(?:tion)?|discount|cash ?back|congratulations|you(?:'?re| are) eligible|eligible for|download our app|dial \*\d|upgrade to|win a|get a loan|borrow up to|loan offer|apply now|limited time)\b/.test(s)) return 'promo';
-  if (/\b(login|log[-\s]?in|sign[-\s]?in|new device|password (?:has been|was|is) (?:changed|reset|updated)|security alert)\b/.test(s)) return 'login';
-  if (/\b(balance (?:enquiry|inquiry)|bal(?:ance)? enq|your (?:available )?balance is)\b/.test(s)) return 'balance_enquiry';
-  if (/\b(card (?:is )?(?:ready|delivered|activated|blocked)|cheque ?book|statement (?:is )?ready|e-?statement (?:is )?ready)\b/.test(s)) return 'notice';
-  return null;
-}
-
 function parseOneAlert(msg, source = 'sms', sender = '') {
   const raw = msg.trim();
   if (!raw) return null;
@@ -3615,7 +3593,7 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
   const category = categorizeTransaction(description, type);
   const confidence = amount != null && dirConf === 'high' && amtConf !== 'low' ? 'high' : (amount != null ? 'medium' : 'low');
   return {
-    date, dateFromText: !!textDate, description, amount: amount != null ? +Number(amount).toFixed(2) : 0,
+    date, dateFromText: !!textDate, directionKnown: dirConf !== 'low', description, amount: amount != null ? +Number(amount).toFixed(2) : 0,
     type, category, bank, bankCode, accountMask, senderKey, reference: null, raw,
     // low-confidence amount is left visibly empty for the user to fill (spec A6).
     needsReview: confidence === 'low',
@@ -4073,6 +4051,9 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     const bodyDescription = segments.length > 1 ? '' : alertDescription(resolved.bodyOnly);
     let created = 0;
     for (const parsed of parsedRows) {
+      // Only the rules decide direction. With no debit/credit wording at all it is
+      // a notice, not a transaction, and must not land in the ledger as spending.
+      if (!parsed.directionKnown) continue;
       if (sentDay && parsed.dateFromText === false) parsed.date = sentDay;
       if (bodyDescription) {
         parsed.description = bodyDescription;
@@ -4128,7 +4109,8 @@ async function actionCenterItems(userId) {
   const keptRows = await KeptPair.find({ userId }, { pairKey: 1 }).lean();
   const kept = new Set(keptRows.map((k) => k.pairKey));
   const [lowConf, dupes, unnamedSubs, detected, accounts, senders] = await Promise.all([
-    Transaction.find({ userId, parseConfidence: 'low', reviewedAt: { $exists: false } }).sort({ date: -1 }).limit(30).lean(),
+    // Anything saved without the user seeing it that the rules weren't sure about.
+    Transaction.find({ userId, reviewedAt: { $exists: false }, $or: [{ parseConfidence: 'low' }, { parseConfidence: 'medium', source: { $in: ['email', 'notification', 'sms'] } }] }).sort({ date: -1 }).limit(30).lean(),
     findPossibleDuplicates(userId, kept),
     Subscription.find({ userId, needsName: true, status: { $ne: 'cancelled' } }).sort({ lastCharge: -1 }).limit(20).lean(),
     detectSubscriptions(userId).catch(() => []),
@@ -4228,7 +4210,7 @@ app.delete('/api/capture/key', auth, async (req, res) => {
 // Parse a captured alert text and save it. Returns { saved, duplicate, ignored }.
 async function ingestCapturedText(user, { text, sender = '', source, day }) {
   const parsed = parseOneAlert(text, source, sender);
-  if (!parsed || !(parsed.amount > 0)) return { saved: false, ignored: true };
+  if (!parsed || !(parsed.amount > 0) || !parsed.directionKnown) return { saved: false, ignored: true };
   if (day && parsed.dateFromText === false) parsed.date = day;
   const created = await ingestAlert(user, parsed, source);
   if (created) {

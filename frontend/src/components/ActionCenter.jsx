@@ -100,10 +100,7 @@ function NameSubscriptionCard({ item, act }) {
       <div className="acx-actions">
         <input id={`s-${item.id}`} aria-label="Subscription name" placeholder="e.g. Netflix" value={name} onChange={(e) => setName(e.target.value)} />
         <button type="button" className="btn-primary" disabled={!name.trim()} onClick={() => act(() => axios.put(`${API_URL}/api/subscriptions/${item.id}`, { name: name.trim() }, auth()))}>Save name</button>
-        <button type="button" className="btn-secondary" onClick={() => act(async () => {
-          await axios.delete(`${API_URL}/api/subscriptions/${item.id}`, auth());
-          await axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { name: item.name }, auth());
-        })}>Not a subscription</button>
+        <button type="button" className="btn-secondary" onClick={() => act(() => axios.delete(`${API_URL}/api/subscriptions/${item.id}`, auth()))}>Not a subscription</button>
       </div>
     </div>
   );
@@ -120,7 +117,7 @@ function TrackCard({ item, act }) {
       </div>
       <div className="acx-actions">
         <button type="button" className="btn-primary" onClick={() => act(() => axios.post(`${API_URL}/api/subscriptions`, { name: item.name, cost: item.cost, frequency: 'monthly', category: 'Subscriptions', lastCharge: item.lastSeen }, auth()))}>Track it</button>
-        <button type="button" className="btn-secondary" onClick={() => act(() => axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { name: item.name }, auth()))}>Not a subscription</button>
+        <button type="button" className="btn-secondary" onClick={() => act(() => axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { key: item.key, name: item.name }, auth()))}>Not a subscription</button>
       </div>
     </div>
   );
@@ -191,12 +188,14 @@ export default function ActionCenter() {
     axios.get(`${API_URL}/api/banks`, auth()).then((r) => setBanks(r.data.banks || [])).catch(() => {});
   }, [load]);
 
-  // Run an action, then refresh the list and the sidebar badge.
-  const act = async (fn) => {
+  // Run an action, then refresh the list and the sidebar badge. The item leaves the
+  // list straight away; a failed call brings it back with the reload.
+  const act = async (fn, id) => {
     if (busy) return;
     setBusy(true);
+    if (id) setData((d) => d && { ...d, items: d.items.filter((i) => i.id !== id), total: Math.max(0, d.total - 1) });
     try { await fn(); await load(); window.dispatchEvent(new Event('automonie:actions-changed')); }
-    catch (e) { setError(e.response?.data?.message || 'That didn’t work. Try again.'); }
+    catch (e) { setError(e.response?.data?.message || 'That didn’t work. Try again.'); load(); }
     finally { setBusy(false); }
   };
 
@@ -223,7 +222,7 @@ export default function ActionCenter() {
           <section key={sec.type} className="acx-section">
             <h3>{sec.title} <span className="acx-count">{items.length}</span></h3>
             <p className="acx-hint">{sec.hint}</p>
-            {items.map((it) => <Card key={it.id} item={it} act={act} banks={banks} />)}
+            {items.map((it) => <Card key={it.id} item={it} act={(fn) => act(fn, it.id)} banks={banks} />)}
           </section>
         );
       })}

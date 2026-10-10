@@ -93,8 +93,8 @@ const SubscriptionManager = () => {
     } catch { flash('Could not add that one.', 'error'); }
   };
   const dismissDetected = async (d) => {
-    setDetected((prev) => prev.filter((x) => x.name !== d.name));
-    try { await axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { name: d.name }, authHeaders()); }
+    setDetected((prev) => prev.filter((x) => x.key !== d.key));
+    try { await axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { key: d.key, name: d.name }, authHeaders()); }
     catch { flash('Could not dismiss.', 'error'); load(); }
   };
 

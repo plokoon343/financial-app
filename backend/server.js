@@ -31,6 +31,7 @@ const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGIST
 const { detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason } = require('./lib/alertParse');
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
+const { deriveCategoryKey, subscriptionKey } = require('./lib/merchantKey');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
@@ -1544,36 +1545,6 @@ const inferTransactionType = (description) => {
 // real bank alerts); imported at the top. Category names stay in sync with
 // frontend/src/constants/categories.js so budgets cross-check correctly.
 
-// Words too generic to identify a merchant - stripped when building a learning key.
-const CATEGORY_KEY_STOPWORDS = new Set([
-  'transfer','transaction','nip','neft','trf','to','from','pos','pur','purchase','payment',
-  'pay','ref','via','self','the','for','and','inward','outward','debit','credit','value',
-  'date','bank','plc','ltd','limited','nigeria','mobile','app','online','web','intl','txn',
-  'session','charges','charge','vat','reversal','instant','outward','www','com',
-]);
-
-// Build a stable per-merchant signature from a description, used both when LEARNING a
-// correction and when LOOKING UP a learned category (so they match symmetrically).
-const deriveCategoryKey = (description) => {
-  const tokens = (description || '')
-    .toLowerCase()
-    .replace(/[^a-z\s]/g, ' ')          // drop digits & punctuation
-    .split(/\s+/)
-    .filter(w => w.length >= 3 && !CATEGORY_KEY_STOPWORDS.has(w));
-  return tokens.slice(0, 3).join(' ');
-};
-
-// Auto-link a recognised subscription so it shows on the Subscriptions page no matter
-// how it entered: import, email forwarding, SMS scan, or a manual recategorise.
-// Triggered when a transaction's category is 'Subscriptions': upsert a Subscription
-// keyed by the merchant signature. Never clobbers a user's edits: only auto-detected
-// rows are kept current from the ledger. Fire-and-forget safe.
-// One key per service: the recognised brand when we know it, else the merchant words.
-const subscriptionKey = (text) => {
-  const brand = brandFor(text);
-  return brand ? `brand:${brand.slug}` : deriveCategoryKey(text || '');
-};
-
 // Fold duplicate subscriptions of the same service into one. Rows the user created
 // or edited win over auto-detected ones; among auto rows the most recently charged
 // survives. Auto rows also take the brand's clean name once we recognise it.
@@ -1608,6 +1579,12 @@ async function mergeDuplicateSubscriptions(userId) {
   }
 }
 
+// Auto-link a recognised subscription so it shows on the Subscriptions page no matter
+// how it entered: import, email forwarding, SMS scan, or a manual recategorise.
+// Triggered when a transaction's category is 'Subscriptions': upsert a Subscription
+// keyed by the merchant signature. Never clobbers a user's edits: only auto-detected
+// rows are kept current from the ledger, and a service the user said is not a
+// subscription is never re-added. Fire-and-forget safe.
 async function maybeLinkSubscription(userId, { description, amount, category, date }) {
   if ((category || '').toString().trim().toLowerCase() !== 'subscriptions') return;
   const cost = Math.abs(Number(amount) || 0);
@@ -1617,6 +1594,7 @@ async function maybeLinkSubscription(userId, { description, amount, category, da
   if (!key) return;
   const when = date ? new Date(date) : new Date();
   try {
+    if (await DismissedDetection.exists({ userId, key })) return;
     // The same service under any spelling, or one the user added by hand by name.
     const or = [{ sourceKey: key }];
     if (brand) or.push({ name: new RegExp(`^${brand.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
@@ -4124,8 +4102,8 @@ async function actionCenterItems(userId) {
   const items = [
     ...lowConf.map((t) => ({ type: 'review_transaction', id: String(t._id), transaction: slimTxn(t) })),
     ...dupes.map(({ a, b, score }) => ({ type: 'possible_duplicate', id: pairKeyOf(a._id, b._id), score, first: slimTxn(a), second: slimTxn(b) })),
-    ...unnamedSubs.map((s) => ({ type: 'name_subscription', id: String(s._id), name: s.name, cost: s.cost, lastCharge: s.lastCharge || null })),
-    ...detected.map((d) => ({ type: 'track_subscription', id: `detect:${d.name}`, name: d.name, cost: d.cost, occurrences: d.occurrences, lastSeen: d.lastSeen })),
+    ...unnamedSubs.map((s) => ({ type: 'name_subscription', id: String(s._id), key: s.sourceKey || subscriptionKey(s.name), name: s.name, cost: s.cost, lastCharge: s.lastCharge || null })),
+    ...detected.map((d) => ({ type: 'track_subscription', id: `detect:${d.key}`, key: d.key, name: d.name, cost: d.cost, occurrences: d.occurrences, lastSeen: d.lastSeen })),
     ...accounts.map((a) => ({ type: 'name_account', id: String(a._id), bankName: a.bankName || '', bankCode: a.bankCode, accountMask: a.accountMask, txnCount: a.txnCount || 0 })),
     ...senders.map((s) => ({ type: 'tag_sender', id: `sender:${s._id}`, senderKey: s._id, sample: (s.sample || '').slice(0, 80), count: s.count })),
   ];
@@ -4808,6 +4786,7 @@ async function detectSubscriptions(userId) {
     // Representative name = most frequent original description, trimmed.
     const name = g.brand ? g.brand.name : Object.entries(g.descs).sort((a, b) => b[1] - a[1])[0][0].slice(0, 40).trim();
     candidates.push({
+      key: g.key,
       name,
       cost: Math.round(med),
       frequency: 'monthly',
@@ -4876,8 +4855,11 @@ app.put('/api/subscriptions/:id', auth, async (req, res) => {
 });
 app.delete('/api/subscriptions/:id', auth, async (req, res) => {
   try {
-    await Subscription.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
-    res.json({ message: 'Deleted' });
+    const sub = await Subscription.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+    // One we found ourselves stays gone: the next charge must not bring it back.
+    const key = sub && sub.autoDetected ? (sub.sourceKey || subscriptionKey(sub.name)) : '';
+    if (key) await DismissedDetection.updateOne({ userId: req.user._id, key }, { $setOnInsert: { userId: req.user._id, key } }, { upsert: true }).catch(() => {});
+    res.json({ message: 'Deleted', dismissedKey: key || null });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -4885,7 +4867,8 @@ app.delete('/api/subscriptions/:id', auth, async (req, res) => {
 // resurfacing it. Keyed by the merchant signature the detector groups on.
 app.post('/api/subscriptions/dismiss-detected', auth, async (req, res) => {
   try {
-    const key = subscriptionKey((req.body?.name || '').toString());
+    // The detector's own key when the client has it; a display name can be shortened.
+    const key = (typeof req.body?.key === 'string' && req.body.key.trim().slice(0, 120)) || subscriptionKey((req.body?.name || '').toString());
     if (!key) return res.status(400).json({ message: 'Nothing to dismiss.' });
     await DismissedDetection.updateOne(
       { userId: req.user._id, key },
@@ -4897,6 +4880,16 @@ app.post('/api/subscriptions/dismiss-detected', auth, async (req, res) => {
     if (e && e.code === 11000) return res.json({ ok: true }); // already dismissed
     console.error('[dismiss-detected]', e.message); res.status(500).json({ message: 'Server error' });
   }
+});
+
+// Undo a dismissal (the 5-second undo after 'Not one').
+app.post('/api/subscriptions/undismiss-detected', auth, async (req, res) => {
+  try {
+    const key = (typeof req.body?.key === 'string' && req.body.key.trim().slice(0, 120)) || subscriptionKey((req.body?.name || '').toString());
+    if (!key) return res.status(400).json({ message: 'Nothing to restore.' });
+    await DismissedDetection.deleteOne({ userId: req.user._id, key });
+    res.json({ ok: true });
+  } catch (e) { console.error('[undismiss-detected]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // C1: start the assisted cancellation: mark it 'cancelling', stamp the baseline we

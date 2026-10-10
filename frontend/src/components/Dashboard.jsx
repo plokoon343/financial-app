@@ -335,7 +335,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                 }}
               >
-                {uploading ? <><i className="fas fa-spinner fa-spin" aria-hidden="true"></i> Reading…</> : <><i className="fas fa-wand-magic-sparkles" aria-hidden="true"></i> Read Alerts</>}
+                {uploading ? <><i className="fas fa-spinner fa-spin" aria-hidden="true"></i> Reading…</> : <><i className="fas fa-file-import" aria-hidden="true"></i> Read Alerts</>}
               </motion.button>
             </>
           ) : (
@@ -454,7 +454,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
               </>
             ) : (
               <>
-                <i className="fas fa-wand-magic-sparkles" aria-hidden="true"></i> Analyse Statement
+                <i className="fas fa-file-import" aria-hidden="true"></i> Analyse Statement
               </>
             )}
           </motion.button>

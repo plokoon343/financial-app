@@ -285,7 +285,7 @@ const SubscriptionManager = () => {
       {/* Auto-detected */}
       <div className="subscriptions-list-container">
         <div className="list-header">
-          <h3><i className="fas fa-wand-magic-sparkles"></i> Auto-detected from statements</h3>
+          <h3><i className="fas fa-rotate"></i> Auto-detected from statements</h3>
           <span className="subscription-count">{detected.length} found</span>
         </div>
         {loading ? (

@@ -89,11 +89,11 @@ export default function SmartCategorize() {
             <>
               {available && !analyzed && (
                 <button className="sc-analyze" disabled={analyzing} onClick={analyze}>
-                  <i className="fas fa-wand-magic-sparkles"></i> {analyzing ? 'Analysing…' : `Suggest purposes for ${candidates.length}`}
+                  <i className="fas fa-tags"></i> {analyzing ? 'Analysing…' : `Suggest purposes for ${candidates.length}`}
                 </button>
               )}
               {!available && (
-                <div className="sc-soon"><i className="fas fa-clock"></i> AI suggestions aren’t switched on yet: your list is ready for when they are.</div>
+                <div className="sc-soon"><i className="fas fa-clock"></i> Suggestions aren’t switched on yet: your list is ready for when they are.</div>
               )}
 
               {/* Proposals (after analysis) */}

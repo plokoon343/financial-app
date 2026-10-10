@@ -248,7 +248,7 @@ const Transactions = () => {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '0 0 1rem' }}>
         <button onClick={() => navigate('/smart-categorize')} title="Review and label your uncategorised transactions one by one"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--glass-bg)', border: '1px solid var(--border-color, var(--glass-border))', color: 'var(--text-primary)', borderRadius: 999, padding: '0.5rem 0.95rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>
-          <i className="fas fa-wand-magic-sparkles" style={{ color: 'var(--accent-primary)' }}></i> Review &amp; label
+          <i className="fas fa-tags" style={{ color: 'var(--accent-primary)' }}></i> Review &amp; label
         </button>
         <button onClick={() => navigate('/cash')} title="Break a cash withdrawal down into what you spent it on"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--glass-bg)', border: '1px solid var(--border-color, var(--glass-border))', color: 'var(--text-primary)', borderRadius: 999, padding: '0.5rem 0.95rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>

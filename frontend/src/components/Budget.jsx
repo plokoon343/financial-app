@@ -221,7 +221,7 @@ const Budget = () => {
             </p>
           </div>
           <button className="btn-primary" onClick={seedCorper} disabled={seeding} style={{ whiteSpace: 'nowrap' }}>
-            <i className={`fas ${seeding ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} style={{ marginRight: 8 }}></i>
+            <i className={`fas ${seeding ? 'fa-spinner fa-spin' : 'fa-calculator'}`} style={{ marginRight: 8 }}></i>
             {seeding ? 'Setting up…' : 'Set up my corper budget'}
           </button>
         </div>

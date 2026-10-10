@@ -23,7 +23,7 @@ const MERCHANTS = [
   { name: 'Microsoft', keywords: ['microsoft', 'xbox'], color: '#00a4ef', icon: 'fab fa-microsoft' },
   { name: 'Amazon', keywords: ['amazon', 'aws', 'prime video'], color: '#ff9900', icon: 'fab fa-amazon' },
   { name: 'Canva', keywords: ['canva'], color: '#00c4cc', icon: 'fas fa-palette' },
-  { name: 'OpenAI', keywords: ['openai', 'chatgpt'], color: '#10a37f', icon: 'fas fa-wand-magic-sparkles' },
+  { name: 'OpenAI', keywords: ['openai', 'chatgpt'], color: '#10a37f', icon: 'fas fa-comment-dots' },
   { name: 'Adobe', keywords: ['adobe'], color: '#fa0f00', icon: 'fas fa-paintbrush' },
   { name: 'Uber', keywords: ['uber'], color: '#111111', icon: 'fas fa-car' },
   { name: 'Bolt', keywords: ['bolt'], color: '#34d186', icon: 'fas fa-car' },

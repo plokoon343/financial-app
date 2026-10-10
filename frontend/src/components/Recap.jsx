@@ -68,7 +68,7 @@ function buildSlides(all, meta) {
   const spentDays = new Set(expenses.map((t) => t.date));
 
   const out = [];
-  out.push({ key: 'intro', colors: ['#0e9f6e', '#0e7f82'], fa: 'fa-wand-magic-sparkles', eyebrow: 'AUTOMONIE', big: heading, sub: `${label || `${from} – ${to}`}  ·  swipe →` });
+  out.push({ key: 'intro', colors: ['#0e9f6e', '#0e7f82'], fa: 'fa-calendar-check', eyebrow: 'AUTOMONIE', big: heading, sub: `${label || `${from} – ${to}`}  ·  swipe →` });
 
   if (win === 'year') {
     const byMonthCount = Array(12).fill(0);

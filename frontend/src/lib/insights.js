@@ -89,7 +89,7 @@ export function computeArchetype(all, income, monthKey) {
       tagline: 'You stretched the last change into a full week. Legend.',
       blurb: 'You spent more than came in - but you’re surviving on strategy.' };
   } else if (expenseToIncome >= 0.9 && lifestyleShare >= 0.25) {
-    a = { key: 'detty', name: 'The Detty Prophet', icon: 'fa-wand-magic-sparkles', color: '#ec4899',
+    a = { key: 'detty', name: 'The Detty Prophet', icon: 'fa-champagne-glasses', color: '#ec4899',
       tagline: 'You planned to save. You spent. No regrets, prophet.',
       blurb: 'Nearly everything that came in went back out - and you enjoyed it.' };
   } else {

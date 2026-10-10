@@ -92,7 +92,7 @@ export default function MoneyWrapped() {
     const noSpend = Math.max(0, elapsed - spentDays.size);
 
     const out = [];
-    out.push({ key: 'intro', colors: ['#0e9f6e', '#0e7f82'], fa: 'fa-wand-magic-sparkles', eyebrow: 'AUTOMONIE', big: `Your ${year},\nwrapped.`, sub: 'A year of your money, as a story: swipe →' });
+    out.push({ key: 'intro', colors: ['#0e9f6e', '#0e7f82'], fa: 'fa-gift', eyebrow: 'AUTOMONIE', big: `Your ${year},\nwrapped.`, sub: 'A year of your money, as a story: swipe →' });
     out.push({ key: 'vol', colors: ['#6d28d9', '#4c1d95'], fa: 'fa-receipt', eyebrow: 'THE NUMBERS', big: `${expenses.length}\ntransactions`, sub: `across ${monthsActive} month${monthsActive === 1 ? '' : 's'} · ${MONTHS[busiest]} was your busiest` });
     if (topM) out.push({ key: 'merch', colors: ['#0ea5e9', '#0369a1'], fa: 'fa-heart', eyebrow: 'RIDE OR DIE', big: topM[0], sub: `${topM[1]} visits this year. Loyalty like this is rare.` });
     if (distinct.length > 1) out.push({ key: 'journey', colors: ['#f59e0b', '#b45309'], fa: 'fa-arrow-trend-up', eyebrow: 'THE GLOW-UP', big: distinct.map((a) => a.name.replace('The ', '')).join('  →  '), sub: 'You shape-shifted through the year. Character development.' });

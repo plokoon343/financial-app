@@ -43,7 +43,7 @@ const Sidebar = () => {
     { title: 'Home', items: [
       { path: '/', label: 'Dashboard', icon: 'fa-house' },
       { path: '/actions', label: 'Action Center', icon: 'fa-list-check', count: actionCount },
-      ...(live.assistant ? [{ path: '/assistant', label: 'AI Assistant', icon: 'fa-robot' }] : []),
+      ...(live.assistant ? [{ path: '/assistant', label: 'Ask Automonie', icon: 'fa-comments' }] : []),
     ]},
     { title: 'Money', items: [
       { path: '/transactions', label: 'Transactions', icon: 'fa-receipt' },

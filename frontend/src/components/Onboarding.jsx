@@ -21,7 +21,7 @@ const REASONS = [
   { key: 'Stop overspending', icon: 'fa-arrow-trend-down' },
   { key: 'Save for something', icon: 'fa-flag' },
   { key: 'Clear a debt', icon: 'fa-credit-card' },
-  { key: 'Just looking', icon: 'fa-wand-magic-sparkles' },
+  { key: 'Just looking', icon: 'fa-eye' },
 ];
 
 const Onboarding = () => {

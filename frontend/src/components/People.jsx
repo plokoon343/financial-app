@@ -89,7 +89,7 @@ export default function People() {
         <>
           {suggestedCount > 0 && (
             <div className="ppl-suggest">
-              <i className="fas fa-wand-magic-sparkles" />
+              <i className="fas fa-users" />
               <span><strong>{suggestedCount}</strong> {suggestedCount === 1 ? 'contact shares' : 'contacts share'} your surname: possibly family. Tap “Family” to confirm.</span>
             </div>
           )}

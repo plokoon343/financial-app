@@ -30,7 +30,7 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
   const features = status?.features || [
     'Export your income & financial report as a PDF',
     'Guided subscription cancellation + charge tracking',
-    'AI money assistant',
+    'Ask questions about your money',
     'Faster automatic bank sync',
   ];
   const onUpgrade = async () => {

@@ -76,10 +76,10 @@ const AiAssistant = () => {
     <div className="ai-page">
       <div className="ai-header">
         <div className="ai-header-icon">
-          <i className="fas fa-robot" aria-hidden="true"></i>
+          <i className="fas fa-comments" aria-hidden="true"></i>
         </div>
         <div>
-          <h1>AI Assistant</h1>
+          <h1>Ask Automonie</h1>
           <p>Get insights and reports, or tell me to set up goals, budgets, and bills.</p>
         </div>
       </div>
@@ -87,7 +87,7 @@ const AiAssistant = () => {
       {!configured && (
         <div className="ai-banner">
           <i className="fas fa-clock" aria-hidden="true"></i>
-          The AI assistant is being activated for your account. It will answer using your
+          Ask Automonie is being switched on for your account. It will answer using your
           own financial data once switched on.
         </div>
       )}
@@ -112,7 +112,7 @@ const AiAssistant = () => {
         {messages.map((m, i) => (
           <div key={i} className={`ai-msg ai-msg-${m.role}${m.error ? ' ai-msg-error' : ''}`}>
             {m.role === 'assistant' && (
-              <i className="fas fa-robot ai-msg-avatar" aria-hidden="true"></i>
+              <i className="fas fa-comments ai-msg-avatar" aria-hidden="true"></i>
             )}
             <div className="ai-bubble">
               {m.role === 'assistant' && !m.error ? <RichText text={m.content} /> : m.content}
@@ -132,7 +132,7 @@ const AiAssistant = () => {
 
         {loading && (
           <div className="ai-msg ai-msg-assistant">
-            <i className="fas fa-robot ai-msg-avatar" aria-hidden="true"></i>
+            <i className="fas fa-comments ai-msg-avatar" aria-hidden="true"></i>
             <div className="ai-bubble ai-typing">
               <span></span><span></span><span></span>
             </div>

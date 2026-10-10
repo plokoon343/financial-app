@@ -230,6 +230,63 @@ async function main() {
     console.log('skip 6: start the API with CRON_SECRET and PUSH_DISABLED=true, and pass CRON_SECRET here');
   }
 
+  // ── 9: plans, trial, Student verification ──
+  {
+    const users = mongoose.connection.db.collection('users');
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user', createdAt: new Date(), plan: 'free' }, $unset: { planExpiry: 1 } });
+    let bs = (await call('GET', '/api/billing/status')).body;
+    check('9 a new account is on a 14-day Plus trial', bs.tier === 'pro' && bs.source === 'trial' && bs.trialDaysLeft === 14 && bs.tierName === 'Plus', JSON.stringify({ tier: bs.tier, source: bs.source, d: bs.trialDaysLeft }));
+    check('9 the catalog shows Plus, Student and Power', ['Plus', 'Student', 'Power'].every((n) => bs.plans.some((p) => p.name === n)));
+    await users.updateOne({ _id: insertedId }, { $set: { createdAt: new Date(Date.now() - 20 * 86400000) } });
+    bs = (await call('GET', '/api/billing/status')).body;
+    check('9 after the trial, Free, with a clear flag for the app', bs.tier === 'free' && bs.trialEnded === true);
+    const gated = await call('GET', '/api/reports/income-summary?format=html');
+    check('9 a Plus feature asks for an upgrade on Free', gated.status === 402 && gated.body?.upgrade === true && gated.body.message.includes('Plus'), `${gated.status} ${JSON.stringify(gated.body)}`);
+    // School email: only allow-listed institutions.
+    check('9 a Gmail address is not a school email', (await call('POST', '/api/student/email', { email: 'ada@gmail.com' })).status === 400);
+    check('9 can’t start Student unverified', (await call('POST', '/api/student/start')).status === 403);
+    // Campaign code (admin-created) verifies straight away.
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'superadmin' } });
+    const cc = await call('POST', '/api/admin/campaign-codes', { code: 'cds-ikeja', label: 'CDS Ikeja', maxUses: 1 });
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
+    check('9 admin creates a campaign code', cc.status === 201 && cc.body.code === 'CDS-IKEJA', JSON.stringify(cc.body));
+    const used = await call('POST', '/api/student/code', { code: 'cds-ikeja' });
+    check('9 the code verifies the student', used.body?.status === 'verified' && used.body.method === 'code', JSON.stringify(used.body));
+    const st = (await call('POST', '/api/student/start')).body;
+    check('9 Student starts with the free months', st.free === true && st.plan === 'student' && Math.round((new Date(st.planExpiry) - Date.now()) / 86400000) === 90, JSON.stringify(st));
+    bs = (await call('GET', '/api/billing/status')).body;
+    check('9 Student plan in force', bs.tier === 'student' && bs.tierName === 'Student');
+    check('9 the free months only once', (await call('POST', '/api/student/start')).body.checkout === true);
+    // Codes have usage limits.
+    const { insertedId: other } = await users.insertOne({ name: 'Other Student', email: 'other@example.test', password: 'x', createdAt: new Date() });
+    const OH = { Authorization: `Bearer ${jwt.sign({ userId: other }, process.env.JWT_SECRET, { expiresIn: '1h' })}`, 'Content-Type': 'application/json' };
+    check('9 a used-up code is refused', (await call('POST', '/api/student/code', { code: 'CDS-IKEJA' }, OH)).status === 400);
+    // NYSC: state code + call-up letter, checked by an admin.
+    const up = async (headers, stateCode) => {
+      const fd = new FormData();
+      fd.append('stateCode', stateCode);
+      fd.append('image', new Blob([Buffer.from('fake-image-bytes')], { type: 'image/png' }), 'callup.png');
+      const r = await fetch(`${API}/api/student/nysc`, { method: 'POST', headers: { Authorization: headers.Authorization }, body: fd });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    };
+    check('9 a bad state code is refused', (await up(OH, 'XX/99Z/1')).status === 400);
+    const pending = await up(OH, 'la/25a/1234');
+    check('9 a good upload waits for review', pending.status === 200 && pending.body.status === 'pending', JSON.stringify(pending.body));
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'superadmin' } });
+    const queue = (await call('GET', '/api/admin/student-reviews')).body.items;
+    const item = queue.find((q) => q.stateCode === 'LA/25A/1234');
+    check('9 the admin queue shows it', !!item && item.user?.email === 'other@example.test', JSON.stringify(queue));
+    const img = await fetch(`${API}/api/admin/student-reviews/${item.id}/image`, { headers: { Authorization: H.Authorization } });
+    check('9 the admin can see the upload', img.status === 200);
+    check('9 a rejection needs a reason', (await call('POST', `/api/admin/student-reviews/${item.id}/decision`, { approve: false })).status === 400);
+    await call('POST', `/api/admin/student-reviews/${item.id}/decision`, { approve: true });
+    const after = await fetch(`${API}/api/admin/student-reviews/${item.id}/image`, { headers: { Authorization: H.Authorization } });
+    check('9 the image is deleted once decided', after.status === 404);
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
+    const os = (await call('GET', '/api/student/status', null, OH)).body;
+    check('9 approved corps member is verified', os.status === 'verified' && /NYSC LA\/25A\/1234/.test(os.institution), JSON.stringify(os));
+  }
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

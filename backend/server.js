@@ -32,6 +32,8 @@ const { detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason 
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
+const plans = require('./lib/plans');
+const studentLib = require('./lib/student');
 const welcomeEmails = require('./lib/welcomeEmails');
 const { bankMethods } = require('./lib/bankMethods');
 const { deriveCategoryKey, subscriptionKey } = require('./lib/merchantKey');
@@ -249,12 +251,33 @@ const userSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   // Subscription tier. 'pro' unlocks the AI assistant + advanced features (Paystack
   // billing wires `plan`/`planExpiry` later; for now the AI assistant is open to all).
-  plan:       { type: String, enum: ['free', 'pro'], default: 'free' },
+  plan:       { type: String, enum: ['free', 'pro', 'student', 'power'], default: 'free' }, // 'pro' is shown as Plus
   // When true, this user's parse corrections are NOT logged for training. Off by
   // default; user can opt out in settings. See ParseCorrection.
   trainingOptOut: { type: Boolean, default: false },
   familyPromptDone: { type: Boolean, default: false }, // the one-time "are these family?" prompt was answered
   planExpiry: { type: Date },
+  planEverPaid:     { type: Boolean, default: false }, // has paid for a plan: no second free trial
+  trialEndNotified: { type: Boolean, default: false }, // told once that the Plus trial ended
+  // Student plan verification (lib/student): valid for a year from verifiedAt.
+  student: {
+    type: new mongoose.Schema({
+      status:      { type: String, enum: ['none', 'pending', 'verified', 'rejected', 'expired'], default: 'none' },
+      method:      { type: String, default: '' },   // email | id | nysc | code
+      institution: { type: String, default: '' },
+      schoolEmail: { type: String, default: '' },
+      verifiedAt:  { type: Date, default: null },
+      expiresAt:   { type: Date, default: null },
+      freeUsed:    { type: Boolean, default: false }, // the free months were taken
+      reminderSentAt: { type: Date, default: null },
+      rejectReason: { type: String, default: '' },
+      pendingEmail: { type: String, default: '' },
+      otpHash:     { type: String, default: '' },
+      otpExpires:  { type: Date, default: null },
+      otpAttempts: { type: Number, default: 0 },
+    }, { _id: false }),
+    default: () => ({}),
+  },
   // Profile / onboarding
   phone:         { type: String, default: '' },
   monthlyIncome: { type: Number, default: 0 },
@@ -339,24 +362,17 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
-// ── Monetization / Pro gating ──────────────────────────────────────────────────
-// Premium features (spec C1/C6) are gated behind the 'pro' plan. Price + copy live
-// here (env-overridable) so the paywall and checkout read one source of truth.
-const PRO_PRICE_NAIRA = Number(process.env.PRO_PRICE_NAIRA) || 1500;
-const PRO_FEATURES = [
-  'Export your income & financial report as a shareable PDF',
-  'Guided subscription cancellation, and we confirm the charge stopped',
-  'AI money assistant',
-  'Faster automatic bank sync',
-];
-// True when the user may use Pro features: on the pro plan (and not expired), or a
-// superadmin (so admins/testers are never blocked).
-const isPro = (user) => !!user && (
-  user.role === 'superadmin' ||
-  (user.plan === 'pro' && (!user.planExpiry || new Date(user.planExpiry) > new Date()))
-);
+// ── Plans and gating (lib/plans) ───────────────────────────────────────────────
+// Free, Plus (stored as 'pro'), Student and Power, plus a 14-day Plus trial for new
+// accounts. Gates ask for a feature, not a plan, so plans can change shape freely.
+const hasFeature = (user, feature) => plans.hasFeature(user, feature);
+// Any paid-plan access (a paid plan, the trial, or an admin).
+const isPro = (user) => plans.entitlement(user).features.length > 0;
 // Standard 402 body a gated route returns, so every client can show one paywall.
-const upgradeRequired = (feature) => ({ upgrade: true, feature, priceNaira: PRO_PRICE_NAIRA, features: PRO_FEATURES, message: 'This is an Automonie Pro feature.' });
+const upgradeRequired = (feature) => {
+  const cfg = plans.config();
+  return { upgrade: true, feature, priceNaira: cfg.plusPrice, features: plans.PLUS_FEATURES.map((f) => plans.FEATURE_LABELS[f]), plans: plans.catalog(cfg), message: 'This is an Automonie Plus feature.' };
+};
 
 // Pro checkout stays OFF until BOTH the Paystack key is set AND it's explicitly
 // switched on, so it can be fully built and deployed without going live. Flip
@@ -2371,11 +2387,18 @@ app.patch('/api/admin/feedback/:id', auth, superAdminAuth, async (req, res) => {
 // the moment a user's plan becomes 'pro'.
 app.get('/api/billing/status', auth, (req, res) => {
   const ps = req.user.proSub || {};
+  const cfg = plans.config();
+  const ent = plans.entitlement(req.user, new Date(), cfg);
   res.json({
     plan: req.user.plan || 'free',
+    tier: ent.tier, tierName: ent.name, source: ent.source,
+    trialDaysLeft: ent.source === 'trial' ? plans.daysLeft(ent.until) : null,
+    trialEnded: ent.source === 'none' && !!ent.trialEndsAt && ent.trialEndsAt < new Date() && !req.user.planEverPaid,
     isPro: isPro(req.user),
-    priceNaira: PRO_PRICE_NAIRA,
-    features: PRO_FEATURES,
+    priceNaira: cfg.plusPrice,
+    features: plans.PLUS_FEATURES.map((f) => plans.FEATURE_LABELS[f]),
+    plans: plans.catalog(cfg),
+    student: studentOut(req.user),
     planExpiry: req.user.planExpiry || null,
     checkoutAvailable: proCheckoutReady(),
     autoRenew: !!ps.autoRenew,
@@ -2464,7 +2487,7 @@ async function deleteUserData(userId, email) {
   await Promise.all([
     Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
-    Feedback, Activity, DismissedDetection, KeptPair, NudgeLog,
+    Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview,
   ].map((M) => M.deleteMany({ userId: uid })));
   await Promise.all(LEGACY_USER_COLLECTIONS.map((name) =>
     mongoose.connection.collection(name).deleteMany({ userId: uid }).catch(() => null)));
@@ -3517,10 +3540,11 @@ app.post('/api/cron/daily', (req, res) => {
   // past a 30s HTTP timeout as the user base grows, and a timed-out request would look
   // like a failure. The jobs run in the background, each isolated so one can't block
   // the other. Errors surface in the server logs, not the HTTP response.
-  res.status(202).json({ ok: true, started: ['bills', 'subscription-reminders'] });
+  res.status(202).json({ ok: true, started: ['bills', 'subscription-reminders', 'students-trials'] });
   (async () => {
     try { await sweepAllDueBills(); } catch (e) { console.error('[cron/daily] bills', e.message); }
     try { await sweepSubscriptionReminders(); } catch (e) { console.error('[cron/daily] subs', e.message); }
+    try { console.log('[cron/daily] students', await sweepStudentsAndTrials()); } catch (e) { console.error('[cron/daily] students', e.message); }
   })();
 });
 
@@ -5058,7 +5082,7 @@ app.get('/api/subscriptions', auth, async (req, res) => {
     if (cancelling.length) {
       txns = await Transaction.find({ userId: uid, type: 'expense' }, { description: 1, date: 1 }).lean();
     }
-    const pro = isPro(req.user);
+    const pro = hasFeature(req.user, 'cancel');
     const promote = [];
     const out = subs.map((s) => {
       // Free users get a locked guide stub (name/method only): the steps + tracking
@@ -5235,7 +5259,7 @@ app.post('/api/subscriptions/undismiss-detected', auth, async (req, res) => {
 // verify against, and hand back the step-by-step guide for this provider.
 app.post('/api/subscriptions/:id/start-cancel', auth, async (req, res) => {
   try {
-    if (!isPro(req.user)) return res.status(402).json(upgradeRequired('cancel'));
+    if (!hasFeature(req.user, 'cancel')) return res.status(402).json(upgradeRequired('cancel'));
     const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
     if (!sub) return res.status(404).json({ message: 'Not found' });
     sub.status = 'cancelling';
@@ -5300,15 +5324,15 @@ app.patch('/api/admin/users/:id/newsletter-editor', auth, superAdminAuth, async 
     res.json({ message: enabled ? 'Newsletter access granted' : 'Newsletter access revoked', user: { id: user._id, email: user.email, newsletterEditor: user.newsletterEditor } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
-// Grant / revoke Pro for a user (until Paystack subscription billing is live, this is
-// how testers + comped users get Pro). `plan` = 'pro'|'free'; optional `months` sets
-// an expiry. Real billing will flip the same fields.
+// Grant / revoke a plan for a user (how testers and comped users get one). `plan` =
+// 'free'|'pro' (Plus)|'student'|'power'; optional `months` sets an expiry. A Student
+// plan still needs a current verification to count. Billing flips the same fields.
 app.patch('/api/admin/users/:id/plan', auth, superAdminAuth, async (req, res) => {
   try {
     const { plan, months } = req.body;
-    if (!['free', 'pro'].includes(plan)) return res.status(400).json({ message: 'Invalid plan' });
+    if (!['free', 'pro', 'student', 'power'].includes(plan)) return res.status(400).json({ message: 'Invalid plan' });
     const update = { plan };
-    if (plan === 'pro') update.planExpiry = months ? new Date(Date.now() + Number(months) * 30 * 24 * 60 * 60 * 1000) : null;
+    if (plan !== 'free') update.planExpiry = months ? new Date(Date.now() + Number(months) * 30 * 24 * 60 * 60 * 1000) : null;
     else update.planExpiry = null;
     const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -5422,6 +5446,295 @@ app.post('/api/paystack/webhook', async (req, res) => {
 });
 
 // ── Automonie Pro subscription (Paystack) ───────────────────────────────────────
+// ── Student plan: verification ──────────────────────────────────────────────────
+// Three ways in: a code sent to an allow-listed school email; a student ID photo
+// (or, for corps members, a state code and call-up letter) checked by an admin; or a
+// campaign code handed out at a talk. Verification lasts a year, with a reminder two
+// weeks before; a lapsed verification drops a Student plan to Free.
+const studentDomainSchema = new mongoose.Schema({
+  domain: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  institution: { type: String, default: '' },
+}, { timestamps: true });
+const StudentDomain = mongoose.model('StudentDomain', studentDomainSchema);
+
+// Uploads waiting for an admin. The image is deleted as soon as it's decided.
+const studentReviewSchema = new mongoose.Schema({
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  kind:        { type: String, enum: ['student_id', 'nysc'], required: true },
+  institution: { type: String, default: '' },
+  matric:      { type: String, default: '' },
+  stateCode:   { type: String, default: '' },
+  image:       { type: Buffer, select: false },
+  contentType: { type: String, default: '' },
+  status:      { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending', index: true },
+  reason:      { type: String, default: '' },
+  decidedBy:   { type: String, default: '' },
+  decidedAt:   { type: Date },
+}, { timestamps: true });
+const StudentReview = mongoose.model('StudentReview', studentReviewSchema);
+
+// Codes handed out at campus or CDS talks, each with a usage limit.
+const campaignCodeSchema = new mongoose.Schema({
+  code:      { type: String, required: true, unique: true, uppercase: true, trim: true },
+  label:     { type: String, default: '' },
+  maxUses:   { type: Number, default: 100 },
+  uses:      { type: Number, default: 0 },
+  expiresAt: { type: Date, default: null },
+  active:    { type: Boolean, default: true },
+}, { timestamps: true });
+const CampaignCode = mongoose.model('CampaignCode', campaignCodeSchema);
+
+// The allow-list lives in the database (editable in admin); seeded from the file once.
+let studentDomainsSeeded = false;
+async function studentDomains() {
+  if (!studentDomainsSeeded) {
+    studentDomainsSeeded = true;
+    if (!(await StudentDomain.estimatedDocumentCount())) {
+      const seed = require('./data/student-domains.json').domains;
+      await StudentDomain.insertMany(seed.map((domain) => ({ domain })), { ordered: false }).catch(() => {});
+    }
+  }
+  return (await StudentDomain.find({}, { domain: 1 }).lean()).map((d) => d.domain);
+}
+
+const STUDENT_VALID_DAYS = 365;
+const hashCode = (c) => crypto.createHash('sha256').update(String(c)).digest('hex');
+function markStudentVerified(user, method, extra = {}) {
+  const now = new Date();
+  user.student = {
+    ...(user.student?.toObject ? user.student.toObject() : user.student || {}),
+    ...extra,
+    status: 'verified', method, verifiedAt: now,
+    expiresAt: new Date(now.getTime() + STUDENT_VALID_DAYS * 86400000),
+    reminderSentAt: null, rejectReason: '', otpHash: '', otpExpires: null, otpAttempts: 0, pendingEmail: '',
+  };
+}
+const studentOut = (u) => {
+  const s = u.student || {};
+  return {
+    status: s.status || 'none', method: s.method || '', institution: s.institution || '',
+    schoolEmail: s.schoolEmail || '', expiresAt: s.expiresAt || null, rejectReason: s.rejectReason || '',
+    freeUsed: !!s.freeUsed, pendingEmail: s.pendingEmail || '',
+  };
+};
+
+app.get('/api/student/status', auth, (req, res) => res.json(studentOut(req.user)));
+
+// 1. School email: send a 6-digit code to an allow-listed address.
+app.post('/api/student/email', authLimiter, auth, async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const domain = studentLib.schoolDomainFor(email, await studentDomains());
+    if (!domain) return res.status(400).json({ message: 'That isn’t a school email we recognise. Use your institution email, or verify with your student ID instead.' });
+    if (!emailConfigured()) return res.status(503).json({ message: 'Email isn’t available right now. Try the student ID option.' });
+    const code = studentLib.newCode(() => crypto.randomInt(0, 1e6) / 1e6);
+    req.user.student = { ...(req.user.student?.toObject?.() || req.user.student || {}), pendingEmail: email, otpHash: hashCode(code), otpExpires: new Date(Date.now() + 15 * 60000), otpAttempts: 0 };
+    await req.user.save();
+    await sendEmail({
+      to: email,
+      subject: 'Your Automonie student code',
+      text: `Your code is ${code}. It expires in 15 minutes. If you didn't ask for it, ignore this email.`,
+      html: `<p style="font-family:Poppins,Arial,sans-serif;font-size:15px">Your Automonie student code is</p><p style="font-family:Poppins,Arial,sans-serif;font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p style="font-family:Poppins,Arial,sans-serif;font-size:13px;color:#5B6B7A">It expires in 15 minutes. If you didn't ask for it, ignore this email.</p>`,
+    });
+    res.json({ ok: true, sentTo: email });
+  } catch (e) { console.error('[student/email]', e.message); res.status(500).json({ message: 'Could not send the code. Try again.' }); }
+});
+app.post('/api/student/email/verify', authLimiter, auth, async (req, res) => {
+  try {
+    const s = req.user.student || {};
+    if (!s.otpHash || !s.otpExpires || new Date(s.otpExpires) < new Date()) return res.status(400).json({ message: 'That code has expired. Ask for a new one.' });
+    if ((s.otpAttempts || 0) >= 5) return res.status(429).json({ message: 'Too many tries. Ask for a new code.' });
+    if (!safeEqual(hashCode(String(req.body?.code || '').trim()), s.otpHash)) {
+      req.user.student.otpAttempts = (s.otpAttempts || 0) + 1;
+      await req.user.save();
+      return res.status(400).json({ message: 'That code doesn’t match.' });
+    }
+    const email = s.pendingEmail;
+    const domain = studentLib.schoolDomainFor(email, await studentDomains());
+    const inst = domain ? (await StudentDomain.findOne({ domain }).lean())?.institution || '' : '';
+    markStudentVerified(req.user, 'email', { schoolEmail: email, institution: inst || domain || '' });
+    await req.user.save();
+    res.json(studentOut(req.user));
+  } catch (e) { console.error('[student/verify]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// 2. Student ID, or 3. NYSC state code + call-up letter: an admin checks the upload.
+const studentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 6 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => cb(null, /^image\/(png|jpe?g|webp|heic)$/.test(file.mimetype) || file.mimetype === 'application/pdf'),
+});
+async function queueStudentReview(req, res, kind) {
+  if (!req.file) return res.status(400).json({ message: kind === 'nysc' ? 'Add a photo of your call-up letter.' : 'Add a photo of your student ID.' });
+  const fields = { institution: String(req.body.institution || '').trim().slice(0, 120), matric: String(req.body.matric || '').trim().slice(0, 40) };
+  if (kind === 'student_id' && (!fields.institution || !fields.matric)) return res.status(400).json({ message: 'Add your institution and matric number.' });
+  let stateCode = '';
+  if (kind === 'nysc') {
+    stateCode = studentLib.normalizeStateCode(req.body.stateCode);
+    if (!stateCode) return res.status(400).json({ message: 'Enter your state code like LA/25A/1234.' });
+  }
+  await StudentReview.updateMany({ userId: req.user._id, status: 'pending' }, { $set: { status: 'rejected', reason: 'Replaced by a newer upload', decidedAt: new Date() }, $unset: { image: 1 } });
+  await StudentReview.create({ userId: req.user._id, kind, ...fields, stateCode, image: req.file.buffer, contentType: req.file.mimetype });
+  req.user.student = { ...(req.user.student?.toObject?.() || req.user.student || {}), status: req.user.student?.status === 'verified' ? 'verified' : 'pending', rejectReason: '' };
+  await req.user.save();
+  res.json(studentOut(req.user));
+}
+app.post('/api/student/id', auth, (req, res) => studentUpload.single('image')(req, res, (err) => {
+  if (err) return res.status(400).json({ message: err.message || 'Upload failed' });
+  queueStudentReview(req, res, 'student_id').catch((e) => { console.error('[student/id]', e.message); res.status(500).json({ message: 'Server error' }); });
+}));
+app.post('/api/student/nysc', auth, (req, res) => studentUpload.single('image')(req, res, (err) => {
+  if (err) return res.status(400).json({ message: err.message || 'Upload failed' });
+  queueStudentReview(req, res, 'nysc').catch((e) => { console.error('[student/nysc]', e.message); res.status(500).json({ message: 'Server error' }); });
+}));
+
+// 4. Campaign code (from a talk): verifies straight away while uses remain.
+app.post('/api/student/code', authLimiter, auth, async (req, res) => {
+  try {
+    const code = String(req.body?.code || '').trim().toUpperCase();
+    if (!code) return res.status(400).json({ message: 'Enter the code.' });
+    const now = new Date();
+    const hit = await CampaignCode.findOneAndUpdate(
+      { code, active: true, $expr: { $lt: ['$uses', '$maxUses'] }, $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] },
+      { $inc: { uses: 1 } }, { new: true },
+    );
+    if (!hit) return res.status(400).json({ message: 'That code isn’t valid, or it has been used up.' });
+    markStudentVerified(req.user, 'code', { institution: hit.label || '' });
+    await req.user.save();
+    res.json(studentOut(req.user));
+  } catch (e) { console.error('[student/code]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Start the Student plan: the first time, the free months; after that, checkout.
+app.post('/api/student/start', auth, async (req, res) => {
+  try {
+    if (!plans.studentVerified(req.user, new Date())) return res.status(403).json({ message: 'Verify that you’re a student first.' });
+    const cfg = plans.config();
+    if (!req.user.student.freeUsed) {
+      const base = req.user.plan === 'student' && req.user.planExpiry > new Date() ? req.user.planExpiry : new Date();
+      req.user.plan = 'student';
+      req.user.planExpiry = new Date(new Date(base).getTime() + cfg.studentFreeDays * 86400000);
+      req.user.student.freeUsed = true;
+      await req.user.save();
+      await createNotification(req.user._id, { type: 'success', title: 'Student plan active', message: `Free until ${req.user.planExpiry.toLocaleDateString('en-NG', { dateStyle: 'medium' })}, then ₦${cfg.studentPrice} a month.` }).catch(() => {});
+      return res.json({ ok: true, plan: 'student', planExpiry: req.user.planExpiry, free: true });
+    }
+    res.json({ ok: false, checkout: true, plan: 'student', priceNaira: cfg.studentPrice });
+  } catch (e) { console.error('[student/start]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Admin: the review queue (pattern of the feedback inbox), codes and the domain list.
+app.get('/api/admin/student-reviews', auth, superAdminAuth, async (req, res) => {
+  try {
+    const status = ['pending', 'approved', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
+    const rows = await StudentReview.find({ status }).sort({ createdAt: status === 'pending' ? 1 : -1 }).limit(200).populate('userId', 'name email').lean();
+    res.json({ items: rows.map((r) => ({ id: r._id, kind: r.kind, institution: r.institution, matric: r.matric, stateCode: r.stateCode, status: r.status, reason: r.reason, createdAt: r.createdAt, decidedAt: r.decidedAt, user: r.userId ? { name: r.userId.name, email: r.userId.email } : null })) });
+  } catch (e) { console.error('[admin/student-reviews]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.get('/api/admin/student-reviews/:id/image', auth, superAdminAuth, async (req, res) => {
+  try {
+    const r = await StudentReview.findById(req.params.id).select('+image contentType');
+    if (!r || !r.image) return res.status(404).end();
+    res.set('Content-Type', r.contentType || 'application/octet-stream');
+    res.set('Cache-Control', 'no-store');
+    res.send(r.image);
+  } catch { res.status(404).end(); }
+});
+app.post('/api/admin/student-reviews/:id/decision', auth, superAdminAuth, async (req, res) => {
+  try {
+    const approve = req.body?.approve === true;
+    const reason = String(req.body?.reason || '').trim().slice(0, 300);
+    if (!approve && !reason) return res.status(400).json({ message: 'Give a reason so the student knows what to fix.' });
+    const r = await StudentReview.findOneAndUpdate(
+      { _id: req.params.id, status: 'pending' },
+      { $set: { status: approve ? 'approved' : 'rejected', reason, decidedBy: req.user.email, decidedAt: new Date() }, $unset: { image: 1 } },
+      { new: true },
+    );
+    if (!r) return res.status(404).json({ message: 'Already decided, or not found.' });
+    const u = await User.findById(r.userId);
+    if (u) {
+      if (approve) markStudentVerified(u, r.kind === 'nysc' ? 'nysc' : 'id', { institution: r.kind === 'nysc' ? `NYSC ${r.stateCode}` : r.institution });
+      else u.student = { ...(u.student?.toObject?.() || u.student || {}), status: u.student?.status === 'verified' ? 'verified' : 'rejected', rejectReason: reason };
+      await u.save();
+      await createNotification(u._id, approve
+        ? { type: 'success', title: 'You’re verified', message: 'Your Student plan is ready to start in Settings.' }
+        : { type: 'info', title: 'We couldn’t verify you yet', message: reason }).catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (e) { console.error('[admin/student-decision]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.get('/api/admin/campaign-codes', auth, superAdminAuth, async (req, res) => {
+  res.json({ items: await CampaignCode.find().sort({ createdAt: -1 }).lean() });
+});
+app.post('/api/admin/campaign-codes', auth, superAdminAuth, async (req, res) => {
+  try {
+    const code = String(req.body?.code || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 30);
+    if (code.length < 4) return res.status(400).json({ message: 'Codes need at least 4 letters or digits.' });
+    const doc = await CampaignCode.create({
+      code, label: String(req.body?.label || '').slice(0, 80),
+      maxUses: Math.max(1, Math.min(100000, Number(req.body?.maxUses) || 100)),
+      expiresAt: req.body?.expiresAt ? new Date(req.body.expiresAt) : null,
+    });
+    res.status(201).json(doc);
+  } catch (e) {
+    if (e.code === 11000) return res.status(409).json({ message: 'That code already exists.' });
+    console.error('[admin/campaign-codes]', e.message); res.status(500).json({ message: 'Server error' });
+  }
+});
+app.patch('/api/admin/campaign-codes/:id', auth, superAdminAuth, async (req, res) => {
+  const doc = await CampaignCode.findByIdAndUpdate(req.params.id, { $set: { active: req.body?.active !== false } }, { new: true }).catch(() => null);
+  if (!doc) return res.status(404).json({ message: 'Not found' });
+  res.json(doc);
+});
+app.get('/api/admin/student-domains', auth, superAdminAuth, async (req, res) => {
+  await studentDomains();
+  res.json({ items: await StudentDomain.find().sort({ domain: 1 }).lean() });
+});
+app.post('/api/admin/student-domains', auth, superAdminAuth, async (req, res) => {
+  try {
+    const domain = String(req.body?.domain || '').trim().toLowerCase().replace(/^@/, '');
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return res.status(400).json({ message: 'Enter a domain like unilag.edu.ng.' });
+    const doc = await StudentDomain.findOneAndUpdate({ domain }, { $set: { domain, institution: String(req.body?.institution || '').slice(0, 120) } }, { upsert: true, new: true });
+    res.status(201).json(doc);
+  } catch (e) { console.error('[admin/student-domains]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.delete('/api/admin/student-domains/:id', auth, superAdminAuth, async (req, res) => {
+  await StudentDomain.deleteOne({ _id: req.params.id }).catch(() => {});
+  res.json({ ok: true });
+});
+
+// Daily: remind students two weeks before their verification lapses; when it does,
+// mark it expired and drop a Student plan to Free. Also tell users once when their
+// Plus trial has ended, so it's never a surprise.
+async function sweepStudentsAndTrials(now = new Date()) {
+  const soon = new Date(now.getTime() + 14 * 86400000);
+  const remind = await User.find({ 'student.status': 'verified', 'student.expiresAt': { $gt: now, $lte: soon }, 'student.reminderSentAt': null }).limit(500);
+  for (const u of remind) {
+    await createNotification(u._id, { type: 'info', title: 'Re-verify your student status', message: `Your verification ends on ${new Date(u.student.expiresAt).toLocaleDateString('en-NG', { dateStyle: 'medium' })}. Re-verify in Settings to keep the Student plan.` }).catch(() => {});
+    if (emailConfigured()) {
+      await sendEmail({ to: u.email, subject: 'Re-verify your Automonie student status', text: 'Your student verification ends in two weeks. Open Automonie, go to Settings, then Plans, and verify again to keep the Student price.' }).catch(() => {});
+    }
+    u.student.reminderSentAt = now;
+    await u.save();
+  }
+  const lapsed = await User.find({ 'student.status': 'verified', 'student.expiresAt': { $lte: now } }).limit(500);
+  for (const u of lapsed) {
+    u.student.status = 'expired';
+    if (u.plan === 'student') { u.plan = 'free'; u.planExpiry = null; }
+    await u.save();
+    await createNotification(u._id, { type: 'info', title: 'Student plan paused', message: 'Your student verification lapsed, so you’re on Free. Verify again in Settings to switch back.' }).catch(() => {});
+  }
+  const cfg = plans.config();
+  const trialCut = new Date(now.getTime() - cfg.trialDays * 86400000);
+  const trialsEnded = await User.find({ createdAt: { $lte: trialCut, $gt: new Date(trialCut.getTime() - 7 * 86400000) }, trialEndNotified: { $ne: true }, planEverPaid: { $ne: true } }).select('_id plan planExpiry role createdAt planEverPaid student').limit(1000);
+  for (const u of trialsEnded) {
+    if (plans.entitlement(u, now).tier !== 'free') continue;
+    await createNotification(u._id, { type: 'info', title: 'Your Plus trial has ended', message: 'You’re on Free now: everything you added stays. Plus features like receipt scanning and report exports are in Settings, then Plans.' }).catch(() => {});
+    await User.updateOne({ _id: u._id }, { $set: { trialEndNotified: true } });
+  }
+  return { reminded: remind.length, lapsed: lapsed.length, trialsEnded: trialsEnded.length };
+}
+
 // Built but LAUNCH-GATED by proCheckoutReady() (needs PAYSTACK_SECRET_KEY +
 // PRO_CHECKOUT_ENABLED=true). checkout → Paystack → verify/webhook grants Pro; a
 // saved authorization lets the daily cron renew it. Extends from the later of now /
@@ -5437,8 +5750,10 @@ async function grantProFromCharge(user, data, kind = 'checkout') {
   const amount = koboToNaira(data.amount || 0);
   const base = user.planExpiry && new Date(user.planExpiry) > new Date() ? new Date(user.planExpiry) : new Date();
   const expiry = new Date(base.getTime() + months * 30 * 24 * 60 * 60 * 1000);
-  user.plan = 'pro';
+  const paidPlan = ['pro', 'student', 'power'].includes(data.metadata?.plan) ? data.metadata.plan : 'pro';
+  user.plan = paidPlan;
   user.planExpiry = expiry;
+  user.planEverPaid = true;
   const authz = data.authorization;
   if (authz && authz.reusable && authz.authorization_code) {
     user.proSub = {
@@ -5452,22 +5767,27 @@ async function grantProFromCharge(user, data, kind = 'checkout') {
   await user.save();
   await new ProPayment({ userId: user._id, reference, amount, months, kind }).save();
   try {
-    await createNotification(user._id, { type: 'success', title: 'Automonie Pro active', message: `You're on Pro until ${expiry.toLocaleDateString('en-NG', { dateStyle: 'medium' })}.` });
-    await logActivity(user._id, { type: 'pro_subscribed', title: 'Automonie Pro', message: kind === 'renewal' ? 'Auto-renewed' : 'Subscribed', amount });
+    const planName = (plans.catalog().find((p) => p.code === paidPlan) || {}).name || 'Plus';
+    await createNotification(user._id, { type: 'success', title: `Automonie ${planName} active`, message: `You're on ${planName} until ${expiry.toLocaleDateString('en-NG', { dateStyle: 'medium' })}.` });
+    await logActivity(user._id, { type: 'pro_subscribed', title: `Automonie ${planName}`, message: kind === 'renewal' ? 'Auto-renewed' : 'Subscribed', amount });
   } catch { /* non-fatal */ }
-  return { plan: 'pro', planExpiry: expiry };
+  return { plan: paidPlan, planExpiry: expiry };
 }
 
 // Start Pro checkout: returns the Paystack authorization_url to open.
 app.post('/api/billing/checkout', auth, async (req, res) => {
   try {
-    if (!proCheckoutReady()) return res.status(503).json({ message: 'Pro checkout is not available yet.' });
+    if (!proCheckoutReady()) return res.status(503).json({ message: 'Checkout is not available yet.' });
     const months = Math.max(1, Math.min(12, Number(req.body.months) || 1));
-    const amount = PRO_PRICE_NAIRA * months;
+    const planCode = ['pro', 'student', 'power'].includes(req.body.plan) ? req.body.plan : 'pro';
+    const plan = plans.catalog().find((p) => p.code === planCode);
+    if (!plan.onSale || !(plan.priceNaira > 0)) return res.status(400).json({ message: `${plan.name} isn't on sale yet.` });
+    if (planCode === 'student' && !plans.studentVerified(req.user, new Date())) return res.status(403).json({ message: 'Verify that you’re a student first.' });
+    const amount = plan.priceNaira * months;
     const payload = {
       email: req.user.email,
       amount: amount * 100,
-      metadata: { userId: req.user._id.toString(), purpose: 'pro_subscription', months },
+      metadata: { userId: req.user._id.toString(), purpose: 'pro_subscription', plan: planCode, months },
       channels: ['card'],
     };
     if (process.env.PRO_CALLBACK_URL) payload.callback_url = process.env.PRO_CALLBACK_URL;
@@ -5483,13 +5803,13 @@ app.post('/api/billing/checkout', auth, async (req, res) => {
 // Verify a Pro checkout by reference (belt-and-suspenders alongside the webhook).
 app.post('/api/billing/verify', auth, async (req, res) => {
   try {
-    if (!proCheckoutReady()) return res.status(503).json({ message: 'Pro checkout is not available yet.' });
+    if (!proCheckoutReady()) return res.status(503).json({ message: 'Checkout is not available yet.' });
     const reference = (req.body.reference || '').toString();
     if (!reference) return res.status(400).json({ message: 'reference is required' });
     const r = await axios.get(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, { headers: paystackHeaders(), timeout: 20000 });
     const d = r.data?.data || {};
     if (d.status !== 'success') return res.status(402).json({ message: 'Payment not completed.' });
-    if (d.metadata?.purpose !== 'pro_subscription') return res.status(400).json({ message: 'Not a Pro payment.' });
+    if (d.metadata?.purpose !== 'pro_subscription') return res.status(400).json({ message: 'Not a plan payment.' });
     await grantProFromCharge(req.user, d, 'checkout');
     const u = await User.findById(req.user._id).select('plan planExpiry proSub');
     res.json({ plan: u.plan, planExpiry: u.planExpiry, isPro: isPro(u), autoRenew: !!u.proSub?.autoRenew });
@@ -5519,20 +5839,23 @@ app.post('/api/cron/renew-pro', async (req, res) => {
     if (!proCheckoutReady()) return res.json({ renewed: 0, skipped: 'not-live' });
     const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const due = await User.find({
-      plan: 'pro', 'proSub.autoRenew': true,
+      plan: { $in: ['pro', 'student', 'power'] }, 'proSub.autoRenew': true,
       'proSub.authorizationCode': { $nin: ['', null] },
       planExpiry: { $lte: soon },
     }).limit(200);
     let renewed = 0, failed = 0;
     for (const user of due) {
       try {
+        if (user.plan === 'student' && !plans.studentVerified(user, new Date())) continue;
+        const price = (plans.catalog().find((p) => p.code === user.plan) || {}).priceNaira;
+        if (!(price > 0)) continue;
         const r = await axios.post('https://api.paystack.co/transaction/charge_authorization',
-          { email: user.email, amount: PRO_PRICE_NAIRA * 100, authorization_code: user.proSub.authorizationCode,
-            metadata: { userId: user._id.toString(), purpose: 'pro_subscription', months: 1 } },
+          { email: user.email, amount: price * 100, authorization_code: user.proSub.authorizationCode,
+            metadata: { userId: user._id.toString(), purpose: 'pro_subscription', plan: user.plan, months: 1 } },
           { headers: paystackHeaders(), timeout: 20000 });
         const d = r.data?.data || {};
         if (d.status === 'success') { await grantProFromCharge(user, d, 'renewal'); renewed++; }
-        else { failed++; await createNotification(user._id, { type: 'info', title: 'Pro renewal failed', message: 'We couldn’t charge your card. Update it to stay on Pro.' }); }
+        else { failed++; await createNotification(user._id, { type: 'info', title: 'Renewal failed', message: 'We couldn’t charge your card. Update it to keep your plan.' }); }
       } catch (e) { failed++; console.error('[renew-pro]', user._id.toString(), e.response?.data || e.message); }
     }
     res.json({ renewed, failed, considered: due.length });
@@ -6576,7 +6899,7 @@ async function tier2Propose(residual, cfg) {
 // when one is configured, else null.
 app.get('/api/ai/purpose/candidates', auth, async (req, res) => {
   try {
-    if (!isPro(req.user)) return res.status(402).json(upgradeRequired('ai-purpose'));
+    if (!hasFeature(req.user, 'ai-purpose')) return res.status(402).json(upgradeRequired('ai-purpose'));
     const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
       .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
     const candidates = purposeInf.buildCandidates(txns);
@@ -6596,7 +6919,7 @@ app.get('/api/ai/purpose/candidates', auth, async (req, res) => {
 // redacted names/amounts/cadence ever leave the server (no account numbers).
 app.post('/api/ai/purpose/infer', auth, async (req, res) => {
   try {
-    if (!isPro(req.user)) return res.status(402).json(upgradeRequired('ai-purpose'));
+    if (!hasFeature(req.user, 'ai-purpose')) return res.status(402).json(upgradeRequired('ai-purpose'));
     const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
       .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
     const candidates = purposeInf.buildCandidates(txns);
@@ -6656,7 +6979,7 @@ app.get('/api/admin/ai/ping', auth, superAdminAuth, async (req, res) => {
 // is one the allow-list produces (a user can't push arbitrary categories through).
 app.post('/api/ai/purpose/apply', auth, async (req, res) => {
   try {
-    if (!isPro(req.user)) return res.status(402).json(upgradeRequired('ai-purpose'));
+    if (!hasFeature(req.user, 'ai-purpose')) return res.status(402).json(upgradeRequired('ai-purpose'));
     const txnIds = Array.isArray(req.body?.txnIds) ? req.body.txnIds.filter((x) => mongoose.isValidObjectId(x)) : [];
     const category = (req.body?.category || '').toString().trim();
     const allowed = new Set(purposeInf.PURPOSES.map((p) => p.category).filter(Boolean));
@@ -7051,11 +7374,11 @@ app.get('/api/reports/income-summary', auth, async (req, res) => {
     if ((req.query.format || '').toLowerCase() === 'html') {
       // The shareable document is the paid deliverable (C6). The JSON preview above
       // is free, so free users still see the value before the paywall.
-      if (!isPro(req.user)) return res.status(402).json(upgradeRequired('report'));
+      if (!hasFeature(req.user, 'report')) return res.status(402).json(upgradeRequired('report'));
       res.set('Content-Type', 'text/html; charset=utf-8');
       return res.send(renderIncomeReportHTML(summary, { brand: 'Automonie' }));
     }
-    return res.json({ ...summary, isPro: isPro(req.user) });
+    return res.json({ ...summary, isPro: hasFeature(req.user, 'report') });
   } catch (e) { console.error('[income-summary]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 

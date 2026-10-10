@@ -1,0 +1,13 @@
+{
+  "_about": "Seed allow-list for Student plan school emails: Nigerian university and polytechnic email domains. A subdomain of a listed domain also counts (stu.cu.edu.ng matches cu.edu.ng). Copied into the database on first start; after that, edit the list in the admin Students tab, no release needed. Check any domain you're unsure of against a real student address before relying on it.",
+  "domains": [
+    "unilag.edu.ng", "ui.edu.ng", "oauife.edu.ng", "unn.edu.ng", "abu.edu.ng", "uniben.edu", "unilorin.edu.ng",
+    "uniport.edu.ng", "unical.edu.ng", "uniuyo.edu.ng", "unijos.edu.ng", "unimaid.edu.ng", "buk.edu.ng", "uniabuja.edu.ng",
+    "futa.edu.ng", "futminna.edu.ng", "futo.edu.ng", "mouau.edu.ng", "atbu.edu.ng", "funaab.edu.ng", "fuoye.edu.ng",
+    "lautech.edu.ng", "lasu.edu.ng", "eksu.edu.ng", "unizik.edu.ng", "delsu.edu.ng", "oouagoiwoye.edu.ng", "aaua.edu.ng",
+    "unimed.edu.ng", "udusok.edu.ng", "fudutsinma.edu.ng", "lasustech.edu.ng",
+    "cu.edu.ng", "covenantuniversity.edu.ng", "babcock.edu.ng", "run.edu.ng", "pau.edu.ng", "aun.edu.ng", "bowen.edu.ng",
+    "lmu.edu.ng", "abuad.edu.ng", "bellsuniversity.edu.ng", "nileuniversity.edu.ng", "bazeuniversity.edu.ng",
+    "yabatech.edu.ng", "polyibadan.edu.ng", "kadunapolytechnic.edu.ng", "auchipoly.edu.ng", "fedpolyado.edu.ng"
+  ]
+}

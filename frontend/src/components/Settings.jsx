@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { API_URL } from '../config';
@@ -254,6 +254,7 @@ const Settings = () => {
         <div className="row-between"><div><strong>Dark mode</strong><span className="hint">Use the darker theme.</span></div><Toggle on={darkMode} onClick={toggleDarkMode} /></div>
         <div className="row-between"><div><strong>Feature tips</strong><span className="hint">First-time hints as you explore.</span></div><Toggle on={tipsOn} onClick={toggleTips} /></div>
         <button className="btn-secondary" onClick={() => window.dispatchEvent(new Event('finpilot:start-tour'))}><i className="fas fa-route"></i> Replay the app tour</button>
+        <Link className="btn-secondary" to="/help"><i className="fas fa-circle-question"></i> Help: how each feature works</Link>
       </div>
 
       {/* Data & privacy */}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
 import { API_URL } from '../config';
 
 // Email forwarding setup (spec B1): web parity with the mobile screen. Shows the
@@ -119,6 +120,7 @@ export default function EmailForwarding() {
             <a className="ef-gmail" href="https://mail.google.com/mail/u/0/#settings/filters" target="_blank" rel="noreferrer">
               <i className="fas fa-external-link-alt"></i> Open Gmail filters
             </a>
+            <p className="ef-guides"><Link to="/help#email-gmail">Full Gmail guide</Link> · <Link to="/help#email-outlook">Using Outlook or Hotmail?</Link></p>
           </div>
 
           <p className="ef-privacy">We only accept mail from known banks: anything else is ignored. Your address is private to you.</p>
@@ -148,6 +150,8 @@ export default function EmailForwarding() {
         .ef-ok { background: rgba(56,161,105,0.1); border: 1px solid #16a34a; color: var(--text-primary); }
         .ef-wait { background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary); }
         .ef-note { display: flex; align-items: center; gap: 8px; background: var(--glass-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px 12px; color: var(--text-secondary); font-size: 0.86rem; margin-bottom: 16px; }
+        .ef-guides { margin: 12px 0 0; font-size: 0.9rem; }
+        .ef-guides a { color: var(--accent-primary); font-weight: 700; }
         .ef-steps { margin: 10px 0 0; padding-left: 20px; color: var(--text-primary); line-height: 1.6; }
         .ef-steps li { margin-bottom: 8px; }
         .ef-gmail { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--accent-primary); font-weight: 700; text-decoration: none; }

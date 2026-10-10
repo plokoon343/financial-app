@@ -155,6 +155,22 @@ async function main() {
   await call('POST', '/api/contacts/family-prompt/done');
   check('4.3 and is only asked once', (await call('GET', '/api/contacts')).body.familyPromptDone === true);
 
+  // ── 7: onboarding by bank, tips, help ──
+  const bm = (await call('GET', '/api/banks/methods?platform=android')).body.banks;
+  check('7 OPay on Android starts with app notifications', bm.find((b) => b.code === 'opay')?.best === 'notifications');
+  check('7 a bank with no alert-email domain never offers email', !bm.find((b) => b.code === 'suntrust').methods.some((m) => m.method === 'email'));
+  const pb = (await call('PUT', '/api/me/banks', { codes: ['gtbank', 'kuda', 'not-a-bank'], other: ['Mainstreet MFB'] })).body;
+  check('7 unknown codes are dropped, Other kept', pb.codes.join() === 'gtbank,kuda' && pb.other[0] === 'Mainstreet MFB', JSON.stringify(pb));
+  const mb = (await call('GET', '/api/me/banks?platform=web')).body;
+  check('7 banks used come back with best method and connected state', mb.banks.length === 2 && mb.banks.find((b) => b.code === 'gtbank').connected === true && mb.banks.find((b) => b.code === 'kuda').connected === false, JSON.stringify(mb.banks.map((b) => [b.code, b.best, b.connected])));
+  check('7 a tip id is validated', (await call('POST', '/api/me/tips', { id: 'bad id!' })).status === 400);
+  await call('POST', '/api/me/tips', { id: 'screen:home' });
+  check('7 a seen tip is kept on the account', (await call('GET', '/api/me')).body.seenTips.includes('screen:home'));
+  await call('DELETE', '/api/me/tips');
+  check('7 tips can be reset', (await call('GET', '/api/me')).body.seenTips.length === 0);
+  const help = (await call('GET', '/api/help', null, {})).body;
+  check('7 help has the Gmail and Outlook guides', help.sections.some((s) => s.id === 'email-gmail') && help.sections.some((s) => s.id === 'email-outlook'));
+
   // ── 6: push nudges (run with CRON_SECRET and PUSH_DISABLED=true on the API) ──
   if (process.env.CRON_SECRET) {
     const CRON = { 'x-cron-secret': process.env.CRON_SECRET, 'Content-Type': 'application/json' };

@@ -290,7 +290,7 @@ const Transactions = () => {
         </button>
       </div>
 
-      <FeatureTip tipKey="page:transactions" title="Your full ledger">
+      <FeatureTip tipKey="screen:money" title="Your full ledger">
         Filter by month, bank, category or search; click any column header to sort.
         Edit a category inline (it teaches the app), edit or delete a row, or tick
         several and batch-delete. Each uploaded statement can be removed in one click.

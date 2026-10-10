@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import { undoable } from '../lib/undo';
+import { FeatureTip } from './FeatureTip';
 
 // Action Center: everything that needs the user's decision, in one place. Each card
 // resolves itself through the existing endpoints, then the list reloads. Removals and
@@ -214,6 +215,7 @@ export default function ActionCenter() {
         <h2><i className="fas fa-list-check" aria-hidden="true"></i> Action Center</h2>
         <p>Things we need you to look at, so your numbers stay right.</p>
       </div>
+      <FeatureTip tipKey="screen:actions" title="Your decisions, in one place">Anything we weren’t sure about waits here. A quick yes or no keeps your numbers right, and Undo is there for five seconds.</FeatureTip>
       {error && <div className="message error">{error}</div>}
       {!data && !error && <div className="loading-container"><div className="loading-spinner"></div></div>}
       {data && data.total === 0 && (

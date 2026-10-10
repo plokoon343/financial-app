@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { tipsEnabled, hasSeenTip, markTipSeen, setTipsEnabled } from '../utils/tips';
+import { tipsEnabled, hasSeenTip, markTipSeen, setTipsEnabled, loadSeenTips } from '../utils/tips';
 
-// A dismissible info banner shown the FIRST time a page/feature is used.
-// Usage: <FeatureTip tipKey="page:transactions" title="Transactions">What it does…</FeatureTip>
+// A dismissible info banner shown the FIRST time a page is opened on this account
+// (seen tips are shared with the mobile app).
+// Usage: <FeatureTip tipKey="screen:money" title="Transactions">What it does…</FeatureTip>
 export const FeatureTip = ({ tipKey, title, children }) => {
   const [show, setShow] = useState(false);
   useEffect(() => {
-    if (tipsEnabled() && !hasSeenTip(tipKey)) setShow(true);
+    let alive = true;
+    loadSeenTips().then(() => { if (alive && tipsEnabled() && !hasSeenTip(tipKey)) setShow(true); });
+    return () => { alive = false; };
   }, [tipKey]);
 
   if (!show) return null;

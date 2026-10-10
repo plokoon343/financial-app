@@ -5,6 +5,7 @@ import ProPaywall from './ProPaywall';
 import { verifyPendingPro } from '../lib/pro';
 import { fmtNaira } from '../utils/format';
 import { undoable } from '../lib/undo';
+import { FeatureTip } from './FeatureTip';
 
 // Subscriptions: manage your own (manual add/delete) AND see recurring charges
 // auto-detected from your statements. Manual ones are saved on the backend;
@@ -148,6 +149,7 @@ const SubscriptionManager = () => {
 
   return (
     <div className="subscriptions-page">
+      <FeatureTip tipKey="screen:subscriptions" title="Subscriptions and renewals">We spot recurring charges for you. Track the real ones to get a reminder before they renew.</FeatureTip>
       <div className="section-header">
         <h2><i className="fas fa-calendar-alt"></i> Subscriptions</h2>
         <p className="section-subtitle">Add your own subscriptions and see recurring charges detected from your statements.</p>

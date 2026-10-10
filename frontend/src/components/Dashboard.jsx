@@ -12,6 +12,8 @@ import BetaPrompt from './BetaPrompt';
 import IncomePrompt from './IncomePrompt';
 import AccountSwitcher from './AccountSwitcher';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
+import { FeatureTip } from './FeatureTip';
+import BankSetupCard from './BankSetupCard';
 
 const API = `${API_URL}`;
 
@@ -784,6 +786,8 @@ const Dashboard = ({ initialImport } = {}) => {
       className="dashboard-root"
       style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
 
+      <BankSetupCard />
+      <FeatureTip tipKey="screen:home" title="Your money at a glance">This month’s income and spending, what needs your attention, and the banks still to connect.</FeatureTip>
       {/* Beta program invite (hidden once joined or dismissed) */}
       <BetaPrompt />
 

@@ -5,6 +5,7 @@ import { API_URL } from '../config';
 import { useAccountScope, scopeKey } from '../contexts/AccountScope';
 import { undoable } from '../lib/undo';
 import ChoiceDialog from './ChoiceDialog';
+import { FeatureTip } from './FeatureTip';
 
 // Bank accounts: the ones we fingerprinted from alerts and statements, plus any the
 // user adds by hand. Name, type, merge, deactivate and delete each one; tag senders
@@ -220,6 +221,7 @@ export default function Accounts() {
         <p>We spot each bank account from your alerts and statements, and you can add any we haven’t seen. Name them so you can tell your money apart at a glance.</p>
       </div>
 
+      <FeatureTip tipKey="screen:accounts" title="Your bank accounts">Name each account so you can tell them apart, set its type, and add any we haven’t seen with Add account.</FeatureTip>
       {toast && <div className="ac-toast" role="status">{toast}</div>}
       <ChoiceDialog
         open={!!deleting}

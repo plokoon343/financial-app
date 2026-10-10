@@ -200,7 +200,7 @@ const Budget = () => {
         </div>
       </div>
 
-      <FeatureTip tipKey="page:budget" title="Set monthly spending limits">
+      <FeatureTip tipKey="screen:grow" title="Set monthly spending limits">
         Pick a month, then add a budget per category. As your transactions for that month
         come in, each budget shows spent vs. limit and warns you at 80% and 100%.
       </FeatureTip>

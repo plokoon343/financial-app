@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import { FeatureTip } from './FeatureTip';
 const GoalTracker = () => {
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -130,6 +131,7 @@ const getGoalProgress = (goal) => {
 
   return (
     <div className="goals-page">
+      <FeatureTip tipKey="screen:goals" title="Track what you’re saving for">Set a target and record money as you put it aside. Automonie never moves money for you.</FeatureTip>
       <div className="section-header">
         <h2><i className="fas fa-flag-checkered"></i> Financial Goals Tracker</h2>
         <p className="section-subtitle">Set, track, and achieve your financial milestones</p>

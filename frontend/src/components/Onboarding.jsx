@@ -32,6 +32,16 @@ const Onboarding = () => {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [replay, setReplay] = useState(false);  // "Replay the app tour" → slides only
+  // Which banks and apps do you use? (after the question; first run only)
+  const [pickingBanks, setPickingBanks] = useState(false);
+  const [bankList, setBankList] = useState([]);
+  const [picked, setPicked] = useState([]);
+  const [bankSearch, setBankSearch] = useState('');
+  const [otherBank, setOtherBank] = useState('');
+  useEffect(() => {
+    if (!pickingBanks || bankList.length) return;
+    axios.get(`${API_URL}/api/banks/methods?platform=web`, auth()).then((r) => setBankList(r.data.banks || [])).catch(() => {});
+  }, [pickingBanks, bankList.length]);
 
   // Replay from the sidebar / Settings: show the honest intro slides again, no
   // question, no flag change, "Done" closes. (Replaces the old Walkthrough modal.)
@@ -65,17 +75,53 @@ const Onboarding = () => {
 
   // Finish first-run: save the answer, then hand off to the import flow so the first
   // thing the user does is see their own money: never a blank dashboard.
-  const finish = async (primaryGoal) => {
+  // With banks picked, start with the first one's easiest way in.
+  const finish = async (primaryGoal, codes = [], other = []) => {
     setSaving(true);
+    if (codes.length || other.length) await axios.put(`${API_URL}/api/me/banks`, { codes, other }, auth()).catch(() => {});
     await persist(primaryGoal);
     setSaving(false);
-    navigate('/import-statement');
+    const first = bankList.find((b) => b.code === codes[0]);
+    navigate(first?.best === 'email' ? '/accounts?tab=email' : '/import-statement');
   };
+
+  // ── Which banks and apps do you use? ──────────────────────────────────────
+  if (pickingBanks) {
+    const q = bankSearch.trim().toLowerCase();
+    const shown = bankList.filter((b) => !q || b.name.toLowerCase().includes(q));
+    const others = otherBank.split(',').map((x) => x.trim()).filter(Boolean);
+    const count = picked.length + others.length;
+    const toggle = (code) => setPicked((p) => (p.includes(code) ? p.filter((c) => c !== code) : [...p, code]));
+    return (
+      <div className="ob-overlay">
+        <style>{ONBOARDING_CSS}</style>
+        <div className="ob-card ob-q">
+          <h2>Which banks and apps do you use?</h2>
+          <p className="ob-sub">Pick them all. We’ll show the easiest way to connect each one.</p>
+          <input className="ob-search" aria-label="Search banks" placeholder="Search banks" value={bankSearch} onChange={(e) => setBankSearch(e.target.value)} />
+          <div className="ob-banks">
+            {shown.map((b) => (
+              <button key={b.code} type="button" className={`ob-bank ${picked.includes(b.code) ? 'on' : ''}`} aria-pressed={picked.includes(b.code)} onClick={() => toggle(b.code)}>
+                <span className="ob-bank-mark">{b.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()}</span>
+                <span className="ob-bank-name">{b.name}</span>
+              </button>
+            ))}
+          </div>
+          <input className="ob-search" aria-label="Other bank or app" placeholder="Not listed? Type it (separate with commas)" value={otherBank} onChange={(e) => setOtherBank(e.target.value)} />
+          <button className="ob-primary" disabled={!count || saving} onClick={() => finish(reason, picked, others)}>
+            {saving ? 'Setting up…' : count ? `Continue with ${count}` : 'Continue'}
+          </button>
+          <button className="ob-text-btn" disabled={saving} onClick={() => finish(reason)}>Skip for now</button>
+        </div>
+      </div>
+    );
+  }
 
   // ── The one personalisation question ──────────────────────────────────────
   if (asking) {
     return (
       <div className="ob-overlay">
+        <style>{ONBOARDING_CSS}</style>
         <div className="ob-card ob-q">
           <h2>What brings you here?</h2>
           <p className="ob-sub">Just one question. It decides what we show you first, and you can change it anytime.</p>
@@ -93,10 +139,8 @@ const Onboarding = () => {
               </button>
             ))}
           </div>
-          <button className="ob-primary" disabled={!reason || saving} onClick={() => finish(reason)}>
-            {saving ? 'Setting up…' : 'Continue'}
-          </button>
-          <button className="ob-text-btn" disabled={saving} onClick={() => finish('')}>Skip for now</button>
+          <button className="ob-primary" disabled={!reason || saving} onClick={() => setPickingBanks(true)}>Continue</button>
+          <button className="ob-text-btn" disabled={saving} onClick={() => { setReason(''); setPickingBanks(true); }}>Skip for now</button>
         </div>
       </div>
     );
@@ -166,7 +210,13 @@ const Onboarding = () => {
         </button>
       </div>
 
-      <style>{`
+      <style>{ONBOARDING_CSS}</style>
+    </div>
+  );
+};
+
+// One stylesheet for every step (the slides, the question and the bank picker).
+const ONBOARDING_CSS = `
         .ob-overlay { position: fixed; inset: 0; z-index: 3500; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 20px; }
         .ob-card { position: relative; width: 100%; max-width: 460px; background: var(--card-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 30px 28px 24px; box-shadow: var(--shadow-lg); color: var(--text-primary); }
         .ob-skip { position: absolute; top: 14px; right: 16px; background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.85rem; font-weight: 600; }
@@ -202,6 +252,13 @@ const Onboarding = () => {
         .ob-q h2 { margin: 4px 0 6px; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
         .ob-sub { margin: 0 0 18px; color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; }
         .ob-reasons { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+        .ob-search { width: 100%; box-sizing: border-box; min-height: 44px; border-radius: var(--radius-md); border: 1px solid var(--border-color, var(--glass-border)); background: var(--glass-bg); color: var(--text-primary); padding: 10px 13px; font: inherit; margin-bottom: 12px; }
+        .ob-banks { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; max-height: 300px; overflow-y: auto; margin-bottom: 12px; }
+        .ob-bank { display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 84px; padding: 10px 6px; border-radius: var(--radius-md); border: 1px solid var(--border-color, var(--glass-border)); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; font: inherit; }
+        .ob-bank.on { border-color: var(--accent-primary); background: rgba(19, 157, 160, 0.12); }
+        .ob-bank-mark { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem; background: var(--bg-card); color: var(--text-secondary); }
+        .ob-bank.on .ob-bank-mark { background: var(--accent-primary); color: #fff; }
+        .ob-bank-name { font-size: 0.8rem; font-weight: 600; text-align: center; }
         .ob-reason { display: flex; align-items: center; gap: 13px; padding: 13px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color, var(--glass-border)); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; text-align: left; }
         .ob-reason.on { border-color: var(--accent-primary, #139DA0); background: color-mix(in srgb, var(--accent-primary, #139DA0) 12%, transparent); }
         .ob-reason-icon { width: 36px; height: 36px; border-radius: 11px; background: var(--card-bg); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); flex-shrink: 0; }
@@ -218,9 +275,6 @@ const Onboarding = () => {
         .ob-primary:disabled { opacity: 0.55; cursor: default; }
         .ob-text-btn { width: 100%; margin-top: 10px; padding: 8px; background: none; border: none; color: var(--text-secondary); font-weight: 600; font-size: 0.9rem; cursor: pointer; }
         .dark-theme .ob-reason { color-scheme: dark; }
-      `}</style>
-    </div>
-  );
-};
+      `;
 
 export default Onboarding;

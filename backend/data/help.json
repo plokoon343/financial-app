@@ -1,0 +1,174 @@
+{
+  "_about": "How-to for each feature, shown on the Help page in the web app and the mobile app. Edit the text here; add a clip by filling videoUrl (a YouTube or other https link). Each step may also take an image (an https link to a screenshot).",
+  "sections": [
+    {
+      "id": "getting-started",
+      "title": "Getting started",
+      "summary": "Get your transactions in once, and Automonie keeps up from there.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Tell us which banks and apps you use. We show the easiest way to connect each one." },
+        { "text": "Set up your first bank. For most banks that means forwarding alert emails; for app banks like OPay or Moniepoint on Android, it means letting us read the bank app's notifications." },
+        { "text": "Upload a recent statement if you want your history too. Nothing is saved until you review it." },
+        { "text": "Check Home for the banks still to connect." }
+      ]
+    },
+    {
+      "id": "email-gmail",
+      "title": "Forward bank alerts from Gmail",
+      "summary": "A one-time rule in Gmail sends every bank alert email to your private Automonie address. Do this on a computer, or in your phone's browser with Desktop site turned on: the Gmail app doesn't have these settings.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "In Automonie, open Accounts & alerts, then Email alerts, and copy your forwarding address.", "image": "" },
+        { "text": "Open gmail.com, click the gear (top right), then See all settings.", "image": "" },
+        { "text": "Open the Forwarding and POP/IMAP tab and click Add a forwarding address. Paste your Automonie address, click Next, then Proceed.", "image": "" },
+        { "text": "Gmail sends a confirmation. Its code and a Confirm button appear in Automonie by themselves within a minute; tap Confirm.", "image": "" },
+        { "text": "Back in Gmail settings, open Filters and Blocked Addresses and click Create a new filter.", "image": "" },
+        { "text": "In From, type your bank's alert address (for GTBank, alerts@gtbank.com; check a recent alert for yours). Click Create filter.", "image": "" },
+        { "text": "Tick Forward it to, choose your Automonie address, and click Create filter. From now on, every alert from that bank is forwarded.", "image": "" },
+        { "text": "Repeat the filter for each bank. Automonie shows Receiving once the first alert arrives.", "image": "" }
+      ]
+    },
+    {
+      "id": "email-outlook",
+      "title": "Forward bank alerts from Outlook",
+      "summary": "Outlook.com, Hotmail and Live accounts use a rule. Do this on outlook.com in a browser.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "In Automonie, open Accounts & alerts, then Email alerts, and copy your forwarding address.", "image": "" },
+        { "text": "Open outlook.com, click the gear (top right), then Mail, then Rules.", "image": "" },
+        { "text": "Click Add new rule and name it, for example Bank alerts.", "image": "" },
+        { "text": "Under Add a condition, choose From and type your bank's alert address.", "image": "" },
+        { "text": "Under Add an action, choose Redirect to and paste your Automonie address. If you don't see Redirect to, use Forward to.", "image": "" },
+        { "text": "Click Save. Automonie shows Receiving once the first alert arrives.", "image": "" },
+        { "text": "If Outlook says forwarding is blocked, your account may be too new for automatic forwarding; use a statement or notifications for now, or ask your bank to send alerts to your Automonie address directly.", "image": "" }
+      ]
+    },
+    {
+      "id": "notifications",
+      "title": "Read bank app notifications (Android)",
+      "summary": "For app banks like OPay, PalmPay, Moniepoint and Kuda: payments are logged as the bank app notifies you, with nothing to forward.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Open Accounts & alerts, then Auto-capture, and read what's shared and what isn't." },
+        { "text": "Tap Allow notification access and switch Automonie on in the Android settings that open." },
+        { "text": "Choose which bank apps to read. Notifications from any other app are ignored on your phone and never sent to us." },
+        { "text": "If Android says the setting is restricted, open the app's info screen, tap the three dots and Allow restricted settings, then try again." }
+      ]
+    },
+    {
+      "id": "share",
+      "title": "Share an alert to Automonie",
+      "summary": "Got a bank text, a notification or a receipt? Share it to Automonie and confirm it.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Long-press the alert text (or open the receipt) and tap Share." },
+        { "text": "Choose Automonie. We read the amount, date and who it was with." },
+        { "text": "Check it and tap Confirm. You go straight back to the app you came from." },
+        { "text": "If you already have that transaction, we tell you, so it isn't counted twice." }
+      ]
+    },
+    {
+      "id": "statement",
+      "title": "Upload a bank statement",
+      "summary": "Good for bringing in history, or for any bank.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Download a statement from your bank app or internet banking as PDF, Excel or CSV." },
+        { "text": "In Automonie, tap Import and choose the file. If it's password-protected, enter the password; we use it only to open the file and never keep it." },
+        { "text": "Review what we found. Nothing is saved until you tap Save." },
+        { "text": "We check the totals against the balances printed on the statement and tell you if anything doesn't add up." }
+      ]
+    },
+    {
+      "id": "action-center",
+      "title": "The Action Center",
+      "summary": "Anything we weren't sure about waits here for a quick decision, so your numbers stay right.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Check transactions we couldn't read clearly: confirm, fix or remove each one." },
+        { "text": "Settle possible duplicates: remove the copy, or keep both if both are real." },
+        { "text": "Name subscriptions and accounts, and tell us which bank an unknown sender is." },
+        { "text": "Removed something by mistake? Tap Undo in the next five seconds." }
+      ]
+    },
+    {
+      "id": "accounts",
+      "title": "Accounts",
+      "summary": "Each bank account we spot, and any you add yourself.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Name an account so you can tell them apart, and set its type." },
+        { "text": "Add an account we haven't seen with Add account. With the last four digits, its alerts land on it automatically." },
+        { "text": "If the same account shows up twice, use Merge." },
+        { "text": "Delete an account and choose whether to keep its transactions." }
+      ]
+    },
+    {
+      "id": "budgets",
+      "title": "Budgets",
+      "summary": "Set a monthly amount per category and see how much is left.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Open Grow and add a budget for a category, or let us suggest one from your spending." },
+        { "text": "The bar turns amber near the limit and red when you're over." },
+        { "text": "We nudge you when a budget is nearly used up, if budget notifications are on." }
+      ]
+    },
+    {
+      "id": "goals",
+      "title": "Goals",
+      "summary": "Track progress towards something you're saving for. Automonie never moves money; you record what you put aside.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Add a goal with a target and a date." },
+        { "text": "Record money as you put it aside, wherever you keep it." },
+        { "text": "We celebrate at 25, 50, 75 and 100%." }
+      ]
+    },
+    {
+      "id": "subscriptions",
+      "title": "Subscriptions and bills",
+      "summary": "See what renews when, and get reminded before it does. Automonie never pays anything for you.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "We spot recurring charges like Netflix or DStv from your transactions. Track the ones that are real; tap Not one for the rest." },
+        { "text": "Add a bill with its due day to get a reminder three days before." },
+        { "text": "Want to cancel a subscription? Open it for the steps for that service, and we'll watch for the charge to stop." }
+      ]
+    },
+    {
+      "id": "people",
+      "title": "People",
+      "summary": "Who you send money to and receive it from.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Tap the person on any transfer to say who they are: family, friend, business or you." },
+        { "text": "Their transfers, past and future, are sorted to match." },
+        { "text": "Filter your transactions by person, and see who you send to most in Insights." }
+      ]
+    },
+    {
+      "id": "notifications-settings",
+      "title": "Notifications",
+      "summary": "At most two a day, never between 10pm and 7am, and no amounts on your lock screen unless you turn them on.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Open Settings, then Notifications, to switch each kind on or off." },
+        { "text": "Show amounts in notifications is off by default." }
+      ]
+    },
+    {
+      "id": "privacy",
+      "title": "Your data and privacy",
+      "summary": "What we keep, and how to take it with you or delete it.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "We store only the last few digits of an account number, never your bank login." },
+        { "text": "Export your data from Settings at any time." },
+        { "text": "Delete your account from Settings; your data is deleted with it." },
+        { "text": "Read the full privacy policy at automonie.com/privacy." }
+      ]
+    }
+  ]
+}

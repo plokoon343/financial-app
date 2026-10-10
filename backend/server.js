@@ -32,6 +32,7 @@ const { detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason 
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
+const { bankMethods } = require('./lib/bankMethods');
 const { deriveCategoryKey, subscriptionKey } = require('./lib/merchantKey');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
@@ -267,6 +268,12 @@ const userSchema = new mongoose.Schema({
     streaks: { type: Boolean, default: true }, recap: { type: Boolean, default: true }, tips: { type: Boolean, default: true },
   },
   showAmountsInNotifications: { type: Boolean, default: false },
+  // Onboarding: the banks and wallets the user said they use (registry codes), plus
+  // any typed under 'Other'. Drives the 'banks to connect' checklist on Home.
+  banksUsed:   { type: [String], default: [] },
+  otherBanks:  { type: [String], default: [] },
+  // First-time tips already shown, so they never repeat on any device.
+  seenTips:    { type: [String], default: [] },
   lastActiveAt: { type: Date },
   // Days (YYYY-MM-DD) the user checked in: powers the "clarity streak". Stored
   // server-side so the streak survives a reinstall / new device.
@@ -2284,8 +2291,31 @@ app.get('/api/me', auth, async (req, res) => {
     twoFactorEnabled: !!u.twoFactorEnabled,
     onboarded: !!u.onboarded, lastLogin: u.lastLogin || null,
     trainingOptOut: !!u.trainingOptOut,
+    seenTips: u.seenTips || [],
   });
 });
+
+// First-time tips: mark one as seen (it never shows again, on any device), or clear
+// them all to see the tips again.
+app.post('/api/me/tips', auth, async (req, res) => {
+  try {
+    const id = (req.body?.id || '').toString().trim();
+    if (!/^[a-z0-9:_-]{1,60}$/i.test(id)) return res.status(400).json({ message: 'Bad tip id' });
+    await User.updateOne({ _id: req.user._id }, { $addToSet: { seenTips: id } });
+    res.json({ ok: true });
+  } catch (e) { console.error('[me/tips]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.delete('/api/me/tips', auth, async (req, res) => {
+  try {
+    await User.updateOne({ _id: req.user._id }, { $set: { seenTips: [] } });
+    res.json({ ok: true });
+  } catch (e) { console.error('[me/tips]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// How-to for each feature (Help page). Data, so text and video links change without
+// an app release.
+const HELP = require('./data/help.json');
+app.get('/api/help', (req, res) => res.json(HELP));
 
 // Opt in / out of the beta testers program. Returns the beta community link on opt-in.
 app.patch('/api/me/beta', auth, async (req, res) => {
@@ -4777,6 +4807,37 @@ app.post('/api/contacts/rebuild', auth, async (req, res) => {
 // Unknown senders (spec Addendum A, slice 3: learn-unknown-senders flywheel)
 // --------------------------
 // Registry banks the user can pick from when tagging a sender (code + display name).
+// Every bank with the ways to get its transactions in, best first, for this platform.
+const platformOf = (req) => (['android', 'ios', 'web'].includes(req.query.platform) ? req.query.platform : 'web');
+app.get('/api/banks/methods', auth, (req, res) => {
+  res.json({ banks: bankMethods({ platform: platformOf(req), monoEnabled: monoConfigured() }) });
+});
+
+// The banks the user said they use, each with its best method and whether anything
+// from it has arrived yet (the Home checklist).
+app.get('/api/me/banks', auth, async (req, res) => {
+  try {
+    const all = bankMethods({ platform: platformOf(req), monoEnabled: monoConfigured() });
+    const used = req.user.banksUsed || [];
+    const [codes, accts] = await Promise.all([
+      Transaction.distinct('bankCode', { userId: req.user._id, bankCode: { $in: used } }),
+      UserAccount.distinct('bankCode', { userId: req.user._id, bankCode: { $in: used }, deleted: { $ne: true } }),
+    ]);
+    const connected = new Set([...codes, ...accts]);
+    const banks = used.map((c) => all.find((b) => b.code === c)).filter(Boolean).map((b) => ({ ...b, connected: connected.has(b.code) }));
+    res.json({ banks, other: req.user.otherBanks || [] });
+  } catch (e) { console.error('[me/banks]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.put('/api/me/banks', auth, async (req, res) => {
+  try {
+    const known = new Set(bankMethods().map((b) => b.code));
+    const codes = [...new Set((Array.isArray(req.body?.codes) ? req.body.codes : []).map(String))].filter((c) => known.has(c)).slice(0, 20);
+    const other = (Array.isArray(req.body?.other) ? req.body.other : []).map((x) => String(x).trim().slice(0, 40)).filter(Boolean).slice(0, 10);
+    await User.updateOne({ _id: req.user._id }, { $set: { banksUsed: codes, otherBanks: other } });
+    res.json({ ok: true, codes, other });
+  } catch (e) { console.error('[me/banks]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 app.get('/api/banks', auth, (req, res) => {
   res.json({ banks: BANK_REGISTRY.map((b) => ({ code: b.code, name: b.name })) });
 });

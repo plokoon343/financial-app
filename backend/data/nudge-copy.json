@@ -1,0 +1,147 @@
+{
+  "_about": "Push notification copy. One entry per trigger: a title, the settings category it belongs to, where a tap opens, and its variants. A variant's text never contains a naira amount; withAmount is used only when the user has turned on 'Show amounts in notifications'. Variables in {braces}. Admins can edit, add and switch off variants in the admin Nudges tab without a release; those edits are stored in the database and override this file by variant id.",
+  "payday_detected": {
+    "title": "Payday",
+    "category": "tips",
+    "nav": "/(tabs)/grow",
+    "variants": [
+      { "id": "payday-1", "text": "Payday. Give your money a plan before the outings start." },
+      { "id": "payday-2", "text": "Money just landed. Two minutes of planning beats two weeks of wondering where it went." },
+      { "id": "payday-3", "text": "It's in! Split it now while you still feel rich." }
+    ]
+  },
+  "budget_80": {
+    "title": "Budget check",
+    "category": "budgets",
+    "nav": "/(tabs)/grow",
+    "variants": [
+      { "id": "b80-1", "text": "Your {category} budget is almost done and the month isn't. Small slow down?" },
+      { "id": "b80-2", "text": "{category} is at 80%. {days_left} days to go. You've got this." },
+      { "id": "b80-3", "text": "Heads up: {category} is running low. Future you says thank you for checking." }
+    ]
+  },
+  "budget_over": {
+    "title": "Over budget",
+    "category": "budgets",
+    "nav": "/(tabs)/grow",
+    "variants": [
+      { "id": "bover-1", "text": "{category} went over budget. No wahala, let's see what happened." },
+      { "id": "bover-2", "text": "Over budget on {category}. Want to move money from another category?" }
+    ]
+  },
+  "spend_spike": {
+    "title": "Spending check",
+    "category": "spending",
+    "nav": "/(tabs)/insights",
+    "variants": [
+      { "id": "spike-1", "text": "This week's spending is moving faster than usual. Want to see where?" },
+      { "id": "spike-2", "text": "Na wa. Spending is up on your normal week. Take a peek?" },
+      { "id": "spike-3", "text": "Something's different this week. Tap to see what changed." }
+    ]
+  },
+  "friday_delivery": {
+    "title": "Friday",
+    "category": "spending",
+    "nav": "/(tabs)/grow",
+    "variants": [
+      { "id": "fri-1", "text": "Delivery o'clock? Check your food budget first." },
+      { "id": "fri-2", "text": "Friday cravings incoming. Check what's left in your food budget.", "withAmount": "Friday cravings incoming. Your food budget has {remaining} left." },
+      { "id": "fri-3", "text": "Weekend loading. Will the food app win this week?" }
+    ]
+  },
+  "no_spend_streak": {
+    "title": "No-spend streak",
+    "category": "streaks",
+    "nav": "/(tabs)/insights",
+    "variants": [
+      { "id": "streak-1", "text": "{n} days without spending on extras. Who are you? Keep it going." },
+      { "id": "streak-2", "text": "No-spend streak: {n} days. Don't break it for suya." },
+      { "id": "streak-3", "text": "Day {n} of not wasting money. Legendary behaviour." }
+    ]
+  },
+  "bill_due": {
+    "title": "Bill reminder",
+    "category": "bills",
+    "nav": "/bills",
+    "variants": [
+      { "id": "bill-1", "text": "{bill} is due in 3 days. Sort it now, no stress later." },
+      { "id": "bill-2", "text": "Reminder: {bill} on {date}. Just so it doesn't catch you." }
+    ]
+  },
+  "subscription_renewal": {
+    "title": "Renews tomorrow",
+    "category": "bills",
+    "nav": "/subscriptions",
+    "variants": [
+      { "id": "sub-1", "text": "{service} renews tomorrow. Still using it?" },
+      { "id": "sub-2", "text": "Tomorrow, {service} takes its money. Still worth it?" }
+    ]
+  },
+  "review_pending": {
+    "title": "Quick review",
+    "category": "tips",
+    "nav": "/actions",
+    "variants": [
+      { "id": "review-1", "text": "{n} transactions need a quick yes or no. Takes 20 seconds." },
+      { "id": "review-2", "text": "Help us learn: {n} quick swipes and your reports get sharper." }
+    ]
+  },
+  "inactive_5d": {
+    "title": "New transactions",
+    "category": "tips",
+    "nav": "/(tabs)/transactions",
+    "variants": [
+      { "id": "inactive-1", "text": "We've been tracking quietly. {n} new transactions to look at." },
+      { "id": "inactive-2", "text": "Your money has been busy. Come and see." }
+    ]
+  },
+  "weekly_recap": {
+    "title": "Your week",
+    "category": "recap",
+    "nav": "/(tabs)/insights",
+    "variants": [
+      { "id": "week-1", "text": "Your week in money is ready. 30 seconds, promise." },
+      { "id": "week-2", "text": "Sunday recap: see your week before the new one starts." },
+      { "id": "week-3", "text": "How did this week go? Your recap is in." }
+    ]
+  },
+  "month_start": {
+    "title": "New month",
+    "category": "recap",
+    "nav": "/(tabs)/grow",
+    "variants": [
+      { "id": "month-1", "text": "New month, clean slate. Set this month's plan?" },
+      { "id": "month-2", "text": "Last month's report is ready. Did you win?" }
+    ]
+  },
+  "goal_progress": {
+    "title": "Goal progress",
+    "category": "streaks",
+    "nav": "/goals",
+    "variants": [
+      { "id": "goal-1", "text": "You're {pct}% of the way to {goal}. Small steps, big moves." },
+      { "id": "goal-2", "text": "{goal} is getting closer. Proud of you." }
+    ],
+    "completeVariants": [
+      { "id": "goal-done-1", "text": "You hit {goal}! Take a moment. You earned it." }
+    ]
+  },
+  "setup_connect": {
+    "title": "Getting started",
+    "category": "tips",
+    "nav": "/email-forwarding",
+    "variants": [
+      { "id": "setup-c-1", "text": "Let's get your money in. Forward one bank alert and watch it land." },
+      { "id": "setup-c-2", "text": "Two minutes of setup, a month of clarity. Connect your first bank." }
+    ]
+  },
+  "setup_budget": {
+    "title": "Getting started",
+    "category": "tips",
+    "nav": "/(tabs)/grow",
+    "variants": [
+      { "id": "setup-b-1", "text": "Your transactions are in. Set your first budget and we'll keep an eye on it." },
+      { "id": "setup-b-2", "text": "Pick one category to budget for this month. Start small." }
+    ]
+  }
+}

@@ -31,6 +31,7 @@ const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGIST
 const { detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason } = require('./lib/alertParse');
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
+const nudges = require('./lib/nudges');
 const { deriveCategoryKey, subscriptionKey } = require('./lib/merchantKey');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
@@ -259,7 +260,14 @@ const userSchema = new mongoose.Schema({
   emailAlerts:   { type: Boolean, default: true },
   // Expo push tokens for this user's devices (spending-insight notifications).
   pushTokens:    { type: [String], default: [] },
-  notifyInsights: { type: Boolean, default: true },   // daily witty insight pushes (mutable)
+  // Push nudges: a switch per category (missing = on) and whether amounts may show
+  // on the lock screen (off by default). lastActiveAt is updated as the app is used.
+  nudgePrefs: {
+    spending: { type: Boolean, default: true }, budgets: { type: Boolean, default: true }, bills: { type: Boolean, default: true },
+    streaks: { type: Boolean, default: true }, recap: { type: Boolean, default: true }, tips: { type: Boolean, default: true },
+  },
+  showAmountsInNotifications: { type: Boolean, default: false },
+  lastActiveAt: { type: Date },
   // Days (YYYY-MM-DD) the user checked in: powers the "clarity streak". Stored
   // server-side so the streak survives a reinstall / new device.
   checkinDays:   { type: [String], default: [] },
@@ -520,9 +528,36 @@ const goalSchema = new mongoose.Schema({
   current:  { type: Number, default: 0, min: 0 },
   deadline: { type: Date, required: true },
   category: { type: String, default: 'General' },
+  notifiedMilestone: { type: Number, default: 0 }, // last 25/50/75/100% a nudge was sent for
   createdAt: { type: Date, default: Date.now }
 });
 const Goal = mongoose.model('Goal', goalSchema);
+
+// Every nudge sent, which line it used, and whether it was opened (the weekly report).
+const nudgeLogSchema = new mongoose.Schema({
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  trigger:   { type: String, required: true },
+  category:  { type: String, default: '' },
+  variantId: { type: String, required: true },
+  key:       { type: String, required: true }, // the occasion, so it is never sent twice
+  sentAt:    { type: Date, required: true },
+  openedAt:  { type: Date, default: null },
+});
+nudgeLogSchema.index({ userId: 1, sentAt: -1 });
+nudgeLogSchema.index({ sentAt: -1 });
+const NudgeLog = mongoose.model('NudgeLog', nudgeLogSchema);
+
+// Admin edits to the nudge copy (by variant id), applied over data/nudge-copy.json.
+const nudgeCopySchema = new mongoose.Schema({
+  trigger:    { type: String, required: true },
+  variantId:  { type: String, required: true },
+  text:       { type: String, required: true },
+  withAmount: { type: String, default: '' },
+  complete:   { type: Boolean, default: false },
+  active:     { type: Boolean, default: true },
+}, { timestamps: true });
+nudgeCopySchema.index({ trigger: 1, variantId: 1 }, { unique: true });
+const NudgeCopy = mongoose.model('NudgeCopy', nudgeCopySchema);
 
 
 // Learn-from-correction categorization: maps a per-user merchant "key" (a distilled
@@ -769,15 +804,9 @@ const checkBudgetAlert = async (userId, category, monthStr) => {
     const pctRound = Math.round(pct * 100);
     const title = threshold === 'over' ? `Over budget: ${category}` : `Budget alert: ${category}`;
     const message = `You've used ${pctRound}% of your ${category} budget for ${monthStr}.`;
+    // In-app only. The push for this goes through the nudge engine (budget_80 /
+    // budget_over), which applies the daily limits, quiet hours and the user's settings.
     await createNotification(userId, { type: 'info', title, message, link });
-    // Push it too (budget alerts are important - not gated by the insights mute).
-    const u = await User.findById(userId).select('pushTokens').lean();
-    if (u?.pushTokens?.length) {
-      const body = threshold === 'over'
-        ? `${category} budget don pass o - you don use ${pctRound}%. Time to slow down. 😬📉`
-        : `Heads up: ${pctRound}% of your ${category} budget gone, ${Math.max(0, 100 - pctRound)}% remain. 👀`;
-      sendExpoPush(u.pushTokens, { title, body, data: { type: 'budget', link } });
-    }
   } catch (e) { console.error('[checkBudgetAlert]', e.message); }
 };
 
@@ -1977,6 +2006,11 @@ const auth = async (req, res, next) => {
     if (req.user.sessionsValidFrom && decoded.iat && decoded.iat * 1000 < req.user.sessionsValidFrom.getTime()) {
       return res.status(401).json({ message: 'Session ended. Please log in again.', authExpired: true });
     }
+    // When the user was last in the app (for the "not opened in 5 days" nudge). At
+    // most one write an hour, and never in the way of the request.
+    if (!req.user.lastActiveAt || Date.now() - req.user.lastActiveAt.getTime() > 3600000) {
+      User.updateOne({ _id: req.user._id }, { $set: { lastActiveAt: new Date() } }).catch(() => {});
+    }
     next();
   } catch (error) {
     // expired or invalid token - flag it so the client can send the user to login
@@ -2395,7 +2429,7 @@ async function deleteUserData(userId, email) {
   await Promise.all([
     Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
-    Feedback, Activity, DismissedDetection, KeptPair,
+    Feedback, Activity, DismissedDetection, KeptPair, NudgeLog,
   ].map((M) => M.deleteMany({ userId: uid })));
   await Promise.all(LEGACY_USER_COLLECTIONS.map((name) =>
     mongoose.connection.collection(name).deleteMany({ userId: uid }).catch(() => null)));
@@ -5716,18 +5750,32 @@ app.post('/api/push/register', auth, async (req, res) => {
   } catch (e) { console.error('[push/register]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Mute / unmute the daily spending-insight pushes.
+// Push settings: one switch per category, and whether amounts may show on the lock
+// screen (off by default). Older apps send { insights } which switches all of them.
+const NUDGE_CATEGORIES = nudges.CATEGORIES;
+const pushSettingsOut = (u) => ({
+  categories: Object.fromEntries(NUDGE_CATEGORIES.map((c) => [c, u.nudgePrefs?.[c] !== false])),
+  showAmounts: !!u.showAmountsInNotifications,
+});
+app.get('/api/push/settings', auth, (req, res) => res.json(pushSettingsOut(req.user)));
 app.post('/api/push/settings', auth, async (req, res) => {
   try {
-    const insights = req.body.insights;
-    if (typeof insights !== 'boolean') return res.status(400).json({ message: 'insights (boolean) required' });
-    await User.updateOne({ _id: req.user._id }, { $set: { notifyInsights: insights } });
-    res.json({ ok: true, notifyInsights: insights });
+    const b = req.body || {};
+    const set = {};
+    if (typeof b.insights === 'boolean') NUDGE_CATEGORIES.forEach((c) => { set[`nudgePrefs.${c}`] = b.insights; });
+    if (b.categories && typeof b.categories === 'object') {
+      for (const c of NUDGE_CATEGORIES) if (typeof b.categories[c] === 'boolean') set[`nudgePrefs.${c}`] = b.categories[c];
+    }
+    if (typeof b.showAmounts === 'boolean') set.showAmountsInNotifications = b.showAmounts;
+    if (!Object.keys(set).length) return res.status(400).json({ message: 'Nothing to change.' });
+    const u = await User.findByIdAndUpdate(req.user._id, { $set: set }, { new: true });
+    res.json(pushSettingsOut(u));
   } catch (e) { console.error('[push/settings]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Fire-and-forget send via the Expo push service (batched at 100/request).
 async function sendExpoPush(tokens, { title, body, data }) {
+  if (process.env.PUSH_DISABLED === 'true') return; // off switch (and for tests)
   const messages = (tokens || []).filter(isExpoToken)
     .map((to) => ({ to, sound: 'default', title, body, data: data || {}, channelId: 'alerts', priority: 'high' }));
   for (let i = 0; i < messages.length; i += 100) {
@@ -5738,80 +5786,141 @@ async function sendExpoPush(tokens, { title, body, data }) {
   }
 }
 
-const capWords = (s) => (s || '').replace(/\b\w/g, (c) => c.toUpperCase());
-const naira0 = (n) => '₦' + Math.round(Math.abs(n)).toLocaleString('en-NG');
-const EVERGREEN_INSIGHTS = [
-  { title: 'Budget Reality Check', body: "You're not broke, you're just pre-paying for happiness. Let's budget for vibes too! 😎🎉" },
-  { title: 'Small Wins', body: "You didn't spend impulsively today. Go and kiss yourself. You deserve it. 💋👏" },
-  { title: 'Budget Challenge', body: "Can you go 24 hours without spending? Let's see the real MVP. 🏆💪" },
-  { title: 'Automonie', body: 'Quick money check - dey your account balance surprise you? Open Automonie and confirm. 👀💰' },
-];
+// ── Nudges: the push rules engine (lib/nudges). Copy is data: data/nudge-copy.json,
+// with admin edits from the NudgeCopy collection applied on top.
+const NUDGE_BASE_COPY = require('./data/nudge-copy.json');
+async function nudgeCopy() {
+  const overrides = await NudgeCopy.find({}).lean().catch(() => []);
+  return nudges.mergeCopy(NUDGE_BASE_COPY, overrides);
+}
 
-// Build one witty, contextual spending-insight message for a user (or null).
-async function buildInsight(userId) {
-  const now = new Date();
-  const since30 = new Date(now); since30.setDate(since30.getDate() - 30);
-  const txns = await Transaction.find({ userId, type: 'expense', date: { $gte: since30 } })
-    .select('description amount category date').lean();
-  const pool = [];
-  if (txns.length) {
-    const byDesc = {}, spendByDesc = {};
-    for (const t of txns) {
-      const d = (t.description || '').trim(); if (!d) continue;
-      const k = d.toLowerCase();
-      (byDesc[k] = byDesc[k] || { n: 0, label: d }).n += 1;
-      (spendByDesc[k] = spendByDesc[k] || { sum: 0, label: d }).sum += Math.abs(t.amount);
-    }
-    const rep = Object.values(byDesc).sort((a, b) => b.n - a.n)[0];
-    if (rep && rep.n >= 3) pool.push({ title: 'Automonie', body: `You've bought ${capWords(rep.label).slice(0, 28)} ${rep.n} times this month. Hope you budgeted for garri? 😅🍚` });
-    const big = Object.values(spendByDesc).sort((a, b) => b.sum - a.sum)[0];
-    if (big && big.sum >= 20000) pool.push({ title: 'Automonie', body: `You've spent ${naira0(big.sum)} on ${capWords(big.label).slice(0, 24)}. The money no dey run - calm down. 😅💸` });
-  }
+// Everything the triggers look at, for one user.
+async function nudgeSnapshot(u, now) {
+  const since = new Date(now.getTime() - 63 * 86400000);
+  const [txns, budgets, bills, subs, goals, lowConf, unnamed] = await Promise.all([
+    Transaction.find({ userId: u._id, date: { $gte: since } }, { date: 1, amount: 1, type: 1, category: 1, description: 1 }).lean(),
+    Budget.find({ userId: u._id, month: nudges.lagos(now).monthKey }, { category: 1, amount: 1 }).lean(),
+    RecurringBill.find({ userId: u._id, status: 'active' }, { name: 1, nextDue: 1 }).lean(),
+    Subscription.find({ userId: u._id, status: 'active' }).lean(),
+    Goal.find({ userId: u._id }, { name: 1, target: 1, current: 1, notifiedMilestone: 1 }).lean(),
+    Transaction.countDocuments({ userId: u._id, parseConfidence: 'low', reviewedAt: { $exists: false } }),
+    Subscription.countDocuments({ userId: u._id, needsName: true, status: { $ne: 'cancelled' } }),
+  ]);
+  return {
+    createdAt: u.createdAt, lastActiveAt: u.lastActiveAt || u.lastLogin || null,
+    txns: txns.map((t) => ({ id: String(t._id), date: t.date, amount: t.amount, type: t.type, category: t.category, description: t.description, createdAt: t._id.getTimestamp() })),
+    budgets,
+    goals: goals.map((g) => ({ id: String(g._id), name: g.name, target: g.target, current: g.current, notifiedMilestone: g.notifiedMilestone || 0 })),
+    bills: bills.map((b) => ({ id: String(b._id), name: b.name, nextDue: b.nextDue })),
+    subs: subs.map((s) => ({ id: String(s._id), name: s.name, nextRenewal: computeNextRenewal(s, now) })).filter((s) => s.nextRenewal),
+    reviewPending: lowConf + unnamed,
+  };
+}
+
+// One user: pick at most one nudge, send it, log it. Returns the log row or null.
+async function nudgeUser(u, copy, now) {
+  const log = await NudgeLog.find({ userId: u._id, sentAt: { $gte: new Date(now.getTime() - 45 * 86400000) } }, { trigger: 1, key: 1, sentAt: 1, variantId: 1 }).sort({ sentAt: -1 }).lean();
+  const snap = await nudgeSnapshot(u, now);
+  const chosen = nudges.select(nudges.evaluate(snap, now), { log, prefs: u.nudgePrefs || {}, copy, now });
+  if (!chosen) return null;
+  const spec = copy[chosen.trigger];
+  const complete = chosen.trigger === 'goal_progress' && chosen.vars.pct === 100;
+  const lastVariant = log.find((l) => l.trigger === chosen.trigger)?.variantId;
+  const variant = nudges.pickVariant(complete ? spec.completeVariants : spec.variants, lastVariant);
+  const body = variant && nudges.render(variant, chosen.vars, { showAmounts: !!u.showAmountsInNotifications });
+  if (!body) return null;
+  const row = await NudgeLog.create({ userId: u._id, trigger: chosen.trigger, category: spec.category, variantId: variant.id, key: chosen.key, sentAt: now });
+  await sendExpoPush(u.pushTokens, { title: spec.title, body, data: { type: 'nudge', nudgeId: String(row._id), nav: spec.nav } });
+  await createNotification(u._id, { type: 'info', title: spec.title, message: body }).catch(() => {});
+  if (chosen.trigger === 'goal_progress') await Goal.updateOne({ _id: chosen.vars.goalId, userId: u._id }, { $set: { notifiedMilestone: chosen.vars.pct } });
+  return row;
+}
+
+let nudgesRunning = false;
+async function runNudgesJob(now = new Date()) {
+  if (nudgesRunning) return { skipped: 'already running' };
+  nudgesRunning = true;
   try {
-    const budgets = await Budget.find({ userId, month: monthKey(now) }).lean();
-    if (budgets.length) {
-      const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const spent = {};
-      for (const t of txns) if (new Date(t.date) >= mStart) spent[t.category] = (spent[t.category] || 0) + Math.abs(t.amount);
-      const daysLeft = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate();
-      const week = Math.ceil(now.getDate() / 7);
-      const burnt = budgets.find((b) => b.amount > 0 && (spent[b.category] || 0) >= b.amount * 0.9);
-      if (burnt) pool.push({ title: 'Budget Alert', body: `${burnt.category} budget don finish for week ${week}. E remain ${daysLeft} days o. 😩📉` });
+    const copy = await nudgeCopy();
+    const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id pushTokens nudgePrefs showAmountsInNotifications createdAt lastActiveAt lastLogin').lean();
+    let sent = 0;
+    for (const u of users) {
+      try { if (await nudgeUser(u, copy, now)) sent += 1; } catch (e) { console.error('[nudges] user', String(u._id), e.message); }
     }
-  } catch { /* ignore */ }
-  pool.push(...EVERGREEN_INSIGHTS);
-  return pool[Math.floor(Math.random() * pool.length)] || null;
+    return { users: users.length, sent };
+  } finally { nudgesRunning = false; }
 }
 
-// Send each user at most one insight push per day.
-async function runInsightsJob() {
-  const users = await User.find({ 'pushTokens.0': { $exists: true }, notifyInsights: { $ne: false } }).select('_id pushTokens').lean();
-  const day = new Date().toISOString().slice(0, 10);
-  let sent = 0;
-  for (const u of users) {
-    const link = `insight:${day}`;
-    if (await Notification.findOne({ userId: u._id, link })) continue; // at most one per day
-    const msg = await buildInsight(u._id);
-    if (!msg) continue;
-    await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'insight' } });
-    await createNotification(u._id, { type: 'info', title: msg.title, message: msg.body, link });
-    sent += 1;
-  }
-  return { users: users.length, sent };
-}
-
-// External scheduler (cron-job.org / Render cron) - the reliable path.
-app.post('/api/cron/insights', async (req, res) => {
+// Hourly, from an external scheduler (cron-job.org / Render cron) holding CRON_SECRET.
+// /api/cron/insights is the old daily job's address, kept so an existing schedule works.
+app.post(['/api/cron/nudges', '/api/cron/insights'], async (req, res) => {
   if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
-  try { res.json(await runInsightsJob()); }
-  catch (e) { console.error('[cron/insights]', e.message); res.status(500).json({ message: 'Server error' }); }
+  // Outside production a run can be pinned to a time (?at=ISO) and awaited (?wait=1),
+  // so the rules can be tested without waiting for the clock.
+  const testing = process.env.NODE_ENV !== 'production';
+  const at = testing && req.query.at ? new Date(req.query.at) : new Date();
+  if (testing && req.query.wait) return res.json(await runNudgesJob(at));
+  res.status(202).json({ ok: true });
+  runNudgesJob(at).then((r) => console.log('[cron/nudges]', r)).catch((e) => console.error('[cron/nudges]', e.message));
 });
 
-// Stopgap in-process trigger so insights fire with zero external setup. The
-// per-user daily dedup makes repeat runs harmless; on Render's free tier this
-// only fires while the service is awake, so an external cron is still better.
-setTimeout(() => { runInsightsJob().then((r) => console.log('[insights:boot]', r)).catch((e) => console.error('[insights:boot]', e.message)); }, 60000);
-setInterval(() => { runInsightsJob().catch((e) => console.error('[insights:interval]', e.message)); }, 6 * 60 * 60 * 1000);
+// Stopgap in-process run every hour while the server is awake; the limits and the
+// per-occasion keys make an extra run harmless. An external hourly cron is better.
+setInterval(() => { runNudgesJob().catch((e) => console.error('[nudges:interval]', e.message)); }, 60 * 60 * 1000);
+
+// A nudge was tapped (the app reports it), for the open-rate report.
+app.post('/api/nudges/:id/opened', auth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+    await NudgeLog.updateOne({ _id: req.params.id, userId: req.user._id, openedAt: null }, { $set: { openedAt: new Date() } });
+    res.json({ ok: true });
+  } catch (e) { console.error('[nudges/opened]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Admin: the copy library with sends and opens per line over the last N days (the
+// weekly report), and editing a line without a release.
+app.get('/api/admin/nudges', auth, superAdminAuth, async (req, res) => {
+  try {
+    const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 7));
+    const since = new Date(Date.now() - days * 86400000);
+    const [copy, stats] = await Promise.all([
+      nudgeCopy(),
+      NudgeLog.aggregate([
+        { $match: { sentAt: { $gte: since } } },
+        { $group: { _id: { trigger: '$trigger', variantId: '$variantId' }, sent: { $sum: 1 }, opened: { $sum: { $cond: [{ $ifNull: ['$openedAt', false] }, 1, 0] } } } },
+      ]),
+    ]);
+    const byVariant = new Map(stats.map((s) => [`${s._id.trigger}|${s._id.variantId}`, s]));
+    const triggers = Object.entries(copy).map(([trigger, t]) => ({
+      trigger, title: t.title, category: t.category,
+      variants: [...t.variants, ...(t.completeVariants || []).map((v) => ({ ...v, complete: true }))].map((v) => {
+        const s = byVariant.get(`${trigger}|${v.id}`) || { sent: 0, opened: 0 };
+        return { ...v, active: v.active !== false, sent: s.sent, opened: s.opened, openRate: s.sent ? Math.round((s.opened / s.sent) * 1000) / 10 : null };
+      }),
+    }));
+    res.json({ days, triggers, totals: { sent: stats.reduce((a, s) => a + s.sent, 0), opened: stats.reduce((a, s) => a + s.opened, 0) } });
+  } catch (e) { console.error('[admin/nudges]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.put('/api/admin/nudges/:trigger/:variantId', auth, superAdminAuth, async (req, res) => {
+  try {
+    const { trigger, variantId } = req.params;
+    if (!NUDGE_BASE_COPY[trigger] || trigger === '_about') return res.status(404).json({ message: 'Unknown trigger' });
+    if (!/^[a-z0-9-]{1,40}$/.test(variantId)) return res.status(400).json({ message: 'Variant ids are lowercase letters, digits and dashes.' });
+    const text = (req.body?.text || '').toString().trim().slice(0, 200);
+    const withAmount = (req.body?.withAmount || '').toString().trim().slice(0, 200);
+    if (!text) return res.status(400).json({ message: 'The line can’t be empty.' });
+    // The default line must never put money on the lock screen.
+    if (/₦|\bNGN\b|\{(amount|remaining)\}/.test(text)) return res.status(400).json({ message: 'Keep amounts out of the main line; put them in the amount version.' });
+    if (/\p{Extended_Pictographic}/u.test(`${text} ${withAmount}`)) return res.status(400).json({ message: 'No emoji in notifications.' });
+    await NudgeCopy.updateOne(
+      { trigger, variantId },
+      { $set: { trigger, variantId, text, withAmount, complete: !!req.body?.complete, active: req.body?.active !== false } },
+      { upsert: true },
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error('[admin/nudges/put]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
 
 // Mono webhook: Mono POSTs here when a linked account's data changes. We verify
 // the shared secret, flag the account "dirty", and sync it immediately if it's

@@ -155,6 +155,53 @@ async function main() {
   await call('POST', '/api/contacts/family-prompt/done');
   check('4.3 and is only asked once', (await call('GET', '/api/contacts')).body.familyPromptDone === true);
 
+  // ── 6: push nudges (run with CRON_SECRET and PUSH_DISABLED=true on the API) ──
+  if (process.env.CRON_SECRET) {
+    const CRON = { 'x-cron-secret': process.env.CRON_SECRET, 'Content-Type': 'application/json' };
+    const runAt = async (lagosIso) => {
+      const at = new Date(new Date(`${lagosIso}Z`).getTime() - 3600000).toISOString(); // Lagos is UTC+1
+      return (await call('POST', `/api/cron/nudges?wait=1&at=${encodeURIComponent(at)}`, null, CRON)).body;
+    };
+    const users = mongoose.connection.db.collection('users');
+    await users.updateOne({ _id: insertedId }, { $set: { pushTokens: ['ExponentPushToken[test-device]'], createdAt: new Date('2026-01-01') } });
+    const nlogs = () => mongoose.connection.db.collection('nudgelogs').find({ userId: insertedId }).sort({ sentAt: 1 }).toArray();
+    const ps = (await call('GET', '/api/push/settings')).body;
+    check('6 settings: all categories on, amounts off by default', Object.values(ps.categories).every(Boolean) && ps.showAmounts === false, JSON.stringify(ps));
+    // A bill due in 3 days.
+    await call('POST', '/api/bills', { name: 'Rent', amount: 150000, dueDate: 17, frequency: 'monthly', category: 'Housing' });
+    await mongoose.connection.db.collection('recurringbills').updateOne({ userId: insertedId }, { $set: { nextDue: new Date('2026-10-17T09:00:00Z') } });
+    check('6 nothing during quiet hours', (await runAt('2026-10-14T23:30:00')).sent === 0);
+    const r1 = await runAt('2026-10-14T09:00:00');
+    let L = await nlogs();
+    check('6 bill due in 3 days is sent first', r1.sent === 1 && L[0]?.trigger === 'bill_due', JSON.stringify(L.map((l) => l.trigger)));
+    check('6 at most every 3 hours', (await runAt('2026-10-14T10:00:00')).sent === 0);
+    check('6 the same bill is never sent twice', (await runAt('2026-10-14T13:00:00')).sent === 0 || (await nlogs()).filter((l) => l.trigger === 'bill_due').length === 1);
+    const bell = await mongoose.connection.db.collection('notifications').find({ userId: insertedId, title: 'Bill reminder' }).toArray();
+    check('6 the text is in the bell, with no amount', bell.length === 1 && !/₦|NGN|150/.test(bell[0].message), JSON.stringify(bell.map((b) => b.message)));
+    await call('POST', `/api/nudges/${L[0]._id}/opened`);
+    check('6 a tap is recorded as opened', !!(await nlogs())[0].openedAt);
+    // Switching the category off stops it.
+    await call('POST', '/api/push/settings', { categories: { bills: false, recap: false } });
+    await mongoose.connection.db.collection('recurringbills').updateOne({ userId: insertedId }, { $set: { nextDue: new Date('2026-10-20T09:00:00Z') } });
+    const before = (await nlogs()).length;
+    await runAt('2026-10-17T10:00:00');
+    check('6 a category switched off is not sent', (await nlogs()).filter((l) => l.trigger === 'bill_due').length === 1 && (await nlogs()).length >= before);
+    check('6 the old address still runs the job', (await call('POST', '/api/cron/insights?wait=1', null, CRON)).status === 200);
+    check('6 cron needs the secret', (await call('POST', '/api/cron/nudges?wait=1', null, { 'Content-Type': 'application/json' })).status === 401);
+    // The admin report and editing the copy.
+    check('6 the report is admin-only', (await call('GET', '/api/admin/nudges')).status === 403);
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'superadmin' } });
+    const rep = (await call('GET', '/api/admin/nudges?days=30')).body;
+    const billLines = rep.triggers.find((t) => t.trigger === 'bill_due').variants;
+    check('6 report counts sends and opens per line', billLines.reduce((a, v) => a + v.sent, 0) === 1 && billLines.reduce((a, v) => a + v.opened, 0) === 1 && billLines.some((v) => v.openRate === 100), JSON.stringify(billLines));
+    check('6 a line with an amount is refused', (await call('PUT', '/api/admin/nudges/bill_due/bill-1', { text: 'Pay ₦5,000 now' })).status === 400);
+    check('6 an emoji is refused', (await call('PUT', '/api/admin/nudges/bill_due/bill-1', { text: 'Pay up 🙏' })).status === 400);
+    await call('PUT', '/api/admin/nudges/bill_due/bill-3', { text: 'Heads up: {bill} is coming on {date}.' });
+    check('6 a new line can be added without a release', (await call('GET', '/api/admin/nudges')).body.triggers.find((t) => t.trigger === 'bill_due').variants.some((v) => v.id === 'bill-3'));
+  } else {
+    console.log('skip 6: start the API with CRON_SECRET and PUSH_DISABLED=true, and pass CRON_SECRET here');
+  }
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

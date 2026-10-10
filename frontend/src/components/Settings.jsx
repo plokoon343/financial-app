@@ -29,6 +29,7 @@ const Settings = () => {
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [tipsOn, setTipsOn] = useState(tipsEnabled());
   const [trainingOptOut, setTrainingOptOut] = useState(false);
+  const [push, setPush] = useState(null); // phone notification settings ({ categories, showAmounts })
 
   // delete
   const [delPw, setDelPw] = useState('');
@@ -43,6 +44,7 @@ const Settings = () => {
         setLastLogin(res.data.lastLogin || null);
         setTrainingOptOut(!!res.data.trainingOptOut);
       } catch { /* non-fatal */ }
+      try { setPush((await axios.get(`${API_URL}/api/push/settings`, authHeader())).data); } catch { /* non-fatal */ }
     })();
   }, []);
 
@@ -160,6 +162,21 @@ const Settings = () => {
     setTrainingOptOut(val);
     try { await axios.post(`${API_URL}/api/me/training-optout`, { optOut: val }, authHeader()); } catch { setTrainingOptOut(!val); flash('Could not save preference', 'error'); }
   };
+  // Phone notifications: a switch per kind, and whether amounts may show on the lock screen.
+  const savePush = async (body, next) => {
+    const prev = push;
+    setPush(next);
+    try { setPush((await axios.post(`${API_URL}/api/push/settings`, body, authHeader())).data); }
+    catch { setPush(prev); flash('Could not save preference', 'error'); }
+  };
+  const PUSH_ROWS = [
+    ['spending', 'Spending alerts', 'A week running hotter than usual, Friday cravings.'],
+    ['budgets', 'Budgets', 'A budget nearly used up, or over.'],
+    ['bills', 'Bills and subscriptions', 'Bills due in 3 days, renewals tomorrow.'],
+    ['streaks', 'Streaks and wins', 'No-spend streaks and goal milestones.'],
+    ['recap', 'Weekly recap', 'Sunday evening, and the start of each month.'],
+    ['tips', 'Tips', 'Payday planning, things to review, getting set up.'],
+  ];
   const toggleTips = () => { const n = !tipsOn; setTipsOn(n); setTipsEnabled(n); if (n) resetTips(); };
 
   const Toggle = ({ on, onClick, disabled }) => (
@@ -217,6 +234,15 @@ const Settings = () => {
         <h3><i className="fas fa-bell"></i> Notifications</h3>
         <div className="row-between"><div><strong>Email alerts</strong><span className="hint">Important updates by email.</span></div><Toggle on={emailAlerts} onClick={() => saveEmailAlerts(!emailAlerts)} /></div>
         <div className="row-between"><div><strong>In-app alerts</strong><span className="hint">Ticket updates &amp; more in the bell. Always on.</span></div><Toggle on disabled /></div>
+        {push && (
+          <>
+            <p className="hint" style={{ margin: '10px 0 0' }}>Phone notifications: at most two a day, never between 10pm and 7am.</p>
+            {PUSH_ROWS.map(([key, label, hint]) => (
+              <div key={key} className="row-between"><div><strong>{label}</strong><span className="hint">{hint}</span></div><Toggle on={push.categories[key]} onClick={() => savePush({ categories: { [key]: !push.categories[key] } }, { ...push, categories: { ...push.categories, [key]: !push.categories[key] } })} /></div>
+            ))}
+            <div className="row-between"><div><strong>Show amounts in notifications</strong><span className="hint">Off: notifications never show naira amounts on your lock screen.</span></div><Toggle on={push.showAmounts} onClick={() => savePush({ showAmounts: !push.showAmounts }, { ...push, showAmounts: !push.showAmounts })} /></div>
+          </>
+        )}
       </div>
 
       {/* Beta program + feedback */}

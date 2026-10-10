@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { useAccountScope, scopeKey } from '../contexts/AccountScope';
+import ChoiceDialog from './ChoiceDialog';
 
 // Bank accounts (spec Addendum A, slices 2 & 3): web parity with the mobile screen.
 // Names the accounts we fingerprinted from imports/alerts, and lets the user tag any
@@ -21,6 +22,7 @@ export default function Accounts() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState('');
+  const [deleting, setDeleting] = useState(null); // the account the delete dialog is about
   const headers = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };
 
   const load = useCallback(async () => {
@@ -90,21 +92,33 @@ export default function Accounts() {
     finally { setBusy(''); }
   };
 
-  // Delete: remove the account, and optionally its transactions (for clearing a bad
-  // import). Two native confirms keep the destructive choice explicit.
-  const remove = async (a) => {
-    const name = a.label || a.bankName || 'this account';
-    if (!window.confirm(`Delete ${name}? This can't be undone.`)) return;
-    const withTxns = a.txnCount > 0 && window.confirm(
-      `Also delete this account's ${a.txnCount} transaction${a.txnCount === 1 ? '' : 's'}?\n\nOK  = delete the transactions too.\nCancel = keep the transactions, just remove the account.`,
-    );
+  // Delete: the dialog asks what happens to the account's transactions. Kept ones
+  // stay in All accounts, unassigned; deleting them is for clearing a bad import.
+  const remove = async (choice) => {
+    const a = deleting;
+    setDeleting(null);
+    if (!a || !choice) return;
+    const withTxns = choice === 'delete';
     setBusy(a.id); setError('');
     try {
       const { data } = await axios.delete(`${API_URL}/api/accounts/${a.id}${withTxns ? '?withTransactions=1' : ''}`, headers);
       setAccounts((prev) => prev.filter((x) => x.id !== a.id));
       flash(withTxns ? `Deleted, ${data.transactionsDeleted} transaction${data.transactionsDeleted === 1 ? '' : 's'} removed` : 'Account removed');
       reloadScope();
+      window.dispatchEvent(new Event('automonie:actions-changed'));
     } catch { setError('Could not delete that account.'); }
+    finally { setBusy(''); }
+  };
+
+  // 'Not a bank': stop asking about a sender that isn't one of the user's banks.
+  const dismissSender = async (senderKey) => {
+    setBusy(senderKey); setError('');
+    try {
+      await axios.post(`${API_URL}/api/senders/dismiss`, { senderKey }, headers);
+      setUnknown((prev) => prev.filter((u) => u.senderKey !== senderKey));
+      flash('Removed');
+      window.dispatchEvent(new Event('automonie:actions-changed'));
+    } catch { setError('Could not remove that sender.'); }
     finally { setBusy(''); }
   };
 
@@ -132,9 +146,7 @@ export default function Accounts() {
       />
       <div className="ac-actions">
         {prompt && <button className="ac-ghost" disabled={busy === a.id} onClick={() => dismiss(a)}>Not mine</button>}
-        {!prompt && (
-          <button className="ac-danger" disabled={busy === a.id} onClick={() => remove(a)} title="Delete this account (optionally its transactions too)">Delete</button>
-        )}
+        <button className="ac-danger" disabled={busy === a.id} onClick={() => setDeleting(a)}>Delete</button>
         {!prompt && (
           inactive
             ? <button className="ac-ghost" disabled={busy === a.id} onClick={() => setActive(a, true)}>Reactivate</button>
@@ -157,6 +169,19 @@ export default function Accounts() {
       </div>
 
       {toast && <div className="ac-toast">{toast}</div>}
+      <ChoiceDialog
+        open={!!deleting}
+        title={`Delete ${deleting?.label || deleting?.bankName || 'this account'}?`}
+        message={deleting?.txnCount
+          ? `It has ${deleting.txnCount} transaction${deleting.txnCount === 1 ? '' : 's'}. Keep them and they stay in All accounts, just not tied to this account. Delete them and they're gone for good.`
+          : 'It will stop showing in your accounts, and new alerts won’t bring it back.'}
+        choices={[
+          { value: 'keep', label: deleting?.txnCount ? 'Delete account, keep transactions' : 'Delete account', tone: 'primary' },
+          ...(deleting?.txnCount ? [{ value: 'delete', label: `Delete account and ${deleting.txnCount} transaction${deleting.txnCount === 1 ? '' : 's'}`, tone: 'danger' }] : []),
+          { value: '', label: 'Cancel' },
+        ]}
+        onChoose={remove}
+      />
       {loading ? <div className="ac-card">Loading…</div> : (
         <>
           {unnamed.length > 0 && (
@@ -190,6 +215,7 @@ export default function Accounts() {
                       {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
                     </select>
                     <button className="ac-save" disabled={busy === u.senderKey} onClick={() => tagSender(u.senderKey, picks[u.senderKey])}>Tag</button>
+                    <button className="ac-ghost" disabled={busy === u.senderKey} onClick={() => dismissSender(u.senderKey)}>Not a bank</button>
                   </div>
                 </div>
               ))}

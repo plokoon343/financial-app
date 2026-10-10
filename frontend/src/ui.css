@@ -118,6 +118,13 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Choice dialog */
+.choice-dialog { width: calc(100% - 32px); max-width: 420px; margin: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-card); color: var(--text-primary); }
+.choice-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+.choice-dialog h3 { margin: 0 0 8px; font-size: 1.1rem; }
+.choice-dialog p { margin: 0 0 16px; color: var(--text-secondary); font-size: 0.92rem; line-height: 1.5; }
+.choice-dialog-actions { display: grid; gap: 8px; }
+
 /* Progress */
 .progress-bar { height: 10px; background: var(--glass-bg); border-radius: var(--radius-full); overflow: hidden; }
 .progress-fill { height: 100%; border-radius: var(--radius-full); background: var(--gradient-primary); transition: width 0.5s ease; }

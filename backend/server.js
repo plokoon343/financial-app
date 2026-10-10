@@ -440,6 +440,7 @@ const userAccountSchema = new mongoose.Schema({
   lastSeen:    { type: Date },
   hidden:      { type: Boolean, default: false },   // user dismissed the naming prompt
   active:      { type: Boolean, default: true },     // false = deactivated (hidden from switcher + 'all' views, reversible)
+  deleted:     { type: Boolean, default: false },    // user deleted it; kept so later alerts and imports don't bring it back
 }, { timestamps: true });
 userAccountSchema.index({ userId: 1, bankCode: 1, accountMask: 1 }, { unique: true });
 const UserAccount = mongoose.model('UserAccount', userAccountSchema);
@@ -4086,15 +4087,16 @@ const slimTxn = (t) => ({ id: t._id, date: t.date, amount: Math.abs(t.amount), t
 async function actionCenterItems(userId) {
   const keptRows = await KeptPair.find({ userId }, { pairKey: 1 }).lean();
   const kept = new Set(keptRows.map((k) => k.pairKey));
+  const notSenders = await dismissedSenderKeys(userId);
   const [lowConf, dupes, unnamedSubs, detected, accounts, senders] = await Promise.all([
     // Anything saved without the user seeing it that the rules weren't sure about.
     Transaction.find({ userId, reviewedAt: { $exists: false }, $or: [{ parseConfidence: 'low' }, { parseConfidence: 'medium', source: { $in: ['email', 'notification', 'sms'] } }] }).sort({ date: -1 }).limit(30).lean(),
     findPossibleDuplicates(userId, kept),
     Subscription.find({ userId, needsName: true, status: { $ne: 'cancelled' } }).sort({ lastCharge: -1 }).limit(20).lean(),
     detectSubscriptions(userId).catch(() => []),
-    UserAccount.find({ userId, hidden: { $ne: true }, active: { $ne: false }, label: { $in: ['', null] }, txnCount: { $gt: 0 } }).sort({ txnCount: -1 }).limit(10).lean(),
+    UserAccount.find({ userId, hidden: { $ne: true }, active: { $ne: false }, deleted: { $ne: true }, label: { $in: ['', null] }, txnCount: { $gt: 0 } }).sort({ txnCount: -1 }).limit(10).lean(),
     Transaction.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId), senderKey: { $type: 'string', $ne: '' } } },
+      { $match: { userId: new mongoose.Types.ObjectId(userId), senderKey: { $type: 'string', $ne: '', $nin: notSenders } } },
       { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' } } },
       { $sort: { count: -1 } }, { $limit: 10 },
     ]),
@@ -4442,7 +4444,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
 // app for a one-tap "name this account" prompt.
 app.get('/api/accounts', auth, async (req, res) => {
   try {
-    const accounts = await UserAccount.find({ userId: req.user._id }).sort({ lastSeen: -1 }).lean();
+    const accounts = await UserAccount.find({ userId: req.user._id, deleted: { $ne: true } }).sort({ lastSeen: -1 }).lean();
     const out = accounts.map((a) => ({
       id: a._id,
       bankCode: a.bankCode,
@@ -4496,8 +4498,10 @@ app.post('/api/accounts/:id/active', auth, async (req, res) => {
 });
 
 // Delete an account. With ?withTransactions=1 it also permanently deletes every
-// transaction stamped to that account (bankCode + accountMask) - for clearing a bad
-// import. Without it, only the account record is removed (its rows become unassigned).
+// transaction stamped to that account (bankCode + accountMask), for clearing a bad
+// import. Without it the transactions stay, unassigned, in the All view. The record
+// is kept as deleted so the next alert or re-import doesn't bring the account back;
+// it returns only if the user restores (undo) or adds it again.
 app.delete('/api/accounts/:id', auth, async (req, res) => {
   try {
     const acct = await UserAccount.findOne({ _id: req.params.id, userId: req.user._id });
@@ -4508,9 +4512,20 @@ app.delete('/api/accounts/:id', auth, async (req, res) => {
       const del = await Transaction.deleteMany({ userId: req.user._id, bankCode: acct.bankCode, accountMask: acct.accountMask });
       transactionsDeleted = del.deletedCount || 0;
     }
-    await UserAccount.deleteOne({ _id: acct._id, userId: req.user._id });
+    acct.deleted = true;
+    if (withTxns) acct.txnCount = 0;
+    await acct.save();
     res.json({ ok: true, transactionsDeleted });
   } catch (e) { console.error('[accounts/delete]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Undo a delete (only the account; deleted transactions are gone for good).
+app.post('/api/accounts/:id/restore', auth, async (req, res) => {
+  try {
+    const acct = await UserAccount.findOneAndUpdate({ _id: req.params.id, userId: req.user._id }, { $set: { deleted: false } }, { new: true });
+    if (!acct) return res.status(404).json({ message: 'Account not found' });
+    res.json({ ok: true });
+  } catch (e) { console.error('[accounts/restore]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // --------------------------
@@ -4585,13 +4600,19 @@ app.get('/api/banks', auth, (req, res) => {
 
 // Senders on the user's own transactions we couldn't map to a bank: they can tag
 // each one so those (and future) alerts resolve. Grouped, with a sample + count.
+// A sender the user says isn't one of their banks stops being asked about. Kept with
+// the other per-user dismissals, keyed 'sender:<KEY>'.
+const dismissedSenderKeys = async (userId) =>
+  (await DismissedDetection.find({ userId, key: /^sender:/ }, { key: 1 }).lean()).map((d) => d.key.slice(7));
+
 app.get('/api/senders/unknown', auth, async (req, res) => {
   try {
+    const dismissed = await dismissedSenderKeys(req.user._id);
     const rows = await Transaction.aggregate([
       // Must be a NON-EMPTY STRING: `$ne: ''` alone also matches null/missing
       // senderKey (older rows predating the field), which collapse into a phantom
       // untaggable "unknown sender". Require an actual sender id.
-      { $match: { userId: new mongoose.Types.ObjectId(req.user._id), senderKey: { $type: 'string', $ne: '' } } },
+      { $match: { userId: new mongoose.Types.ObjectId(req.user._id), senderKey: { $type: 'string', $ne: '', $nin: dismissed } } },
       { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' }, lastSeen: { $max: '$date' } } },
       { $sort: { count: -1 } },
       { $limit: 50 },
@@ -4615,6 +4636,28 @@ app.get('/api/senders/unknown', auth, async (req, res) => {
 
 // Tag a sender → bank. Records the user's answer (also a vote), retro-stamps their
 // matching transactions, registers the accounts, and promotes on consensus.
+// 'Not a bank' on an unknown sender, and its undo.
+const senderDismissKey = (req) => {
+  const k = normalizeSenderKey((req.body?.senderKey || '').toString());
+  return k ? `sender:${k}` : '';
+};
+app.post('/api/senders/dismiss', auth, async (req, res) => {
+  try {
+    const key = senderDismissKey(req);
+    if (!key) return res.status(400).json({ message: 'Which sender?' });
+    await DismissedDetection.updateOne({ userId: req.user._id, key }, { $setOnInsert: { userId: req.user._id, key } }, { upsert: true });
+    res.json({ ok: true });
+  } catch (e) { console.error('[senders/dismiss]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.post('/api/senders/undismiss', auth, async (req, res) => {
+  try {
+    const key = senderDismissKey(req);
+    if (!key) return res.status(400).json({ message: 'Which sender?' });
+    await DismissedDetection.deleteOne({ userId: req.user._id, key });
+    res.json({ ok: true });
+  } catch (e) { console.error('[senders/undismiss]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 app.post('/api/senders/tag', auth, async (req, res) => {
   try {
     const senderKey = normalizeSenderKey(req.body?.senderKey || '');

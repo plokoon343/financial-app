@@ -16,6 +16,7 @@ import NewsletterRoute from './components/NewsletterRoute';
 import NotificationBell from './components/NotificationBell';
 import GlobalBanner from './components/GlobalBanner';
 import UndoBar from './components/UndoBar';
+import { useServerFeatures } from './lib/useServerFeatures';
 import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
 import InstallPrompt from './components/InstallPrompt';
@@ -39,6 +40,13 @@ const CashTracking = lazy(() => import('./components/CashTracking'));
 const MoneyWrapped = lazy(() => import('./components/MoneyWrapped'));
 const Recap = lazy(() => import('./components/Recap'));
 const SharedExpenses = lazy(() => import('./components/SharedExpenses'));
+
+// Shared Expenses is switched off by a server flag; its entries stay in the browser.
+function SharedExpensesRoute() {
+  const features = useServerFeatures();
+  if (!('sharedExpenses' in features)) return null;
+  return features.sharedExpenses ? <SharedExpenses /> : <Navigate to="/" replace />;
+}
 const People = lazy(() => import('./components/People'));
 const ActionCenter = lazy(() => import('./components/ActionCenter'));
 const NewsletterComposer = lazy(() => import('./components/NewsletterComposer'));
@@ -139,7 +147,7 @@ function AppContent() {
           <Route path="first-insight" element={<FirstInsight />} />
           <Route path="wrapped" element={<MoneyWrapped />} />
           <Route path="recap" element={<Recap />} />
-          <Route path="shared" element={<SharedExpenses />} />
+          <Route path="shared" element={<SharedExpensesRoute />} />
           <Route path="people" element={<People />} />
           <Route path="actions" element={<ActionCenter />} />
           <Route path="support" element={<Support />} />

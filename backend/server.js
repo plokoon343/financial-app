@@ -6178,8 +6178,15 @@ const executeAiTool = async (name, input, user) => {
 };
 
 // Which key-gated features are switched on, so clients can hide what isn't live.
+// Feature switches the apps read at start-up. Key-gated ones turn on when their keys
+// are set; the rest are plain flags, off unless set to 'true'. Shared Expenses is off:
+// its screens are hidden, and the entries people made stay on their devices.
 app.get('/api/features', auth, (req, res) => {
-  res.json({ assistant: aiConfigured(), bankLink: monoConfigured() });
+  res.json({
+    assistant: aiConfigured(),
+    bankLink: monoConfigured(),
+    sharedExpenses: process.env.FEATURE_SHARED_EXPENSES === 'true',
+  });
 });
 
 app.get('/api/ai/status', auth, async (req, res) => {

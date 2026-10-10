@@ -6,6 +6,7 @@ import { prettyMerchant, computeArchetype, buildVoiceLines, getStreak, getStreak
 import ProPaywall from './ProPaywall';
 import { verifyPendingPro } from '../lib/pro';
 import AccountSwitcher from './AccountSwitcher';
+import TopPeopleCard from './TopPeopleCard';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 
 // Palette for category legend dots (categories carry no colour of their own).
@@ -203,6 +204,8 @@ export default function Insights({ transactions: allTransactions = [] }) {
           {monthNav}
         </div>
       </div>
+
+      <TopPeopleCard />
 
       {/* Financial report (C6) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '14px 18px', flexWrap: 'wrap' }}>

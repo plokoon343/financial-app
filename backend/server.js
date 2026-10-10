@@ -250,6 +250,7 @@ const userSchema = new mongoose.Schema({
   // When true, this user's parse corrections are NOT logged for training. Off by
   // default; user can opt out in settings. See ParseCorrection.
   trainingOptOut: { type: Boolean, default: false },
+  familyPromptDone: { type: Boolean, default: false }, // the one-time "are these family?" prompt was answered
   planExpiry: { type: Date },
   // Profile / onboarding
   phone:         { type: String, default: '' },
@@ -4659,6 +4660,7 @@ app.get('/api/contacts', auth, async (req, res) => {
     res.json({
       contacts: out,
       familySuggestions: out.filter((c) => c.familySuggested && c.relationship === 'unknown').length,
+      familyPromptDone: !!req.user.familyPromptDone,
     });
   } catch (e) { console.error('[contacts/list]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -4681,6 +4683,52 @@ app.patch('/api/contacts/:id', auth, async (req, res) => {
     }
     res.json({ ok: true, id: c._id, relationship: c.relationship, category: contactCategory(c), recategorized });
   } catch (e) { console.error('[contacts/patch]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+const personOut = (c) => ({
+  id: c._id, name: c.label || c.name, realName: c.name, relationship: c.relationship || 'unknown',
+  category: c.category || '', sentTotal: Math.round(c.sentTotal || 0), receivedTotal: Math.round(c.receivedTotal || 0),
+  sentCount: c.sentCount || 0, receivedCount: c.receivedCount || 0,
+});
+
+// The person on a transaction (the "Person" chip on transaction detail), or null.
+app.get('/api/transactions/:id/person', auth, async (req, res) => {
+  try {
+    const t = await Transaction.findOne({ _id: req.params.id, userId: req.user._id }, { description: 1 }).lean();
+    if (!t) return res.status(404).json({ message: 'Transaction not found' });
+    const cp = extractCounterparty(t.description);
+    const key = cp && contactKey(cp);
+    const c = key ? await Contact.findOne({ userId: req.user._id, key }).lean() : null;
+    res.json({ person: c ? personOut(c) : null });
+  } catch (e) { console.error('[transactions/person]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Which person each transaction is with: { links: { [transactionId]: contactId } }.
+// Drives the Person chip in the transaction list and the People filter on Money.
+app.get('/api/contacts/links', auth, async (req, res) => {
+  try {
+    const [contacts, txns] = await Promise.all([
+      Contact.find({ userId: req.user._id }, { key: 1 }).lean(),
+      Transaction.find({ userId: req.user._id }, { description: 1 }).lean(),
+    ]);
+    const byKey = new Map(contacts.map((c) => [c.key, String(c._id)]));
+    const links = {};
+    for (const t of txns) {
+      const cp = extractCounterparty(t.description);
+      const id = cp && byKey.get(contactKey(cp));
+      if (id) links[String(t._id)] = id;
+    }
+    res.json({ links });
+  } catch (e) { console.error('[contacts/links]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// The family-by-surname suggestion is asked once; after that it never nags again.
+app.post('/api/contacts/family-prompt/done', auth, async (req, res) => {
+  try {
+    req.user.familyPromptDone = true;
+    await req.user.save();
+    res.json({ ok: true });
+  } catch (e) { console.error('[contacts/family-prompt]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Rebuild the whole ledger from all transactions (one-time backfill / after edits).

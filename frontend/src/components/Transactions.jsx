@@ -9,6 +9,7 @@ import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 import { avatarFor } from '../utils/merchantAvatar';
 import { FeatureTip, InfoTip } from './FeatureTip';
 import { fmtNaira } from '../utils/format';
+import ChoiceDialog from './ChoiceDialog';
 
 // A small round leading avatar for a transaction row (Addendum C): a bundled merchant
 // logo, a person's initial, or the category icon: never a fetched favicon.
@@ -22,6 +23,7 @@ function TxnAvatar({ category, description }) {
 }
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+const RELATIONSHIPS = { family: 'Family', friend: 'Friend', business: 'Business', self: 'You' };
 const money = (n) => fmtNaira(Math.abs(Number(n)));
 const monthKey = (d) => { const x = new Date(d); return isNaN(x) ? '' : x.toISOString().slice(0, 7); };
 const monthLabel = (m) => {
@@ -46,6 +48,11 @@ const Transactions = () => {
   const [fBank, setFBank] = useState('all');
   const [fCategory, setFCategory] = useState('all');
   const [fType, setFType] = useState('all');
+  const [fPerson, setFPerson] = useState('all');
+  // People: who each transfer is with (a chip on the row, and a filter).
+  const [people, setPeople] = useState({});   // contactId -> { id, name, relationship }
+  const [links, setLinks] = useState({});     // transactionId -> contactId
+  const [labeling, setLabeling] = useState(null); // the person whose relationship is being set
   const [search, setSearch] = useState('');
   const [showInternal, setShowInternal] = useState(false); // hide internal transfers by default
   const [sortBy, setSortBy] = useState('date');
@@ -72,13 +79,39 @@ const Transactions = () => {
       flash('Could not load transactions. The server may be waking up - try again.', 'error');
     } finally { setLoading(false); }
   };
+  const fetchPeople = async () => {
+    try {
+      const [c, l] = await Promise.all([
+        axios.get(`${API_URL}/api/contacts`, auth()),
+        axios.get(`${API_URL}/api/contacts/links`, auth()),
+      ]);
+      setPeople(Object.fromEntries((c.data.contacts || []).map((p) => [p.id, p])));
+      setLinks(l.data.links || {});
+    } catch { /* the chip and filter just don't show */ }
+  };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); fetchPeople(); }, []);
+
+  // Say who someone is; their transfers are recategorised to match.
+  const labelPerson = async (relationship) => {
+    const p = labeling;
+    setLabeling(null);
+    if (!p || !relationship) return;
+    try {
+      const { data } = await axios.patch(`${API_URL}/api/contacts/${p.id}`, { relationship, applyToPast: true }, auth());
+      flash(data.recategorized ? `${p.name}: ${data.recategorized} transaction${data.recategorized === 1 ? '' : 's'} updated` : 'Saved');
+      fetchPeople(); fetchAll();
+    } catch { flash('Could not save that.', 'error'); }
+  };
 
   // distinct filter options
   const months = useMemo(() => [...new Set(all.map(t => monthKey(t.date)).filter(Boolean))].sort().reverse(), [all]);
   const bankOptions = useMemo(() => [...new Set(all.map(t => t.bank).filter(Boolean))].sort(), [all]);
   const catOptions = useMemo(() => [...new Set(all.map(t => t.category).filter(Boolean))].sort(), [all]);
+  const personOptions = useMemo(() => {
+    const ids = new Set(Object.values(links));
+    return [...ids].map((id) => people[id]).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  }, [links, people]);
   const otherCount = useMemo(() => all.filter(t => !t.category || t.category === 'Other' || t.category === 'Other Income').length, [all]);
 
   // "Clean up categories" → re-run the learned + shared-consensus categorizer over
@@ -123,6 +156,7 @@ const Transactions = () => {
       if (fBank !== 'all' && (t.bank || '') !== fBank) return false;
       if (fCategory !== 'all' && t.category !== fCategory) return false;
       if (fType !== 'all' && t.type !== fType) return false;
+      if (fPerson !== 'all' && links[t._id] !== fPerson) return false;
       if (search && !(`${t.description} ${t.category} ${t.bank}`.toLowerCase().includes(search.toLowerCase()))) return false;
       return true;
     });
@@ -139,7 +173,7 @@ const Transactions = () => {
       }
       return v * dir;
     });
-  }, [all, fMonth, fBank, fCategory, fType, search, sortBy, sortDir, showInternal, scope, inactiveKeys]);
+  }, [all, fMonth, fBank, fCategory, fType, fPerson, links, search, sortBy, sortDir, showInternal, scope, inactiveKeys]);
 
   // How many internal transfers are currently hidden (for the toggle hint).
   const hiddenInternal = useMemo(() =>
@@ -155,7 +189,7 @@ const Transactions = () => {
   }, [filtered]);
 
   // Pagination - reset to page 1 whenever the result set changes.
-  useEffect(() => { setPage(1); }, [fMonth, fBank, fCategory, fType, search, sortBy, sortDir, pageSize, showInternal]);
+  useEffect(() => { setPage(1); }, [fMonth, fBank, fCategory, fType, fPerson, search, sortBy, sortDir, pageSize, showInternal]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageStart = (page - 1) * pageSize;
   const pageRows = filtered.slice(pageStart, pageStart + pageSize);
@@ -230,7 +264,7 @@ const Transactions = () => {
     } catch { flash('Update failed', 'error'); }
   };
 
-  const resetFilters = () => { setFMonth('all'); setFBank('all'); setFCategory('all'); setFType('all'); setSearch(''); };
+  const resetFilters = () => { setFMonth('all'); setFBank('all'); setFCategory('all'); setFType('all'); setFPerson('all'); setSearch(''); };
 
   if (loading) return <div className="loading">Loading transactions...</div>;
 
@@ -325,6 +359,17 @@ const Transactions = () => {
         </div>
       )}
 
+      <ChoiceDialog
+        open={!!labeling}
+        title={`Who is ${labeling?.name || ''}?`}
+        message="Their transfers are sorted to match, past and future: family and friends go to Family & Friends, a business keeps its own category."
+        choices={[
+          ...Object.entries(RELATIONSHIPS).map(([value, label]) => ({ value, label, tone: labeling?.relationship === value ? 'primary' : undefined })),
+          { value: '', label: 'Cancel' },
+        ]}
+        onChoose={labelPerson}
+      />
+
       {/* Filters */}
       <div className="tx-card filters">
         <select value={fMonth} onChange={e => setFMonth(e.target.value)}>
@@ -345,6 +390,12 @@ const Transactions = () => {
           <option value="income">Income</option>
           <option value="expense">Expense</option>
         </select>
+        {personOptions.length > 0 && (
+          <select value={fPerson} onChange={e => setFPerson(e.target.value)} aria-label="Person">
+            <option value="all">All people</option>
+            {personOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
         <input type="text" placeholder="Search description…" value={search} onChange={e => setSearch(e.target.value)} />
         <button className="btn-secondary" onClick={resetFilters}>Reset</button>
       </div>
@@ -418,6 +469,14 @@ const Transactions = () => {
                 <td className="nowrap">{new Date(t.date).toLocaleDateString()}</td>
                 <td className="desc" title={t.description}>
                   <span className="desc-cell"><TxnAvatar category={t.category} description={t.description} />{t.description}</span>
+                  {people[links[t._id]] && (() => {
+                    const p = people[links[t._id]];
+                    return (
+                      <button type="button" className="person-chip" onClick={() => setLabeling(p)} title="Who is this?">
+                        <i className="fas fa-user" aria-hidden="true"></i> {p.name}{RELATIONSHIPS[p.relationship] ? ` · ${RELATIONSHIPS[p.relationship]}` : ''}
+                      </button>
+                    );
+                  })()}
                 </td>
                 <td className={`nowrap ${km ? '' : t.type === 'income' ? 'pos' : 'neg'}`}>{km ? `${km.symbol} ` : t.type === 'income' ? '+' : '−'}{money(t.amount)}</td>
                 <td className="nowrap">{shortKind}</td>
@@ -520,6 +579,8 @@ const Transactions = () => {
         th .arrow { color: var(--accent-primary, var(--accent-primary)); font-size: 0.8em; }
         td { font-weight: 500; }
         td.desc { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .person-chip { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; max-width: 100%; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border-color); background: var(--glass-bg); color: var(--text-secondary); font: inherit; font-size: 0.75rem; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .person-chip:hover { border-color: var(--accent-primary); color: var(--text-primary); }
         .desc-cell { display: inline-flex; align-items: center; gap: 9px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
         .txn-avatar { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 0.72rem; font-weight: 800; line-height: 1; }
         .txn-avatar i { font-size: 0.72rem; }

@@ -47,7 +47,6 @@ const Sidebar = () => {
     ]},
     { title: 'Money', items: [
       { path: '/transactions', label: 'Transactions', icon: 'fa-receipt' },
-      { path: '/people', label: 'People & Family', icon: 'fa-people-group' },
       { path: '/subscriptions', label: 'Subscriptions', icon: 'fa-repeat' },
     ]},
     { title: 'Grow', items: [

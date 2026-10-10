@@ -139,6 +139,22 @@ async function main() {
   const noDigits = (await call('GET', '/api/accounts')).body.accounts.find((a) => a.bankName === 'Mainstreet MFB');
   check('3 an account without digits never deletes other rows', (await call('DELETE', `/api/accounts/${noDigits.id}?withTransactions=1`)).status === 400);
 
+  // ── 4: people folded into transactions and insights; Shared Expenses off ──
+  const feats = (await call('GET', '/api/features')).body;
+  check('4.1 Shared Expenses is off by default', feats.sharedExpenses === false, JSON.stringify(feats));
+  const t1 = (await call('POST', '/api/transactions', { date: day(8), description: 'NIP TRANSFER TO ADA OBI', amount: -15000, category: 'Transfer', type: 'expense' })).body;
+  await call('POST', '/api/transactions', { date: day(9), description: 'NIP TRANSFER TO ADA OBI', amount: -5000, category: 'Transfer', type: 'expense' });
+  await call('POST', '/api/contacts/rebuild');
+  const pr = await call('GET', `/api/transactions/${t1._id}/person`);
+  check('4.3 a transfer knows its person', pr.body?.person?.name && /ADA OBI/i.test(pr.body.person.name), JSON.stringify(pr.body));
+  const ln = (await call('GET', '/api/contacts/links')).body.links || {};
+  check('4.3 both transfers link to the same person', ln[t1._id] && Object.values(ln).filter((v) => v === ln[t1._id]).length === 2, JSON.stringify(ln));
+  const lab = await call('PATCH', `/api/contacts/${pr.body.person.id}`, { relationship: 'family', applyToPast: true });
+  check('4.3 labelling a person recategorises their transfers', lab.body?.recategorized === 2 && (await txns()).filter((t) => /ADA OBI/.test(t.description)).every((t) => t.category === 'Family & Friends'), JSON.stringify(lab.body));
+  check('4.3 the family question starts unanswered', (await call('GET', '/api/contacts')).body.familyPromptDone === false);
+  await call('POST', '/api/contacts/family-prompt/done');
+  check('4.3 and is only asked once', (await call('GET', '/api/contacts')).body.familyPromptDone === true);
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

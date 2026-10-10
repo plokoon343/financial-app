@@ -16,6 +16,8 @@ ok('junk is not a key', !looksLikeCaptureKey('amk_short') && !looksLikeCaptureKe
 ok('opay package', bankForApp('team.opay.pay') === 'OPay');
 ok('case-insensitive package', bankForApp('COM.TRANSSNET.PALMPAY') === 'PalmPay');
 ok('unknown package', bankForApp('com.whatsapp') === '');
+ok('mixed-case package as Android reports it', bankForApp('com.zenithBank.eazymoney') === 'Zenith');
+ok('Fidelity Nigeria, not Ghana', bankForApp('com.interswitchng.www') === 'Fidelity' && bankForApp('com.fidelity.mobile') === '');
 
 ok('title + text joined', captureText({ title: 'Debit Alert', text: 'NGN5,000 sent to JOHN' }) === 'Debit Alert\nNGN5,000 sent to JOHN');
 ok('bigText preferred', captureText({ title: 'OPay', text: 'short', bigText: 'You sent NGN5,000 to JOHN DOE' }).endsWith('JOHN DOE'));

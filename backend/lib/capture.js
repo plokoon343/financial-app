@@ -10,15 +10,45 @@ const newCaptureKey = () => `amk_${crypto.randomBytes(24).toString('base64url')}
 const hashCaptureKey = (key) => crypto.createHash('sha256').update(String(key || '')).digest('hex');
 const looksLikeCaptureKey = (key) => /^amk_[A-Za-z0-9_-]{32}$/.test(String(key || ''));
 
-// Android package names of bank and wallet apps, verified on Google Play. Used to name
-// the bank when a notification doesn't say it; other apps are approved per device.
+// Android package names of bank and wallet apps, each checked against the Nigerian
+// Play Store (2026-10-10); keys lowercase. Used to name the bank when a notification
+// doesn't say it; other apps are approved per device.
 const BANK_APPS = {
   'team.opay.pay': 'OPay',
   'com.moniepoint.personal': 'Moniepoint',
   'com.moniepoint.business': 'Moniepoint',
   'com.transsnet.palmpay': 'PalmPay',
   'com.transsnet.palmpartner': 'PalmPay',
-  'com.wemabank.alat.prod': 'Wema',
+  'com.wemabank.alat.prod': 'Wema (ALAT)',
+  'com.kudabank.app': 'Kuda',
+  'com.kuda.business': 'Kuda',
+  'com.gtbank.gtworldv1': 'GTBank',
+  'com.zenithbank.eazymoney': 'Zenith',
+  'com.accessbank.nextgen': 'Access',
+  'com.accessbank.accessbankapp': 'Access',
+  'com.ubanquity.redd.uba': 'UBA',
+  'com.firstbank.firstmobile': 'First Bank',
+  'com.appzonegroup.fcmb': 'FCMB',
+  'com.interswitchng.www': 'Fidelity',
+  'com.ceva.ubmobile.stallion': 'Union',
+  'com.ubn.union360mobilerevamp': 'Union',
+  'com.sterlingng.sterlingmobile': 'Sterling',
+  'com.ecobank.mobileapp5': 'Ecobank',
+  'com.stanbicmobile': 'Stanbic IBTC',
+  'ng.com.fairmoney.fairmoney': 'FairMoney',
+  'com.lenddo.mobile.paylater': 'Carbon',
+  'com.mypaga.customer': 'Paga',
+  'com.providus.providusbank': 'Providus',
+  'com.vulte.app': 'Polaris',
+  'com.qucoon.keystonemobilebankingapp': 'Keystone',
+  'com.jaizbank.app': 'Jaiz',
+  'com.teamapt.unitymobile': 'Unity',
+  'com.nero.globus_mobile': 'Globus',
+  'com.parallex.mobileapp': 'Parallex',
+  'com.taj.taj_mobile': 'TAJ Bank',
+  'com.ptb.mobile': 'Premium Trust',
+  'com.africa.smartcash': 'SmartCash PSB',
+  'com.psbcustomer': '9PSB',
 };
 const bankForApp = (pkg) => BANK_APPS[String(pkg || '').toLowerCase()] || '';
 

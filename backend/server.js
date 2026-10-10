@@ -32,6 +32,7 @@ const { detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason 
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
+const welcomeEmails = require('./lib/welcomeEmails');
 const { bankMethods } = require('./lib/bankMethods');
 const { deriveCategoryKey, subscriptionKey } = require('./lib/merchantKey');
 const { categorizeTransaction } = require('./lib/categorize');
@@ -746,6 +747,10 @@ const waitlistSchema = new mongoose.Schema({
   // Newsletter: one-click unsubscribe (compliance). Token minted lazily at send time.
   unsubscribed: { type: Boolean, default: false },
   unsubToken:   { type: String, default: '' },
+  newsletter:   { type: Boolean, default: false }, // subscribed through the newsletter form
+  // When each welcome email was sent; set once, so signing up twice never sends twice.
+  welcomeWaitlistAt:   { type: Date, default: null },
+  welcomeNewsletterAt: { type: Date, default: null },
 }, { timestamps: true });
 const Waitlist = mongoose.model('Waitlist', waitlistSchema);
 
@@ -2877,31 +2882,78 @@ app.post('/api/waitlist', authLimiter, async (req, res) => {
     );
     // Backfill the WhatsApp number if they signed up before we collected it.
     if (!result.upsertedCount && phone) await Waitlist.updateOne({ email, $or: [{ phone: '' }, { phone: { $exists: false } }] }, { $set: { phone } });
-    // New signup only (not a duplicate) → send a friendly confirmation, fire-and-forget.
-    if (result.upsertedCount && emailConfigured()) {
-      const hi = name ? `Hi ${name.split(' ')[0]},` : 'Hi there,';
-      sendEmail({
-        to: email,
-        subject: "You're on the Automonie waitlist 🎉",
-        text: `${hi}\n\nYou're on the list! We'll email you the moment Automonie opens up and ships new features.\n\nJoin our WhatsApp community for early access, updates and to shape the app: ${WHATSAPP_GROUP_URL}\n\nIn the meantime you can try the app: https://automonie.com\n\n- The Automonie team`,
-        html: `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;color:#0b1326">
-          <div style="background:linear-gradient(135deg,#008751,#00a862);border-radius:16px;padding:28px;text-align:center;color:#eafff5">
-            <h1 style="margin:0 0 6px;color:#fff;font-size:22px">You're on the list! 🎉</h1>
-            <p style="margin:0;opacity:.92">${hi} thanks for joining the Automonie waitlist.</p>
-          </div>
-          <p style="font-size:15px;line-height:1.6;margin:20px 4px">We'll email you the moment we open up and ship new features. No spam - only the big updates.</p>
-          <div style="background:#e7fbf0;border:1px solid #00a862;border-radius:12px;padding:16px;margin:18px 4px;text-align:center">
-            <p style="margin:0 0 10px;font-size:14px;color:#0b1326;font-weight:600">Get early access &amp; help shape Automonie - join our WhatsApp community:</p>
-            <a href="${WHATSAPP_GROUP_URL}" style="background:#25D366;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700;display:inline-block">Join the WhatsApp group</a>
-          </div>
-          <p style="margin:20px 4px"><a href="https://automonie.com" style="background:#008751;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700;display:inline-block">Explore Automonie</a></p>
-          <p style="color:#5b6b82;font-size:12px;margin:24px 4px 0">- The Automonie team</p>
-        </div>`,
-      }).catch(() => {});
-    }
+    sendWelcome('waitlist', email).catch(() => {});
     res.json({ ok: true, message: "You're on the list! We'll email you at launch.", groupUrl: groupUrlFor(req.body.source) });
   } catch (e) { console.error('[waitlist]', e.message); res.status(500).json({ message: 'Could not join the waitlist. Try again.' }); }
 });
+// ── Welcome emails (lib/welcomeEmails) ─────────────────────────────────────────
+// Each is sent at most once per address: the send is claimed by setting its
+// timestamp first, so a double signup (or two quick clicks) can't send it twice.
+// With BREVO_TEMPLATE_WAITLIST_WELCOME / BREVO_TEMPLATE_NEWSLETTER_WELCOME set, the
+// email goes through that Brevo template (copy edited in Brevo, no deploy); without,
+// it uses the built-in version. WELCOME_HEADER_URL is the header image (the GIF).
+const WELCOME_TEMPLATES = {
+  waitlist: () => Number(process.env.BREVO_TEMPLATE_WAITLIST_WELCOME) || 0,
+  newsletter: () => Number(process.env.BREVO_TEMPLATE_NEWSLETTER_WELCOME) || 0,
+};
+const unsubUrlFor = (token) => `${PUBLIC_API_URL}/unsubscribe?token=${token}`;
+async function ensureUnsubToken(doc) {
+  if (doc.unsubToken) return doc.unsubToken;
+  const token = crypto.randomBytes(16).toString('hex');
+  await Waitlist.updateOne({ _id: doc._id }, { $set: { unsubToken: token } });
+  return token;
+}
+async function sendWelcome(kind, email) {
+  if (!emailConfigured()) return false;
+  const field = kind === 'newsletter' ? 'welcomeNewsletterAt' : 'welcomeWaitlistAt';
+  const doc = await Waitlist.findOneAndUpdate({ email, [field]: null, unsubscribed: { $ne: true } }, { $set: { [field]: new Date() } }, { new: true });
+  if (!doc) return false; // already welcomed, or unsubscribed
+  try {
+    const params = {
+      firstName: (doc.name || '').trim().split(/\s+/)[0] || '',
+      whatsappUrl: groupUrlFor(doc.source),
+      unsubscribeUrl: unsubUrlFor(await ensureUnsubToken(doc)),
+      headerImageUrl: process.env.WELCOME_HEADER_URL || '',
+    };
+    const templateId = WELCOME_TEMPLATES[kind]();
+    if (templateId) {
+      await axios.post('https://api.brevo.com/v3/smtp/email', { to: [{ email }], templateId, params }, {
+        headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' }, timeout: 15000,
+      });
+    } else {
+      const m = kind === 'newsletter'
+        ? welcomeEmails.newsletterWelcome({ name: doc.name, unsubscribeUrl: params.unsubscribeUrl, headerImageUrl: params.headerImageUrl })
+        : welcomeEmails.waitlistWelcome({ name: doc.name, whatsappUrl: params.whatsappUrl, headerImageUrl: params.headerImageUrl });
+      const send = kind === 'newsletter' ? sendNewsletterEmail : sendEmail;
+      await send({ to: email, subject: m.subject, text: m.text, html: m.html });
+    }
+    return true;
+  } catch (e) {
+    // Let a later signup try again.
+    await Waitlist.updateOne({ _id: doc._id }, { $set: { [field]: null } }).catch(() => {});
+    console.error(`[welcome:${kind}]`, e.response?.data?.message || e.message);
+    return false;
+  }
+}
+
+// Newsletter signup (the site's newsletter form). Joins the same list as the waitlist,
+// flags it as a newsletter subscriber (re-subscribing after an unsubscribe), and sends
+// the newsletter welcome once.
+app.post('/api/newsletter/subscribe', authLimiter, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const name = String(req.body.name || '').trim().slice(0, 120);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: 'Enter a valid email address.' });
+    await Waitlist.updateOne(
+      { email },
+      { $setOnInsert: { email, name, source: String(req.body.source || 'newsletter').slice(0, 40) }, $set: { newsletter: true, unsubscribed: false } },
+      { upsert: true },
+    );
+    sendWelcome('newsletter', email).catch(() => {});
+    res.json({ ok: true, message: 'You’re subscribed. Check your inbox for a welcome email.' });
+  } catch (e) { console.error('[newsletter/subscribe]', e.message); res.status(500).json({ message: 'Could not subscribe. Try again.' }); }
+});
+
 app.get('/api/admin/waitlist', auth, superAdminAuth, async (req, res) => {
   try {
     const [items, count] = await Promise.all([

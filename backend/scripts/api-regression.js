@@ -155,6 +155,18 @@ async function main() {
   await call('POST', '/api/contacts/family-prompt/done');
   check('4.3 and is only asked once', (await call('GET', '/api/contacts')).body.familyPromptDone === true);
 
+  // ── 8: newsletter signup ──
+  const NO_AUTH = { 'Content-Type': 'application/json' };
+  check('8 newsletter needs a real email', (await call('POST', '/api/newsletter/subscribe', { email: 'nope' }, NO_AUTH)).status === 400);
+  const ns = await call('POST', '/api/newsletter/subscribe', { email: 'Reader@Example.test', name: 'Ngozi Eze' }, NO_AUTH);
+  await call('POST', '/api/newsletter/subscribe', { email: 'reader@example.test' }, NO_AUTH);
+  const wl = mongoose.connection.db.collection('waitlists');
+  const readers = await wl.find({ email: 'reader@example.test' }).toArray();
+  check('8 subscribing twice keeps one subscriber, flagged for the newsletter', ns.status === 200 && readers.length === 1 && readers[0].newsletter === true, JSON.stringify(readers));
+  await wl.updateOne({ email: 'reader@example.test' }, { $set: { unsubscribed: true } });
+  await call('POST', '/api/newsletter/subscribe', { email: 'reader@example.test' }, NO_AUTH);
+  check('8 subscribing again after unsubscribing turns it back on', (await wl.findOne({ email: 'reader@example.test' })).unsubscribed === false);
+
   // ── 7: onboarding by bank, tips, help ──
   const bm = (await call('GET', '/api/banks/methods?platform=android')).body.banks;
   check('7 OPay on Android starts with app notifications', bm.find((b) => b.code === 'opay')?.best === 'notifications');

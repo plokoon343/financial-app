@@ -8,8 +8,9 @@ const PENDING_KEY = 'pro_pending_ref';
 
 // Start checkout: get the Paystack URL, remember the reference, and redirect. On
 // return, Paystack appends ?reference=… and verifyPendingPro() finalises it.
-export async function startProCheckout(months = 1) {
-  const { data } = await axios.post(`${API_URL}/api/billing/checkout`, { months }, authHeaders());
+// plan: 'pro' (Plus), 'student' or 'power'.
+export async function startProCheckout(months = 1, plan = 'pro') {
+  const { data } = await axios.post(`${API_URL}/api/billing/checkout`, { months, plan }, authHeaders());
   if (!data.authorization_url) throw new Error('No checkout URL');
   try { localStorage.setItem(PENDING_KEY, data.reference); } catch { /* ignore */ }
   window.location.href = data.authorization_url;

@@ -5484,15 +5484,12 @@ const campaignCodeSchema = new mongoose.Schema({
 }, { timestamps: true });
 const CampaignCode = mongoose.model('CampaignCode', campaignCodeSchema);
 
-// The allow-list lives in the database (editable in admin); seeded from the file once.
-let studentDomainsSeeded = false;
+// The allow-list lives in the database (editable in admin); seeded from the file
+// whenever it's empty.
 async function studentDomains() {
-  if (!studentDomainsSeeded) {
-    studentDomainsSeeded = true;
-    if (!(await StudentDomain.estimatedDocumentCount())) {
-      const seed = require('./data/student-domains.json').domains;
-      await StudentDomain.insertMany(seed.map((domain) => ({ domain })), { ordered: false }).catch(() => {});
-    }
+  if (!(await StudentDomain.estimatedDocumentCount())) {
+    const seed = require('./data/student-domains.json').domains;
+    await StudentDomain.insertMany(seed.map((domain) => ({ domain })), { ordered: false }).catch(() => {});
   }
   return (await StudentDomain.find({}, { domain: 1 }).lean()).map((d) => d.domain);
 }

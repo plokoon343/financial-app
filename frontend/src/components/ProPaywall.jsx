@@ -2,16 +2,17 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import { Link } from 'react-router-dom';
 import { startProCheckout } from '../lib/pro';
 
-// Reusable Pro paywall (monetization gating for the C6 report export + C1 subscription
-// cancellation). Presents the benefits + price. Checkout isn't wired yet (Paystack
-// keys-pending), so the CTA is honest about that; the server gate is already real.
+// Reusable Plus paywall (the plan stored as 'pro'). Presents the benefits and price,
+// and points students to the Student plan. Checkout is launch-gated on the server, so
+// the button is honest when it isn't open yet.
 
 const HEADLINES = {
   report: { title: 'Export your financial report', sub: 'Download a clean, shareable PDF for visa, rent or loan applications.' },
   cancel: { title: 'Cancel subscriptions with guidance', sub: "Get exact cancellation steps for each provider, and we'll confirm the charge actually stops." },
-  default: { title: 'Automonie Pro', sub: 'Unlock the tools that turn insight into action.' },
+  default: { title: 'Automonie Plus', sub: 'Unlock the tools that turn insight into action.' },
 };
 
 export default function ProPaywall({ open, feature = 'default', onClose }) {
@@ -34,7 +35,7 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
     'Faster automatic bank sync',
   ];
   const onUpgrade = async () => {
-    if (!status?.checkoutAvailable) { alert("Pro is launching soon: we'll let you know the moment it's live."); return; }
+    if (!status?.checkoutAvailable) { alert("Plus is launching soon: we'll let you know the moment it's live."); return; }
     setBusy(true);
     try { await startProCheckout(1); } // redirects to Paystack
     catch { alert('Could not start checkout. Try again.'); setBusy(false); }
@@ -43,15 +44,16 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
   return (
     <div className="pro-overlay" onClick={onClose}>
       <div className="pro-modal" onClick={(e) => e.stopPropagation()}>
-        <span className="pro-badge"><i className="fas fa-star"></i> AUTOMONIE PRO</span>
+        <span className="pro-badge"><i className="fas fa-star"></i> AUTOMONIE PLUS</span>
         <h3 className="pro-title">{head.title}</h3>
         <p className="pro-sub">{head.sub}</p>
         <ul className="pro-features">
           {features.map((f) => <li key={f}><i className="fas fa-circle-check"></i> {f}</li>)}
         </ul>
         <button className="pro-cta" onClick={onUpgrade} disabled={busy}>
-          {busy ? 'Starting…' : status?.priceNaira ? `Get Pro: ${fmtNaira(status.priceNaira)}/mo` : 'Get Pro'}
+          {busy ? 'Starting…' : status?.priceNaira ? `Get Plus: ${fmtNaira(status.priceNaira)}/mo` : 'Get Plus'}
         </button>
+        <Link className="pro-plans" to="/plans" onClick={onClose}>Student or corps member? See the Student plan</Link>
         <button className="pro-later" onClick={onClose}>Maybe later</button>
       </div>
       <style>{`
@@ -64,6 +66,7 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
         .pro-features li { color: var(--text-primary); font-size: 0.95rem; display: flex; align-items: flex-start; gap: 9px; }
         .pro-features li i { color: var(--accent-primary); margin-top: 3px; }
         .pro-cta { width: 100%; margin-top: 22px; background: var(--gradient-primary, var(--accent-primary)); color: #fff; border: none; border-radius: var(--radius-full); padding: 13px; font-weight: 800; font-size: 1rem; cursor: pointer; }
+        .pro-plans { display: block; margin-top: 12px; color: var(--accent-primary); font-weight: 700; font-size: 0.9rem; }
         .pro-later { width: 100%; margin-top: 10px; background: none; border: none; color: var(--text-secondary); font-weight: 600; cursor: pointer; padding: 8px; }
       `}</style>
     </div>

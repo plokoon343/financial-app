@@ -218,7 +218,7 @@ export default function Insights({ transactions: allTransactions = [] }) {
         </div>
         <button onClick={() => downloadReport(6)} disabled={reportBusy}
           style={{ padding: '9px 16px', borderRadius: 10, border: 'none', background: 'var(--gradient-primary, var(--accent-primary))', color: '#fff', fontWeight: 700, cursor: reportBusy ? 'wait' : 'pointer' }}>
-          {reportBusy ? 'Preparing…' : isPro ? 'Download PDF' : 'Download PDF · Pro'}
+          {reportBusy ? 'Preparing…' : isPro ? 'Download PDF' : 'Download PDF · Plus'}
         </button>
       </div>
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import TrialChip from './TrialChip';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { LogoFull } from './Logo';
@@ -122,6 +123,7 @@ const Sidebar = () => {
 
         {/* Footer with theme toggle and logout */}
         <div className="sidebar-footer">
+          <TrialChip onNavigate={() => setIsOpen(false)} />
           <button
             className="sidebar-link"
             style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '0.5rem' }}

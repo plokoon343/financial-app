@@ -31,6 +31,7 @@ const Budget = lazy(() => import('./components/Budget'));
 const InsightsHub = lazy(() => import('./components/InsightsHub'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const Help = lazy(() => import('./components/Help'));
+const Plans = lazy(() => import('./components/Plans'));
 const GoalTracker = lazy(() => import('./components/GoalTracker'));
 const SubscriptionManager = lazy(() => import('./components/SubscriptionManager'));
 const BillsManager = lazy(() => import('./components/BillsManager'));
@@ -152,6 +153,7 @@ function AppContent() {
           <Route path="people" element={<People />} />
           <Route path="actions" element={<ActionCenter />} />
           <Route path="help" element={<Help />} />
+          <Route path="plans" element={<Plans />} />
           <Route path="support" element={<Support />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />

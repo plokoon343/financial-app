@@ -255,6 +255,7 @@ const Settings = () => {
         <div className="row-between"><div><strong>Feature tips</strong><span className="hint">First-time hints as you explore.</span></div><Toggle on={tipsOn} onClick={toggleTips} /></div>
         <button className="btn-secondary" onClick={() => window.dispatchEvent(new Event('finpilot:start-tour'))}><i className="fas fa-route"></i> Replay the app tour</button>
         <Link className="btn-secondary" to="/help"><i className="fas fa-circle-question"></i> Help: how each feature works</Link>
+        <Link className="btn-secondary" to="/plans"><i className="fas fa-star"></i> Plans and Student verification</Link>
       </div>
 
       {/* Data & privacy */}

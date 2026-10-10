@@ -285,6 +285,19 @@ async function main() {
     await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
     const os = (await call('GET', '/api/student/status', null, OH)).body;
     check('9 approved corps member is verified', os.status === 'verified' && /NYSC LA\/25A\/1234/.test(os.institution), JSON.stringify(os));
+
+    // 9.3 receipts: rules read the total and date; Plus-gated; saved as a cash receipt row.
+    const me = (await call('GET', '/api/me', null, OH)).body;
+    check('9 /api/me carries the tier and trial days', me.tier === 'pro' && me.tierName === 'Plus' && me.trialDaysLeft === 14, JSON.stringify(me));
+    const text = 'SHOPRITE\nLekki Mall\nSUBTOTAL 3,950.00\nTOTAL 4,246.25\nCHANGE 753.75\n12/09/2026 14:03';
+    const rp = await call('POST', '/api/receipts/parse', { text }, OH);
+    check('9 receipt: total, date and merchant by rules', rp.status === 200 && rp.body.total === 4246.25 && rp.body.date === '2026-09-12' && rp.body.merchant === 'Shoprite', JSON.stringify(rp.body));
+    check('9 receipt: no text is refused', (await call('POST', '/api/receipts/parse', { text: '  ' }, OH)).status === 400);
+    await users.updateOne({ _id: other }, { $set: { createdAt: new Date(Date.now() - 30 * 86400000) } });
+    check('9 receipt: Free after the trial is asked to upgrade', (await call('POST', '/api/receipts/parse', { text }, OH)).status === 402);
+    const saved = await call('POST', '/api/transactions', { date: '2026-09-12', description: 'Shoprite', amount: 4246.25, category: 'Groceries', type: 'expense', source: 'receipt', paymentMethod: 'cash' }, OH);
+    check('9 receipt: saved as a cash receipt expense', saved.status === 201 && saved.body.source === 'receipt' && saved.body.paymentMethod === 'cash' && saved.body.amount === -4246.25, JSON.stringify(saved.body));
+    check('9 receipt: an unknown payment method is dropped', (await call('POST', '/api/transactions', { date: '2026-09-12', description: 'X', amount: 1, category: 'Food', type: 'expense', paymentMethod: 'crypto' }, OH)).body.paymentMethod === '');
   }
 
   await mongoose.connection.db.dropDatabase();

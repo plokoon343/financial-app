@@ -252,7 +252,7 @@ const SubscriptionManager = () => {
                   )}
                   {s.status === 'active' && (
                     <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => openCancel(s)}>
-                      <i className={`fas ${isPro ? 'fa-ban' : 'fa-lock'}`}></i> Help me cancel{isPro ? '' : ' · Pro'}
+                      <i className={`fas ${isPro ? 'fa-ban' : 'fa-lock'}`}></i> Help me cancel{isPro ? '' : ' · Plus'}
                     </button>
                   )}
                   {s.status === 'cancelled' && (

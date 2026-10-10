@@ -42,6 +42,7 @@ const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
 const { llmConfig, llmActive, inferPurposesLLM } = require('./lib/llmPurpose');
 const { extractAlertLLM, validateExtract } = require('./lib/llmExtract');
+const receipt = require('./lib/receipt');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -417,7 +418,9 @@ const transactionSchema = new mongoose.Schema({
   // same way (they are neither 'income' nor 'expense', so aggregations skip them).
   type: { type: String, enum: ['income', 'expense', 'internal_transfer', 'cash_withdrawal', 'loan_in', 'debt_repayment', 'reversal', 'failed'], required: true },
   // Origin tracking so transactions can be grouped/deleted by bank statement.
-  source: { type: String, enum: ['manual', 'import', 'email', 'share', 'sms', 'notification'], default: 'manual' },
+  source: { type: String, enum: ['manual', 'import', 'email', 'share', 'sms', 'notification', 'receipt'], default: 'manual' },
+  // How it was paid, when known (a scanned cash receipt is 'cash').
+  paymentMethod: { type: String, enum: ['', 'cash', 'card', 'transfer'], default: '' },
   bank: { type: String, default: '' },           // e.g. 'GTBank', 'Union', 'Kuda'
   // Account fingerprint (spec Addendum A, slice 2): the resolved bank code plus the
   // masked account tail (last 3-4 digits) the alert/statement referenced. Together
@@ -2302,11 +2305,15 @@ app.post('/api/auth/google', authLimiter, async (req, res) => {
 // Current user's profile
 app.get('/api/me', auth, async (req, res) => {
   const u = req.user;
+  const ent = plans.entitlement(u);
   res.json({
+    ...trialOut(u, ent),
     id: u._id, name: u.name, email: u.email, role: u.role,
     newsletterEditor: !!u.newsletterEditor,
     betaTester: !!u.betaTester,
     plan: u.plan || 'free',
+    // What the user can use right now (trial and Student included), and its name.
+    tier: ent.tier, tierName: ent.name,
     phone: u.phone || '', monthlyIncome: u.monthlyIncome || 0,
     primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
     twoFactorEnabled: !!u.twoFactorEnabled,
@@ -2382,6 +2389,13 @@ app.patch('/api/admin/feedback/:id', auth, superAdminAuth, async (req, res) => {
   } catch (e) { console.error('[admin/feedback/patch]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// The Plus trial for the clients' chip: days left while it runs, or that it ended
+// (only for someone who never paid).
+const trialOut = (u, ent) => ({
+  trialDaysLeft: ent.source === 'trial' ? plans.daysLeft(ent.until) : null,
+  trialEnded: ent.source === 'none' && !!ent.trialEndsAt && ent.trialEndsAt < new Date() && !u.planEverPaid,
+});
+
 // Pro / billing status for the client paywall. checkoutAvailable is false until
 // Paystack subscription billing is wired: the gate is real regardless, and flips
 // the moment a user's plan becomes 'pro'.
@@ -2392,8 +2406,7 @@ app.get('/api/billing/status', auth, (req, res) => {
   res.json({
     plan: req.user.plan || 'free',
     tier: ent.tier, tierName: ent.name, source: ent.source,
-    trialDaysLeft: ent.source === 'trial' ? plans.daysLeft(ent.until) : null,
-    trialEnded: ent.source === 'none' && !!ent.trialEndsAt && ent.trialEndsAt < new Date() && !req.user.planEverPaid,
+    ...trialOut(req.user, ent),
     isPro: isPro(req.user),
     priceNaira: cfg.plusPrice,
     features: plans.PLUS_FEATURES.map((f) => plans.FEATURE_LABELS[f]),
@@ -2741,7 +2754,7 @@ app.get('/api/transactions', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 app.post('/api/transactions', auth, async (req, res) => {
-  const { date, description, amount, category, type, source, bank, bankCode, accountMask, parseConfidence, parseId, dedupeGroupId } = req.body;
+  const { date, description, amount, category, type, source, bank, bankCode, accountMask, parseConfidence, parseId, dedupeGroupId, paymentMethod } = req.body;
   if (!date || !description || !amount || !category || !type) return res.status(400).json({ message: 'All fields required' });
   // Provenance for a share-sheet confirm (spec §8): stamp source + parse metadata + the
   // account fingerprint so a confirmed shared alert behaves like any imported row.
@@ -2753,6 +2766,8 @@ app.post('/api/transactions', auth, async (req, res) => {
     userId: req.user._id, date: new Date(date), description: description.trim(),
     amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount), category: category.trim(), type,
     ...(shared ? { source: 'share', importedAt: new Date() } : {}),
+    ...(source === 'receipt' ? { source: 'receipt' } : {}),
+    ...(['cash', 'card', 'transfer'].includes(paymentMethod) ? { paymentMethod } : {}),
     ...(bank ? { bank: String(bank).slice(0, 40) } : {}),
     ...(bCode ? { bankCode: bCode } : {}), ...(bMask ? { accountMask: bMask } : {}),
     ...(parseConfidence ? { parseConfidence: String(parseConfidence).slice(0, 8) } : {}),
@@ -2767,6 +2782,34 @@ app.post('/api/transactions', auth, async (req, res) => {
   }
   res.status(201).json(transaction);
 });
+// Receipt scanning (Plus). The phone reads the receipt's text on-device and sends only
+// that text: the photo never leaves the phone. The total and date come from the rules
+// in lib/receipt; the AI, when on, may only name the shop and the category, from the
+// text with every number removed. Nothing is stored here (the user checks the fields
+// and saves through POST /api/transactions), and the text is never logged.
+const RECEIPT_CATEGORIES = [...GLOBAL_ELIGIBLE_CATEGORIES].filter((c) => !['Bank Charges', 'ATM/POS', 'Subscriptions'].includes(c));
+app.post('/api/receipts/parse', aiLimiter, auth, async (req, res) => {
+  try {
+    if (!hasFeature(req.user, 'receipts')) return res.status(402).json(upgradeRequired('receipts'));
+    const text = String(req.body?.text || '').slice(0, 8000);
+    if (!text.trim()) return res.status(400).json({ message: 'We couldn’t read any text in that photo. Try again in better light.' });
+    const r = receipt.parseReceipt(text);
+    let category = r.merchant ? categorizeTransaction(r.merchant, 'expense') : '';
+    if (!RECEIPT_CATEGORIES.includes(category)) category = '';
+    let assisted = false;
+    const cfg = llmConfig();
+    if (cfg && (!r.merchant || !category)) {
+      const redacted = receipt.redactForAi(text);
+      try {
+        const s = receipt.validateSuggestion(await receipt.suggestReceiptLLM(redacted, RECEIPT_CATEGORIES, cfg), redacted, RECEIPT_CATEGORIES);
+        if (!r.merchant && s.merchant) { r.merchant = s.merchant; assisted = true; }
+        if (!category && s.category) { category = s.category; assisted = true; }
+      } catch (e) { console.error('[receipts/parse] ai', e.message); }
+    }
+    res.json({ total: r.total, date: r.date, merchant: r.merchant, category, confidence: r.confidence, assisted, categories: RECEIPT_CATEGORIES });
+  } catch (e) { console.error('[receipts/parse]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Edit a transaction (also teaches the categorizer when the category changes).
 app.put('/api/transactions/:id', auth, async (req, res) => {
   try {

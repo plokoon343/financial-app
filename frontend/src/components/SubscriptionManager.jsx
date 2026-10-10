@@ -4,6 +4,7 @@ import { API_URL } from '../config';
 import ProPaywall from './ProPaywall';
 import { verifyPendingPro } from '../lib/pro';
 import { fmtNaira } from '../utils/format';
+import { undoable } from '../lib/undo';
 
 // Subscriptions: manage your own (manual add/delete) AND see recurring charges
 // auto-detected from your statements. Manual ones are saved on the backend;
@@ -92,21 +93,15 @@ const SubscriptionManager = () => {
       load();
     } catch { flash('Could not add that one.', 'error'); }
   };
-  const dismissDetected = async (d) => {
+  // Dismissing and deleting wait 5 seconds behind Undo.
+  const dismissDetected = (d) => {
     setDetected((prev) => prev.filter((x) => x.key !== d.key));
-    try { await axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { key: d.key, name: d.name }, authHeaders()); }
-    catch { flash('Could not dismiss.', 'error'); load(); }
+    undoable('We won’t suggest it again', () => axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { key: d.key, name: d.name }, authHeaders()), load);
   };
 
-  const deleteSub = async (id) => {
-    if (!window.confirm('Delete this subscription?')) return;
-    try {
-      await axios.delete(`${API_URL}/api/subscriptions/${id}`, authHeaders());
-      setSaved((prev) => prev.filter((s) => s._id !== id));
-      flash('Subscription removed.');
-    } catch {
-      flash('Could not delete.', 'error');
-    }
+  const deleteSub = (id) => {
+    setSaved((prev) => prev.filter((s) => s._id !== id));
+    undoable('Subscription removed', () => axios.delete(`${API_URL}/api/subscriptions/${id}`, authHeaders()), load);
   };
 
   // C1: assisted cancellation. Start records the baseline we verify against; the

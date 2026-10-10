@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import { undoable } from '../lib/undo';
 
 // Action Center: everything that needs the user's decision, in one place. Each card
-// resolves itself through the existing endpoints, then the list reloads.
+// resolves itself through the existing endpoints, then the list reloads. Removals and
+// dismissals leave the list at once and wait 5 seconds behind Undo (`later`).
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 const day = (d) => (d ? new Date(d).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const SOURCE = { email: 'Email alert', notification: 'Bank app notification', sms: 'Bank text', share: 'Shared receipt', import: 'Statement', manual: 'Added by you' };
@@ -30,7 +32,7 @@ function TxnLine({ t }) {
   );
 }
 
-function ReviewCard({ item, act }) {
+function ReviewCard({ item, act, later }) {
   const t = item.transaction;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ description: t.description, amount: String(t.amount), type: t.type });
@@ -60,7 +62,7 @@ function ReviewCard({ item, act }) {
           <>
             <button type="button" className="btn-primary" onClick={() => act(() => axios.post(`${API_URL}/api/transactions/${t.id}/reviewed`, {}, auth()))}>Looks right</button>
             <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>Fix it</button>
-            <button type="button" className="btn-danger" onClick={() => act(() => axios.delete(`${API_URL}/api/transactions/${t.id}`, auth()))}>Remove</button>
+            <button type="button" className="btn-danger" onClick={() => later('Transaction removed', () => axios.delete(`${API_URL}/api/transactions/${t.id}`, auth()))}>Remove</button>
           </>
         )}
       </div>
@@ -68,8 +70,8 @@ function ReviewCard({ item, act }) {
   );
 }
 
-function DuplicateCard({ item, act }) {
-  const remove = (id) => act(() => axios.delete(`${API_URL}/api/transactions/${id}`, auth()));
+function DuplicateCard({ item, act, later }) {
+  const remove = (id) => later('Copy removed', () => axios.delete(`${API_URL}/api/transactions/${id}`, auth()));
   return (
     <div className="acx-card">
       <div className="acx-pair">
@@ -87,7 +89,7 @@ function DuplicateCard({ item, act }) {
   );
 }
 
-function NameSubscriptionCard({ item, act }) {
+function NameSubscriptionCard({ item, act, later }) {
   const [name, setName] = useState('');
   return (
     <div className="acx-card">
@@ -100,13 +102,13 @@ function NameSubscriptionCard({ item, act }) {
       <div className="acx-actions">
         <input id={`s-${item.id}`} aria-label="Subscription name" placeholder="e.g. Netflix" value={name} onChange={(e) => setName(e.target.value)} />
         <button type="button" className="btn-primary" disabled={!name.trim()} onClick={() => act(() => axios.put(`${API_URL}/api/subscriptions/${item.id}`, { name: name.trim() }, auth()))}>Save name</button>
-        <button type="button" className="btn-secondary" onClick={() => act(() => axios.delete(`${API_URL}/api/subscriptions/${item.id}`, auth()))}>Not a subscription</button>
+        <button type="button" className="btn-secondary" onClick={() => later('Removed from subscriptions', () => axios.delete(`${API_URL}/api/subscriptions/${item.id}`, auth()))}>Not a subscription</button>
       </div>
     </div>
   );
 }
 
-function TrackCard({ item, act }) {
+function TrackCard({ item, act, later }) {
   return (
     <div className="acx-card">
       <div className="acx-txn">
@@ -117,13 +119,13 @@ function TrackCard({ item, act }) {
       </div>
       <div className="acx-actions">
         <button type="button" className="btn-primary" onClick={() => act(() => axios.post(`${API_URL}/api/subscriptions`, { name: item.name, cost: item.cost, frequency: 'monthly', category: 'Subscriptions', lastCharge: item.lastSeen }, auth()))}>Track it</button>
-        <button type="button" className="btn-secondary" onClick={() => act(() => axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { key: item.key, name: item.name }, auth()))}>Not a subscription</button>
+        <button type="button" className="btn-secondary" onClick={() => later('We won’t suggest it again', () => axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { key: item.key, name: item.name }, auth()))}>Not a subscription</button>
       </div>
     </div>
   );
 }
 
-function AccountCard({ item, act }) {
+function AccountCard({ item, act, later }) {
   const [label, setLabel] = useState('');
   return (
     <div className="acx-card">
@@ -136,13 +138,13 @@ function AccountCard({ item, act }) {
       <div className="acx-actions">
         <input id={`n-${item.id}`} aria-label="Account name" placeholder="e.g. Salary account" value={label} onChange={(e) => setLabel(e.target.value)} />
         <button type="button" className="btn-primary" disabled={!label.trim()} onClick={() => act(() => axios.patch(`${API_URL}/api/accounts/${item.id}`, { label: label.trim() }, auth()))}>Save</button>
-        <button type="button" className="btn-secondary" onClick={() => act(() => axios.post(`${API_URL}/api/accounts/${item.id}/dismiss`, {}, auth()))}>Not mine</button>
+        <button type="button" className="btn-secondary" onClick={() => later('Account removed. Its transactions stay.', () => axios.delete(`${API_URL}/api/accounts/${item.id}`, auth()))}>Not mine</button>
       </div>
     </div>
   );
 }
 
-function SenderCard({ item, act, banks }) {
+function SenderCard({ item, act, later, banks }) {
   const [code, setCode] = useState('');
   return (
     <div className="acx-card">
@@ -158,6 +160,7 @@ function SenderCard({ item, act, banks }) {
           {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
         </select>
         <button type="button" className="btn-primary" disabled={!code} onClick={() => act(() => axios.post(`${API_URL}/api/senders/tag`, { senderKey: item.senderKey, bankCode: code }, auth()))}>Save</button>
+        <button type="button" className="btn-secondary" onClick={() => later('We won’t ask about it again', () => axios.post(`${API_URL}/api/senders/dismiss`, { senderKey: item.senderKey }, auth()))}>Not a bank</button>
       </div>
     </div>
   );
@@ -199,6 +202,12 @@ export default function ActionCenter() {
     finally { setBusy(false); }
   };
 
+  // Remove or dismiss with a 5-second Undo; undoing (or a failed request) reloads the list.
+  const later = (id, message, fn) => {
+    setData((d) => d && { ...d, items: d.items.filter((i) => i.id !== id), total: Math.max(0, d.total - 1) });
+    undoable(message, async () => { await fn(); window.dispatchEvent(new Event('automonie:actions-changed')); }, load);
+  };
+
   return (
     <div className="acx-page">
       <div className="acx-head">
@@ -211,7 +220,7 @@ export default function ActionCenter() {
         <div className="empty-state">
           <div className="empty-state-icon"><i className="fas fa-circle-check" aria-hidden="true"></i></div>
           <h3>You’re all caught up</h3>
-          <p>Nothing needs your attention right now.</p>
+          <p>When we aren’t sure about something, like a transaction we couldn’t read clearly, a possible duplicate or a charge that looks like a subscription, it waits here for your decision so your numbers stay right.</p>
         </div>
       )}
       {data && data.total > 0 && SECTIONS.map((sec) => {
@@ -222,7 +231,7 @@ export default function ActionCenter() {
           <section key={sec.type} className="acx-section">
             <h3>{sec.title} <span className="acx-count">{items.length}</span></h3>
             <p className="acx-hint">{sec.hint}</p>
-            {items.map((it) => <Card key={it.id} item={it} act={(fn) => act(fn, it.id)} banks={banks} />)}
+            {items.map((it) => <Card key={it.id} item={it} act={(fn) => act(fn, it.id)} later={(message, fn) => later(it.id, message, fn)} banks={banks} />)}
           </section>
         );
       })}

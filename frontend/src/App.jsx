@@ -15,6 +15,7 @@ import SuperAdminRoute from './components/SuperAdminRoute';
 import NewsletterRoute from './components/NewsletterRoute';
 import NotificationBell from './components/NotificationBell';
 import GlobalBanner from './components/GlobalBanner';
+import UndoBar from './components/UndoBar';
 import BottomNav from './components/BottomNav';
 import ServerWaker from './components/ServerWaker';
 import InstallPrompt from './components/InstallPrompt';
@@ -186,6 +187,7 @@ const ProtectedLayout = ({ ...props }) => {
         </div>
       </main>
       <BottomNav />
+      <UndoBar />
     </div>
     </AccountScopeProvider>
   );

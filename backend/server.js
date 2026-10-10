@@ -433,8 +433,11 @@ const userAccountSchema = new mongoose.Schema({
   userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   bankCode:    { type: String, required: true },   // registry code, e.g. 'gtbank'
   bankName:    { type: String, default: '' },      // display name at first sight
-  accountMask: { type: String, required: true },   // last 3-4 digits, e.g. '4120'
+  accountMask: { type: String, default: '' },      // last 3-4 digits, e.g. '4120' ('' = added by hand without them)
   label:       { type: String, default: '' },      // user-given nickname ('' = unnamed)
+  type:        { type: String, enum: ['', 'current', 'savings', 'wallet', 'card', 'other'], default: '' },
+  addedByUser: { type: Boolean, default: false },  // created in Accounts, not detected from alerts
+  mergedInto:  { type: mongoose.Schema.Types.ObjectId, default: null }, // merged into another account: its alerts go there
   txnCount:    { type: Number, default: 0 },
   firstSeen:   { type: Date },
   lastSeen:    { type: Date },
@@ -1865,6 +1868,24 @@ const fingerprintAccount = (text = '', sender = '') => {
 // UserAccount on first sight (unnamed) and bumping its counters otherwise. Needs a
 // mask AND a resolved bank to be meaningful; a bare mask with no bank is ignored so
 // we don't create ghost "unknown-bank" accounts. Fire-and-forget safe.
+// Accounts the user merged into another one: 'code|mask' -> the account they went
+// into, so new alerts and imports for the old fingerprint land on the merged account.
+async function mergedAccountMap(userId) {
+  const merged = await UserAccount.find({ userId, mergedInto: { $ne: null } }, { bankCode: 1, accountMask: 1, mergedInto: 1 }).lean();
+  if (!merged.length) return new Map();
+  const targets = await UserAccount.find({ userId, _id: { $in: merged.map((m) => m.mergedInto) } }, { bankCode: 1, accountMask: 1, bankName: 1 }).lean();
+  const byId = new Map(targets.map((t) => [String(t._id), t]));
+  return new Map(merged.filter((m) => byId.has(String(m.mergedInto)))
+    .map((m) => [`${m.bankCode}|${m.accountMask}`, byId.get(String(m.mergedInto))]));
+}
+// The fingerprint a transaction should carry, after following any merge.
+async function resolveAccountStamp(userId, bankCode, accountMask, map) {
+  if (!bankCode) return { merged: false, bankCode, accountMask };
+  const m = map || await mergedAccountMap(userId).catch(() => new Map());
+  const t = m.get(`${bankCode}|${accountMask || ''}`);
+  return t ? { merged: true, bankCode: t.bankCode, accountMask: t.accountMask, bankName: t.bankName || '' } : { merged: false, bankCode, accountMask };
+}
+
 async function touchUserAccount(userId, { bankCode, bankName, accountMask }, when) {
   if (!bankCode || !accountMask) return;
   const at = when ? new Date(when) : new Date();
@@ -2632,8 +2653,9 @@ app.post('/api/transactions', auth, async (req, res) => {
   // Provenance for a share-sheet confirm (spec §8): stamp source + parse metadata + the
   // account fingerprint so a confirmed shared alert behaves like any imported row.
   const shared = source === 'share';
-  const bCode = (bankCode || '').toString().toLowerCase().slice(0, 24);
-  const bMask = (accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
+  const st = await resolveAccountStamp(req.user._id, (bankCode || '').toString().toLowerCase().slice(0, 24), (accountMask || '').toString().replace(/\D/g, '').slice(0, 4));
+  const bCode = st.bankCode;
+  const bMask = st.accountMask;
   const transaction = new Transaction({
     userId: req.user._id, date: new Date(date), description: description.trim(),
     amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount), category: category.trim(), type,
@@ -3863,12 +3885,16 @@ async function ingestAlert(user, parsed, source = 'email') {
   const kind = classifyKind({ type: parsed.type, description: parsed.description, category: parsed.category });
   let eCode = (parsed.bankCode || '').toString().toLowerCase().slice(0, 24);
   let eBank = parsed.bank || '';
-  const eMask = (parsed.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
+  let eMask = (parsed.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
   let eSender = normalizeSenderKey(parsed.senderKey || '');
   if (!eCode && eSender) {
     const learned = await learnedBankFor(user._id, eSender);
     if (learned) { eCode = learned.code; if (!eBank) eBank = learned.name; eSender = ''; }
     else { await logUnknownSender(eSender, parsed.raw || parsed.description || '', source); }
+  }
+  if (eCode) {
+    const st = await resolveAccountStamp(user._id, eCode, eMask);
+    if (st.merged) { eCode = st.bankCode; eMask = st.accountMask; eBank = st.bankName || eBank; }
   }
   await new Transaction({
     userId: user._id, date: when, description: parsed.description, amount: signed,
@@ -4351,6 +4377,15 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       for (const c of cs) { const cat = contactCategory(c); if (cat) contactCatMap.set(c.key, cat); }
     }
 
+    // Rows for an account the user merged away land on the account it went into.
+    const merges = await mergedAccountMap(req.user._id);
+    if (merges.size) {
+      for (const t of fresh) {
+        const tg = merges.get(`${(t.bankCode || '').toString().toLowerCase().slice(0, 24)}|${(t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4)}`);
+        if (tg) { t.bankCode = tg.bankCode; t.accountMask = tg.accountMask; }
+      }
+    }
+
     const docs = fresh.map(t => {
       // Sign stays tied to the real direction (income +, expense −); the KIND
       // (cash-out / loan / repayment / reversal / failed) only overrides the type,
@@ -4451,6 +4486,8 @@ app.get('/api/accounts', auth, async (req, res) => {
       bankName: a.bankName || '',
       accountMask: a.accountMask,
       label: a.label || '',
+      type: a.type || '',
+      addedByUser: !!a.addedByUser,
       txnCount: a.txnCount || 0,
       firstSeen: a.firstSeen || null,
       lastSeen: a.lastSeen || null,
@@ -4461,17 +4498,78 @@ app.get('/api/accounts', auth, async (req, res) => {
   } catch (e) { console.error('[accounts/list]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Name (or rename) an account. Clearing the label reverts it to needing a name.
+const ACCOUNT_TYPES = ['current', 'savings', 'wallet', 'card', 'other'];
+
+// Rename an account and/or change its type; only the fields sent change. Clearing
+// the label reverts it to needing a name.
 app.patch('/api/accounts/:id', auth, async (req, res) => {
   try {
-    const label = (req.body?.label ?? '').toString().trim().slice(0, 40);
-    const acct = await UserAccount.findOne({ _id: req.params.id, userId: req.user._id });
+    const acct = await UserAccount.findOne({ _id: req.params.id, userId: req.user._id, deleted: { $ne: true } });
     if (!acct) return res.status(404).json({ message: 'Account not found' });
-    acct.label = label;
-    if (label) acct.hidden = false; // naming it un-dismisses it
+    if (req.body?.label !== undefined) {
+      acct.label = (req.body.label ?? '').toString().trim().slice(0, 40);
+      if (acct.label) acct.hidden = false; // naming it un-dismisses it
+    }
+    if (req.body?.type !== undefined) {
+      const type = String(req.body.type || '');
+      if (type && !ACCOUNT_TYPES.includes(type)) return res.status(400).json({ message: 'Unknown account type.' });
+      acct.type = type;
+    }
     await acct.save();
-    res.json({ ok: true, id: acct._id, label: acct.label });
+    res.json({ ok: true, id: acct._id, label: acct.label, type: acct.type });
   } catch (e) { console.error('[accounts/patch]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Add an account by hand: a bank from the list (or any name), an optional type and
+// last four digits. Alerts for the same bank and digits land on it. Adding one the
+// user deleted before brings it back.
+app.post('/api/accounts', auth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const known = BANK_REGISTRY.find((x) => x.code === String(b.bankCode || ''));
+    const customName = (b.bankName || '').toString().trim().slice(0, 40);
+    if (!known && !customName) return res.status(400).json({ message: 'Pick a bank, or type its name.' });
+    const bankCode = known ? known.code : `custom-${customName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 16) || 'bank'}`;
+    const bankName = known ? known.name : customName;
+    const accountMask = (b.accountMask || '').toString().replace(/\D/g, '').slice(-4);
+    const type = ACCOUNT_TYPES.includes(b.type) ? b.type : '';
+    const label = (b.label || '').toString().trim().slice(0, 40);
+    let acct = await UserAccount.findOne({ userId: req.user._id, bankCode, accountMask });
+    if (acct && !acct.deleted) return res.status(409).json({ message: 'You already have this account.', id: acct._id });
+    const txnCount = accountMask ? await Transaction.countDocuments({ userId: req.user._id, bankCode, accountMask }) : 0;
+    if (acct) Object.assign(acct, { deleted: false, mergedInto: null, active: true, hidden: false });
+    else acct = new UserAccount({ userId: req.user._id, bankCode, accountMask, firstSeen: new Date(), lastSeen: new Date() });
+    Object.assign(acct, { bankName, label, type, txnCount, addedByUser: true });
+    await acct.save();
+    res.status(201).json({ ok: true, id: acct._id });
+  } catch (e) { console.error('[accounts/create]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Merge one account into another (the same account detected twice, say with and
+// without its last digits). Its transactions move over, and its future alerts and
+// imports follow.
+app.post('/api/accounts/:id/merge', auth, async (req, res) => {
+  try {
+    const into = String(req.body?.into || '');
+    if (!into || into === req.params.id) return res.status(400).json({ message: 'Pick a different account to merge into.' });
+    const [src, dst] = await Promise.all([
+      UserAccount.findOne({ _id: req.params.id, userId: req.user._id, deleted: { $ne: true } }),
+      UserAccount.findOne({ _id: into, userId: req.user._id, deleted: { $ne: true } }),
+    ]);
+    if (!src || !dst) return res.status(404).json({ message: 'Account not found' });
+    const moved = await Transaction.updateMany(
+      { userId: req.user._id, bankCode: src.bankCode, accountMask: src.accountMask },
+      { $set: { bankCode: dst.bankCode, accountMask: dst.accountMask, ...(dst.bankName ? { bank: dst.bankName } : {}) } },
+    );
+    dst.txnCount = (dst.txnCount || 0) + (moved.modifiedCount || 0);
+    if (!dst.label && src.label) dst.label = src.label;
+    if (!dst.type && src.type) dst.type = src.type;
+    Object.assign(src, { deleted: true, mergedInto: dst._id, txnCount: 0 });
+    // Anything merged into src earlier now points at dst too.
+    await UserAccount.updateMany({ userId: req.user._id, mergedInto: src._id }, { $set: { mergedInto: dst._id } });
+    await Promise.all([dst.save(), src.save()]);
+    res.json({ ok: true, moved: moved.modifiedCount || 0 });
+  } catch (e) { console.error('[accounts/merge]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Dismiss the naming prompt for an account without naming it (stops it nagging).
@@ -4507,6 +4605,9 @@ app.delete('/api/accounts/:id', auth, async (req, res) => {
     const acct = await UserAccount.findOne({ _id: req.params.id, userId: req.user._id });
     if (!acct) return res.status(404).json({ message: 'Account not found' });
     const withTxns = req.query.withTransactions === '1' || req.query.withTransactions === 'true';
+    // Without its last digits an account can't tell its rows from any other unassigned
+    // row at the same bank, so it never takes transactions down with it.
+    if (withTxns && !acct.accountMask) return res.status(400).json({ message: 'This account has no transactions of its own to delete.' });
     let transactionsDeleted = 0;
     if (withTxns) {
       const del = await Transaction.deleteMany({ userId: req.user._id, bankCode: acct.bankCode, accountMask: acct.accountMask });
@@ -4522,7 +4623,7 @@ app.delete('/api/accounts/:id', auth, async (req, res) => {
 // Undo a delete (only the account; deleted transactions are gone for good).
 app.post('/api/accounts/:id/restore', auth, async (req, res) => {
   try {
-    const acct = await UserAccount.findOneAndUpdate({ _id: req.params.id, userId: req.user._id }, { $set: { deleted: false } }, { new: true });
+    const acct = await UserAccount.findOneAndUpdate({ _id: req.params.id, userId: req.user._id, mergedInto: null }, { $set: { deleted: false } }, { new: true });
     if (!acct) return res.status(404).json({ message: 'Account not found' });
     res.json({ ok: true });
   } catch (e) { console.error('[accounts/restore]', e.message); res.status(500).json({ message: 'Server error' }); }

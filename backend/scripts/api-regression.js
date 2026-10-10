@@ -114,6 +114,31 @@ async function main() {
   const s4 = await share('Your OTP is 482913. Do not share it.');
   check('2.2 an OTP is not a transaction', s4.status === 422);
 
+  // ── 3: accounts, full create / edit / merge ──
+  const add = await call('POST', '/api/accounts', { bankCode: 'gtbank', label: 'Salary', type: 'current', accountMask: '0123456789' });
+  check('3 add an account by hand (keeps the last 4 digits)', add.status === 201, JSON.stringify(add.body));
+  accts = (await call('GET', '/api/accounts')).body.accounts;
+  const gt = accts.find((a) => a.id === add.body.id);
+  check('3 it is listed with its type', gt && gt.accountMask === '6789' && gt.type === 'current' && gt.label === 'Salary', JSON.stringify(gt));
+  check('3 adding it twice is refused', (await call('POST', '/api/accounts', { bankCode: 'gtbank', accountMask: '6789' })).status === 409);
+  check('3 a bank not on the list can be added by name', (await call('POST', '/api/accounts', { bankName: 'Mainstreet MFB' })).status === 201);
+  await call('PATCH', `/api/accounts/${gt.id}`, { type: 'savings' });
+  accts = (await call('GET', '/api/accounts')).body.accounts;
+  check('3 changing the type keeps the name', accts.some((a) => a.id === gt.id && a.type === 'savings' && a.label === 'Salary'));
+  // The same GTBank account detected again under other digits, then merged in.
+  await cap('Debit Alert\nGTBank\nAcct: 01*****111\nAmt: NGN3,000.00\nDesc: POS PURCHASE ICE CREAM\nAvail Bal: NGN9,000.00', 'com.gtbank.gtworldv1');
+  accts = (await call('GET', '/api/accounts')).body.accounts;
+  const dup = accts.find((a) => a.bankCode === 'gtbank' && a.accountMask === '111');
+  check('3 second GTBank fingerprint detected', !!dup, JSON.stringify(accts.map((a) => `${a.bankCode}:${a.accountMask}`)));
+  const mg = await call('POST', `/api/accounts/${dup.id}/merge`, { into: gt.id });
+  accts = (await call('GET', '/api/accounts')).body.accounts;
+  check('3 merge moves its transactions over', mg.body?.moved === 1 && !accts.some((a) => a.id === dup.id) && (await txns()).some((t) => /ICE CREAM/.test(t.description) && t.accountMask === '6789'), JSON.stringify(mg.body));
+  await cap('Debit Alert\nGTBank\nAcct: 01*****111\nAmt: NGN1,500.00\nDesc: POS PURCHASE SUYA SPOT\nAvail Bal: NGN7,500.00', 'com.gtbank.gtworldv1');
+  check('3 later alerts for the merged account follow it', (await txns()).some((t) => /SUYA/.test(t.description) && t.accountMask === '6789'));
+  check('3 a merged account cannot be "restored" over its new home', (await call('POST', `/api/accounts/${dup.id}/restore`)).status === 404);
+  const noDigits = (await call('GET', '/api/accounts')).body.accounts.find((a) => a.bankName === 'Mainstreet MFB');
+  check('3 an account without digits never deletes other rows', (await call('DELETE', `/api/accounts/${noDigits.id}?withTransactions=1`)).status === 400);
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

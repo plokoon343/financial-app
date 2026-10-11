@@ -7,6 +7,7 @@ import GlobalNotify from './GlobalNotify';
 import FeedbackInbox from './FeedbackInbox';
 import NudgeAdmin from './NudgeAdmin';
 import StudentAdmin from './StudentAdmin';
+import MetricsAdmin from './MetricsAdmin';
 
 const AdminDashboard = () => {
   const { user, darkMode } = useAuth();
@@ -206,8 +207,8 @@ const AdminDashboard = () => {
           <button onClick={fetchData} style={{ padding: '0.75rem 1.5rem', background: 'var(--gradient-primary)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>Refresh</button>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content' }}>
-        {['overview', 'accuracy', 'senders', 'users', 'tickets', 'feedback', 'waitlist', 'newsletter', 'notify', 'nudges', 'students', 'recaps'].map(tab => {
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: darkMode ? '#4a5568' : '#f1f5f9', padding: '0.25rem', borderRadius: '10px', width: 'fit-content', maxWidth: '100%', overflowX: 'auto' }}>
+        {['overview', 'metrics', 'accuracy', 'senders', 'users', 'tickets', 'feedback', 'waitlist', 'newsletter', 'notify', 'nudges', 'students', 'recaps'].map(tab => {
           const openCount = tab === 'tickets' ? tickets.filter(t => t.status === 'open').length : 0;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: activeTab === tab ? 'var(--gradient-primary)' : 'transparent', color: activeTab === tab ? 'white' : (darkMode ? '#cbd5e0' : '#4a5568'), fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize' }}>
@@ -451,6 +452,8 @@ const AdminDashboard = () => {
           <StudentAdmin />
         </div>
       )}
+
+      {activeTab === 'metrics' && <MetricsAdmin />}
 
       {activeTab === 'nudges' && (
         <div style={cardStyle}>

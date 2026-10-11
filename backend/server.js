@@ -44,6 +44,7 @@ const { llmConfig, llmActive, inferPurposesLLM } = require('./lib/llmPurpose');
 const { extractAlertLLM, validateExtract } = require('./lib/llmExtract');
 const receipt = require('./lib/receipt');
 const googlePlay = require('./lib/googlePlay');
+const metrics = require('./lib/metrics');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -306,6 +307,9 @@ const userSchema = new mongoose.Schema({
   // First-time tips already shown, so they never repeat on any device.
   seenTips:    { type: [String], default: [] },
   lastActiveAt: { type: Date },
+  // Which app the account was created in (web, android-beta, android-play, ios), for
+  // the signup metrics. Sent by the clients as the X-Client header.
+  signupClient: { type: String, default: '' },
   // Days (YYYY-MM-DD) the user checked in: powers the "clarity streak". Stored
   // server-side so the streak survives a reinstall / new device.
   checkinDays:   { type: [String], default: [] },
@@ -667,6 +671,20 @@ const parseCorrectionSchema = new mongoose.Schema({
   timeToReviewMs:     { type: Number, default: null },
 });
 const ParseCorrection = mongoose.model('ParseCorrection', parseCorrectionSchema);
+
+// One row per user per Lagos day they used the app: the history behind the active-user
+// and retention metrics (lastActiveAt alone only knows the latest visit). No content,
+// just the day; rows expire after about 13 months.
+const activityDaySchema = new mongoose.Schema({
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  day:       { type: String, required: true }, // 'YYYY-MM-DD', Lagos
+  createdAt: { type: Date, default: Date.now, expires: 400 * 86400 },
+});
+activityDaySchema.index({ userId: 1, day: 1 }, { unique: true });
+activityDaySchema.index({ day: 1 });
+const ActivityDay = mongoose.model('ActivityDay', activityDaySchema);
+const CLIENTS = new Set(['web', 'android-beta', 'android-play', 'ios']);
+const clientOf = (req) => { const c = String(req.get('x-client') || '').toLowerCase(); return CLIENTS.has(c) ? c : ''; };
 
 // Reconciliation outcome per statement import (spec A5/A7). Powers the accuracy
 // dashboard's "% of imports that reconcile": the single best measure of parser
@@ -2057,10 +2075,14 @@ const auth = async (req, res, next) => {
     if (req.user.sessionsValidFrom && decoded.iat && decoded.iat * 1000 < req.user.sessionsValidFrom.getTime()) {
       return res.status(401).json({ message: 'Session ended. Please log in again.', authExpired: true });
     }
-    // When the user was last in the app (for the "not opened in 5 days" nudge). At
-    // most one write an hour, and never in the way of the request.
-    if (!req.user.lastActiveAt || Date.now() - req.user.lastActiveAt.getTime() > 3600000) {
+    // When the user was last in the app (for the "not opened in 5 days" nudge and the
+    // active-user metrics). At most one write an hour or at the first visit of a Lagos
+    // day, and never in the way of the request.
+    const last = req.user.lastActiveAt;
+    const today = metrics.lagosDay(new Date());
+    if (!last || Date.now() - last.getTime() > 3600000 || metrics.lagosDay(last) !== today) {
       User.updateOne({ _id: req.user._id }, { $set: { lastActiveAt: new Date() } }).catch(() => {});
+      ActivityDay.updateOne({ userId: req.user._id, day: today }, { $setOnInsert: { userId: req.user._id, day: today } }, { upsert: true }).catch(() => {});
     }
     next();
   } catch (error) {
@@ -2166,7 +2188,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
       }).catch((e) => console.error('[register-verify] email failed:', e.message));
       return res.status(201).json({ otpRequired: true, email: cleanEmail });
     }
-    const user = new User({ name, email: cleanEmail, password: hashedPassword, phone: cleanPhone.slice(0, 20), emailVerified: true });
+    const user = new User({ name, email: cleanEmail, password: hashedPassword, phone: cleanPhone.slice(0, 20), emailVerified: true, signupClient: clientOf(req) });
     await user.save();
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
@@ -2236,7 +2258,7 @@ app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
     if (!pending) return res.status(400).json({ message: 'No pending verification. Please sign in again.' });
     if (pending.otpExpiry < new Date()) return res.status(400).json({ message: 'Code expired. Please sign up again.' });
     if (pending.otpHash !== hashToken(code)) return res.status(400).json({ message: 'Incorrect code' });
-    const created = new User({ name: pending.name, email: pending.email, password: pending.password, phone: pending.phone, emailVerified: true, lastLogin: new Date() });
+    const created = new User({ name: pending.name, email: pending.email, password: pending.password, phone: pending.phone, emailVerified: true, lastLogin: new Date(), signupClient: clientOf(req) });
     await created.save();
     await PendingRegistration.deleteOne({ _id: pending._id });
     const token = jwt.sign({ userId: created._id }, JWT_SECRET, { expiresIn: '30d' });
@@ -2306,6 +2328,7 @@ app.post('/api/auth/google', authLimiter, async (req, res) => {
         email,
         password: randomPw,
         googleId: payload.sub,
+        signupClient: clientOf(req),
       });
     } else if (!user.googleId) {
       user.googleId = payload.sub;
@@ -5442,6 +5465,46 @@ app.get('/api/admin/stats', auth, superAdminAuth, async (req, res) => {
     const waitlistCount = await Waitlist.countDocuments();
     res.json({ totalUsers, activeUsers, inactiveUsers: totalUsers - activeUsers, totalTransactions, totalBudgets, waitlistCount, platformIncome: incomeAgg[0]?.total || 0, platformExpenses: Math.abs(expenseAgg[0]?.total || 0), recentUsers });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Core metrics (superadmin): acquisition, activation, engagement, retention, money
+// and import health, counted by lib/metrics. Aggregates only: no names, amounts or
+// transaction content leave this endpoint. ?weeks= (4-26, default 8).
+app.get('/api/admin/metrics', auth, superAdminAuth, async (req, res) => {
+  try {
+    const weeks = Math.max(4, Math.min(26, Number(req.query.weeks) || 8));
+    const now = new Date();
+    const today = metrics.lagosDay(now);
+    const from = new Date(now.getTime() - (weeks * 7 + 7) * 86400000);
+    const since30 = new Date(now.getTime() - 30 * 86400000);
+    const [userDocs, days, firstTxns, bySource, corrections, waitlist] = await Promise.all([
+      User.find({ role: 'user' }).select('createdAt signupClient plan planExpiry planEverPaid student role').lean(),
+      ActivityDay.find({ day: { $gte: metrics.lagosDay(from) } }).select('userId day -_id').lean(),
+      Transaction.aggregate([
+        { $sort: { date: 1 } },
+        { $group: { _id: '$userId', date: { $first: '$date' }, source: { $first: '$source' } } },
+      ]).option({ allowDiskUse: true }),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: since30 } } },
+        { $group: { _id: '$source', total: { $sum: 1 }, review: { $sum: { $cond: [{ $in: ['$parseConfidence', ['low', 'medium']] }, 1, 0] } } } },
+      ]),
+      ParseCorrection.countDocuments({ createdAt: { $gte: since30 } }),
+      Waitlist.countDocuments(),
+    ]);
+    const users = userDocs.map((u) => ({ id: String(u._id), createdAt: u.createdAt, client: u.signupClient || '' }));
+    const userIds = new Set(users.map((u) => u.id));
+    const ownDays = days.filter((d) => userIds.has(String(d.userId)));
+    res.json({
+      generatedAt: now, today, weeks,
+      totals: { users: users.length, waitlist },
+      signups: metrics.signupsByWeek(users, today, weeks),
+      activation: metrics.activation(users, firstTxns.filter((t) => userIds.has(String(t._id))).map((t) => ({ userId: String(t._id), date: t.date, source: t.source })), today, weeks),
+      active: metrics.activeCounts(ownDays, today),
+      retention: metrics.retention(users, ownDays, today, weeks),
+      money: metrics.money(userDocs, plans, now),
+      imports: metrics.imports(bySource.map((r) => ({ source: r._id || 'manual', total: r.total, review: r.review })), corrections),
+    });
+  } catch (e) { console.error('[admin/metrics]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Email diagnostics (superadmin): sends a test mail through Brevo and returns the

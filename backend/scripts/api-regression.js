@@ -300,6 +300,31 @@ async function main() {
     check('9 receipt: an unknown payment method is dropped', (await call('POST', '/api/transactions', { date: '2026-09-12', description: 'X', amount: 1, category: 'Food', type: 'expense', paymentMethod: 'crypto' }, OH)).body.paymentMethod === '');
   }
 
+  // ── 12: core metrics ──
+  {
+    const days = mongoose.connection.db.collection('activitydays');
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user' }, $unset: { lastActiveAt: 1 } });
+    await days.deleteMany({ userId: insertedId });
+    await call('GET', '/api/me');
+    await new Promise((r) => setTimeout(r, 300)); // the write is fire-and-forget
+    const lagosToday = new Date(Date.now() + 3600000).toISOString().slice(0, 10);
+    check('12 using the app records today as an active day (Lagos)', !!(await days.findOne({ userId: insertedId, day: lagosToday })));
+    await call('GET', '/api/me');
+    await new Promise((r) => setTimeout(r, 300));
+    check('12 one row per user per day', (await days.countDocuments({ userId: insertedId })) === 1);
+    check('12 metrics are admin only', (await call('GET', '/api/admin/metrics')).status === 403);
+    const reg = await fetch(`${API}/api/register`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Client': 'android-play' }, body: JSON.stringify({ name: 'Metric Person', email: 'metric@example.test', phone: '08030000000', password: 'Str0ng!pass' }) });
+    const rb = await reg.json().catch(() => ({}));
+    if (rb.token) check('12 signup records the app it came from', (await users.findOne({ email: 'metric@example.test' }))?.signupClient === 'android-play');
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'superadmin' } });
+    const mt = await call('GET', '/api/admin/metrics?weeks=4');
+    check('12 metrics: shape', mt.status === 200 && mt.body.signups.length === 4 && mt.body.retention.length === 4 && mt.body.active.series.length === 30, JSON.stringify(mt.body).slice(0, 300));
+    check('12 metrics: admins are not counted as users', mt.body.totals.users === await users.countDocuments({ role: 'user' }), `${mt.body.totals.users}`);
+    check('12 metrics: imports and money present', typeof mt.body.imports.total === 'number' && typeof mt.body.money.mrr === 'number');
+    if (rb.token) check('12 metrics: this week\'s signups include the new account', mt.body.signups[3].total >= 1 && (mt.body.signups[3].byClient['android-play'] || 0) >= 1, JSON.stringify(mt.body.signups[3]));
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
+  }
+
   // ── Google Play Billing (run the API with GOOGLE_PLAY_TEST_BASE=http://localhost:5098,
   // a GOOGLE_PLAY_SERVICE_ACCOUNT test key and PLAY_RTDN_SECRET=rtdn-test) ──
   if (process.env.GOOGLE_PLAY_TEST_BASE) {

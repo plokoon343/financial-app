@@ -2,7 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './theme.css';
 import './ui.css';
+import axios from 'axios';
 import App from './App';
+
+// Tells the API which app a request comes from (used for signup metrics).
+axios.defaults.headers.common['X-Client'] = 'web';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

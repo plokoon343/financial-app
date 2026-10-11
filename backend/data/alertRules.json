@@ -1,0 +1,121 @@
+{
+  "_about": "Rules that decide what an incoming alert is before anything is parsed (lib/alertClassify). Patterns are case-insensitive regular expressions. 'ignore' kinds are dropped, 'fee' alerts become Bank Charges, anything unclear goes to review. Per-bank entries add sender IDs and field patterns on top of the shared ones; banks without an entry use the shared patterns.",
+  "version": 1,
+  "alwaysIgnore": {
+    "otp": [
+      "\\b(?:otp|code|token|password)\\b[^\\n]{0,100}?\\bis\\s*:?\\s*\\d{4,8}\\b",
+      "\\b(?:otp|code|token)\\s*[:\\-]?\\s*\\d{4,8}\\b",
+      "\\b\\d{4,8}\\s+is your\\b",
+      "\\buse\\s+\\d{4,8}\\s+to\\b"
+    ],
+    "loan_offer": [
+      "\\b(get a loan|borrow up to|loan offer|instant loan|loan of up to|pre-?approved loan)\\b"
+    ],
+    "promo": [
+      "\\b(apply now|you(?:'?re| are) eligible|eligible for|win a|limited time|special offer)\\b",
+      "\\bup to (?:ngn|naira|₦|n)\\s?[\\d,]+"
+    ],
+    "failed": [
+      "\\b(?:transaction|transfer|payment|debit|purchase|withdrawal)\\b[^\\n]{0,80}\\b(?:failed|was unsuccessful|was not successful|could not be (?:completed|processed)|was declined|declined)\\b",
+      "\\b(?:failed|unsuccessful|declined)\\s+(?:transaction|transfer|payment|debit|purchase)\\b",
+      "\\binsufficient (?:funds|balance)\\b"
+    ]
+  },
+  "failedButMoved": "\\b(reversal|reversed|refund(?:ed)?|credited back|returned to your)\\b",
+  "ignoreUnlessTransaction": {
+    "otp": [
+      "\\b(otp|one[-\\s]?time (?:password|pin|code)|verification code|is your (?:code|otp|pin|token))\\b"
+    ],
+    "promo": [
+      "\\b(enjoy|promo(?:tion)?|discount|cash ?back|congratulations|download our app|dial \\*\\d|upgrade to)\\b"
+    ],
+    "login": [
+      "\\b(login|log[-\\s]?in|sign[-\\s]?in|new device|password (?:has been|was|is) (?:changed|reset|updated)|security alert)\\b"
+    ],
+    "balance_enquiry": [
+      "\\b(balance (?:enquiry|inquiry)|bal(?:ance)? enq|your (?:available )?balance is)\\b"
+    ],
+    "notice": [
+      "\\b(card (?:is )?(?:ready|delivered|activated|blocked)|cheque ?book|statement (?:is )?ready|e-?statement (?:is )?ready)\\b"
+    ]
+  },
+  "transaction": {
+    "money": "(?:ngn|naira|₦)\\s*[\\d,]+(?:\\.\\d{1,2})?|\\bn\\d[\\d,]*(?:\\.\\d{1,2})?|\\b[\\d,]+\\.\\d{2}\\b",
+    "direction": "\\b(debit(?:ed)?|credit(?:ed)?|dr|cr|withdraw(?:n|al)?|deposit(?:ed)?|received|transfer(?:red)?|pos\\b|reversal)\\b",
+    "context": "\\b(bal(?:ance)?|avail|a\\/c|acct|account|ref|value date|txn|transaction|desc)\\b"
+  },
+  "fees": [
+    "\\bstamp\\s*duty\\b",
+    "\\b(?:sms|alert)\\s*(?:alert\\s*)?(?:charges?|fees?)\\b",
+    "\\belectronic money transfer levy\\b|\\bemtl\\b",
+    "\\b(?:transfer|nip|transaction|withdrawal|atm|pos)\\s*(?:fee|charges?|commission)\\b",
+    "\\bvat\\b",
+    "\\bcot\\b|\\bcommission on turnover\\b",
+    "\\b(?:token|card)\\s*(?:fee|charge|issuance)\\b",
+    "\\b(?:account|card|acct|a\\/c)\\s*maint(?:enance|\\.)?(?:\\b|\\s)|\\bmaint(?:enance)?\\.?\\s*(?:fee|charge)\\b|\\bamf\\b"
+  ],
+  "shared": {
+    "balance": "(?:avail(?:able)?\\.?\\s*|ledger\\s*|book\\s*|cur(?:rent)?\\.?\\s*|clr\\.?\\s*|new\\s*)?bal(?:ance)?\\s*[:=\\-]?\\s*(?:is\\s*)?(?:ngn|naira|₦|n)?\\s*-?[\\d,]+(?:\\.\\d{1,2})?(?:\\s*(?:cr|dr))?"
+  },
+  "banks": [
+    {
+      "code": "uba",
+      "format": "labelled",
+      "amount": "\\bAmt\\s*:\\s*(?:NGN|₦|N)?\\s*([\\d,]+(?:\\.\\d{1,2})?)",
+      "direction": "\\bTxn\\s*:\\s*(CR|DR)\\b",
+      "narration": "\\bDes(?:c)?\\s*:\\s*([^\\n]+)",
+      "date": "\\bDate\\s*:\\s*(\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4})"
+    },
+    {
+      "code": "fcmb",
+      "format": "labelled",
+      "amount": "\\b(?:Amt|Amount)\\s*:\\s*(?:NGN|₦|N)?\\s*([\\d,]+(?:\\.\\d{1,2})?)",
+      "narration": "\\b(?:Desc|Narration)\\s*:\\s*([^\\n]+)"
+    },
+    {
+      "code": "union",
+      "format": "labelled",
+      "amount": "\\b(?:Amt|Amount)\\s*:\\s*(?:NGN|₦|N)?\\s*([\\d,]+(?:\\.\\d{1,2})?)"
+    },
+    {
+      "code": "gtbank",
+      "format": "labelled",
+      "amount": "\\b(?:Amt|Amount)\\s*:\\s*(?:NGN|₦|N)?\\s*([\\d,]+(?:\\.\\d{1,2})?)",
+      "narration": "\\b(?:Desc|Description|Narration)\\s*:\\s*([^\\n]+)"
+    },
+    {
+      "code": "premiumtrust",
+      "format": "free"
+    },
+    {
+      "code": "opay",
+      "format": "free"
+    },
+    {
+      "code": "access",
+      "format": "labelled",
+      "amount": "\\b(?:Amt|Amount)\\s*:\\s*(?:NGN|₦|N)?\\s*([\\d,]+(?:\\.\\d{1,2})?)"
+    },
+    {
+      "code": "zenith",
+      "format": "labelled",
+      "amount": "\\b(?:Amt|Amount)\\s*:\\s*(?:NGN|₦|N)?\\s*([\\d,]+(?:\\.\\d{1,2})?)"
+    },
+    {
+      "code": "firstbank",
+      "format": "free"
+    },
+    {
+      "code": "kuda",
+      "format": "free"
+    },
+    {
+      "code": "palmpay",
+      "format": "free"
+    },
+    {
+      "code": "moniepoint",
+      "format": "free"
+    }
+  ]
+}

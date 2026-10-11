@@ -1,0 +1,16 @@
+{"raw":"Dear Customer, your transfer of NGN5,000.00 to ADA OBI failed. Please try again later.","expected":{"ignore":true},"synthetic":true,"case":"failed transfer"}
+{"raw":"Transaction declined: POS purchase of NGN12,300.00 at SHOPRITE LEKKI was declined. Insufficient funds.","expected":{"ignore":true},"synthetic":true,"case":"declined card"}
+{"raw":"Your payment of N2,500 could not be completed. No money was taken from your account.","expected":{"ignore":true},"synthetic":true,"case":"payment not completed"}
+{"raw":"New login to your mobile banking from a new device on 08-10-2026 14:22. If this wasn't you, call 0700 000 0000.","expected":{"ignore":true},"synthetic":true,"case":"login alert"}
+{"raw":"Your password has been changed successfully. If you did not do this, contact us immediately.","expected":{"ignore":true},"synthetic":true,"case":"password changed"}
+{"raw":"Your e-statement is ready. Log in to download it.","expected":{"ignore":true},"synthetic":true,"case":"statement notice"}
+{"raw":"Your available balance is NGN 45,320.50 as at 08-10-2026.","expected":{"ignore":true},"synthetic":true,"case":"balance enquiry"}
+{"raw":"Get a loan of up to N300,000 in 5 minutes. No collateral. Dial *000*1# to apply now.","expected":{"ignore":true},"synthetic":true,"case":"loan offer"}
+{"raw":"Enjoy 10% cashback on airtime this weekend when you recharge N1,000 or more!","expected":{"ignore":true},"synthetic":true,"case":"promo with amount"}
+{"raw":"Reversal: NGN5,000.00 for your failed transfer to ADA OBI has been credited back to your account. Bal: NGN12,000.00","expected":{"amount":5000,"direction":"credit","date":"2026-10-11"},"synthetic":true,"case":"reversal of a failed transfer"}
+{"raw":"Debit\nAmt:NGN4.00\nAcc:111******222\nDesc:SMS ALERT CHARGES SEPT 2026\nDate:30/09/2026\nAvail Bal:NGN9,996.00","expected":{"amount":4,"direction":"debit","date":"2026-09-30","category":"Bank Charges"},"synthetic":true,"case":"SMS charge"}
+{"raw":"Debit\nAmt:NGN0.81\nAcc:111******222\nDesc:VAT ON NIP TRANSFER FEE\nDate:01/10/2026\nAvail Bal:NGN9,985.19","expected":{"amount":0.81,"direction":"debit","date":"2026-10-01","category":"Bank Charges"},"synthetic":true,"case":"VAT on a fee"}
+{"raw":"Debit\nAmt:NGN10.75\nAcc:111******222\nDesc:NIP TRANSFER FEE\nDate:01/10/2026\nAvail Bal:NGN9,986.00","expected":{"amount":10.75,"direction":"debit","date":"2026-10-01","category":"Bank Charges"},"synthetic":true,"case":"transfer fee"}
+{"raw":"Debit\nAmt:NGN50.00\nAcc:111******222\nDesc:ELECTRONIC MONEY TRANSFER LEVY\nDate:02/10/2026\nAvail Bal:NGN9,936.00","expected":{"amount":50,"direction":"debit","date":"2026-10-02","category":"Bank Charges"},"synthetic":true,"case":"EMTL levy"}
+{"raw":"Debit\nAmt:NGN20,000.00\nAcc:111******222\nDesc:NIP TRANSFER TO TUNDE BAKARE fee: NGN10.75\nDate:02/10/2026\nAvail Bal:NGN9,916.00","expected":{"amount":20000,"direction":"debit","date":"2026-10-02"},"synthetic":true,"case":"a fee mentioned inside a transfer is still a transfer"}
+{"raw":"OWealth update: your balance is NGN 52,000.00 at 08:00","expected":{"ignore":true},"synthetic":true,"case":"balance-only push"}

@@ -74,7 +74,7 @@ function parseLabeledAlert(raw) {
 // a generic subject ("Transaction Notification") and a greeting before the useful
 // part, and those must never become the description. Returns '' when nothing useful
 // is left, so the caller can fall back.
-const NARRATION_LABELS = 'description|desc|narration|narrative|remarks?|details|beneficiary(?: name)?|merchant(?: name)?|purpose|payment for|sender(?: name)?|recipient(?: name)?';
+const NARRATION_LABELS = 'description|desc|des|narration|narrative|remarks?|details|beneficiary(?: name)?|merchant(?: name)?|purpose|payment for|sender(?: name)?|recipient(?: name)?';
 const FIELD_LABELS = 'description|desc|narration|narrative|remarks?|details|beneficiary|merchant|purpose|amount|amt|value date|date|time|reference|ref|document number|account(?: number| no\\.?)?|acct|current balance|available balance|avail(?:able)?\\.? bal(?:ance)?|bal|balance|branch|transaction type|txn type|txn|channel|session id';
 const BOILERPLATE = [
   /\b(?:transaction|debit|credit|e-?mail)\s+(?:notification|alert)s?\b[:\s-]*/gi,

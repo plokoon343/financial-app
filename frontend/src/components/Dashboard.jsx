@@ -72,6 +72,11 @@ const AmountInput = ({ value, onChange, style, placeholder, title }) => {
 const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
   const [file,            setFile]            = useState(null);
   const [uploading,       setUploading]       = useState(false);
+  // Long statements: show upload %, then "reading" with a running clock, never a silent spinner.
+  const [progress,        setProgress]        = useState(null); // { phase: 'upload' | 'reading', pct, startedAt }
+  const [elapsed,         setElapsed]         = useState(0);
+  const [summary,         setSummary]         = useState(null); // after an import: added / needsReview / duplicates / fees
+  const [sentToUs,        setSentToUs]        = useState(false);
   const [transactions,    setTransactions]    = useState([]);
   const [selectedIndices, setSelectedIndices] = useState([]);
   const [meta,            setMeta]            = useState(null);
@@ -106,6 +111,12 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
 
   const isPdf = file && file.name.split('.').pop().toLowerCase() === 'pdf';
 
+  useEffect(() => {
+    if (!progress) { setElapsed(0); return undefined; }
+    const t = setInterval(() => setElapsed(Math.round((Date.now() - progress.startedAt) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [progress]);
+
   const handleUpload = async () => {
     if (!file) {
       setMessage({ text: 'Please select a file', type: 'error' });
@@ -120,12 +131,18 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
     }
 
     setUploading(true);
+    setSummary(null); setSentToUs(false);
+    setProgress({ phase: 'upload', pct: 0, startedAt: Date.now() });
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post(`${API}/api/upload-statement`, formData, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (e) => {
+          const pct = e.total ? Math.round((e.loaded / e.total) * 100) : 0;
+          setProgress((p) => (p ? { ...p, pct, phase: pct >= 100 ? 'reading' : 'upload' } : p));
         },
       });
       const txns = res.data.transactions || [];
@@ -164,8 +181,30 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
       }
     } finally {
       setUploading(false);
+      setProgress(null);
     }
   };
+
+  // A statement whose rows don't add up to its closing balance: say so plainly.
+  const recon = meta?.reconciliation;
+  const unbalanced = step === 'review' && recon?.checked && recon.ok === false;
+  const sendToUs = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API}/api/support/tickets`, {
+        subject: 'A statement did not balance',
+        message: `Bank: ${bank || meta?.detectedBank || 'not detected'}\nFile type: ${file ? file.name.split('.').pop().toUpperCase() : 'unknown'}\nRows read: ${transactions.length}\nOff by: ${recon?.difference != null ? fmtNaira(Math.abs(recon.difference)) : 'unknown'}\nReason: ${recon?.reason || ''}\n(The file itself was not sent.)`,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setSentToUs(true);
+    } catch { setMessage({ text: 'Could not send it. Try again in a moment.', type: 'error' }); }
+  };
+  const coverage = useMemo(() => {
+    const ts = transactions.map((t) => +new Date(t.date)).filter((n) => !Number.isNaN(n));
+    if (!ts.length) return '';
+    const f = new Date(Math.min(...ts)), l = new Date(Math.max(...ts));
+    const d = (x) => x.toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' });
+    return f.toDateString() === l.toDateString() ? d(f) : `${d(f)} to ${d(l)}`;
+  }, [transactions]);
 
   // Parse pasted bank alerts (web SMS import). Rows come back already carrying
   // _parse (source 'sms'), so corrections feed the golden corpus like mobile does.
@@ -243,6 +282,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       onImportComplete(toImport);
+      setSummary(res.data.summary || null);
       setMessage({ text: res.data.message || `Imported ${toImport.length} transactions!`, type: 'success' });
       setStep('upload');
       setTransactions([]);
@@ -454,7 +494,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
           >
             {uploading ? (
               <>
-                <i className="fas fa-spinner fa-spin" aria-hidden="true"></i> Processing…
+                <i className="fas fa-spinner fa-spin" aria-hidden="true"></i> {progress?.phase === 'upload' ? `Uploading ${progress.pct}%` : 'Reading your statement…'}
               </>
             ) : (
               <>
@@ -462,6 +502,14 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
               </>
             )}
           </motion.button>
+          {progress && (
+            <div className="imp-progress" role="status" aria-live="polite">
+              <div className="imp-bar"><span style={{ width: progress.phase === 'upload' ? `${progress.pct}%` : '100%' }} className={progress.phase === 'reading' ? 'busy' : ''} /></div>
+              <p>{progress.phase === 'upload'
+                ? `Uploading your statement: ${progress.pct}%`
+                : `Reading every page and checking the balances (${elapsed}s). Long PDFs can take up to a minute; you can leave this tab open.`}</p>
+            </div>
+          )}
           </>
           )}
           <Link to="/email-forwarding" style={{ display: 'block', textAlign: 'center', marginTop: '1rem', color: 'var(--accent-primary)', fontWeight: 600, fontSize: '0.88rem', textDecoration: 'none' }}>
@@ -471,9 +519,20 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
       )}
       {step === 'review' && (
         <>
+          {unbalanced && (
+            <div className="imp-unbalanced" role="alert">
+              <strong>This statement doesn't add up.</strong>
+              <p>The money in and out on it doesn't match its closing balance{recon?.difference != null ? ` (it's off by ${fmtNaira(Math.abs(recon.difference))})` : ''}. Usually that means a page, or a few rows, couldn't be read. You can still review and import what we found, or:</p>
+              <div className="imp-actions">
+                <button type="button" className="btn-secondary" onClick={() => { reset(); if (file) setTimeout(handleUpload, 0); }}>Try again</button>
+                <button type="button" className="btn-secondary" onClick={() => { reset(); setMessage({ text: 'Download the CSV or Excel version from your bank app or internet banking, then upload that instead.', type: 'success' }); }}>Upload a different format</button>
+                <button type="button" className="btn-secondary" onClick={sendToUs} disabled={sentToUs}>{sentToUs ? 'Sent. We\'ll email you if we need the file.' : 'Send it to us'}</button>
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <div>
-              <span style={{ fontWeight: 700, color: theme.labelColor }}>{transactions.length} transactions found</span>
+              <span style={{ fontWeight: 700, color: theme.labelColor }}>{transactions.length} transactions found{coverage ? ` · ${bank || meta?.detectedBank || 'Bank not detected'} · ${coverage}` : ''}</span>
               {meta?.duplicateCount > 0 && (
                 <span style={{ marginLeft: '0.75rem', fontSize: '0.8rem', color: '#f59e0b' }}>
                   <i className="fas fa-circle-info" style={{ marginRight: '0.3rem' }} aria-hidden="true"></i>{meta.duplicateCount} already imported (pre-deselected)
@@ -622,6 +681,35 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
           </motion.button>
         </>
       )}
+
+      {step === 'upload' && summary && (
+        <div className="imp-summary">
+          <strong>Import done</strong>
+          <ul>
+            <li>{summary.added} transaction{summary.added === 1 ? '' : 's'} added</li>
+            {summary.needsReview > 0 && <li>{summary.needsReview} need{summary.needsReview === 1 ? 's' : ''} a quick look</li>}
+            {summary.duplicates > 0 && <li>{summary.duplicates} duplicate{summary.duplicates === 1 ? '' : 's'} skipped</li>}
+            {summary.fees > 0 && <li>{summary.fees} fee{summary.fees === 1 ? '' : 's'} found (filed as Bank Charges)</li>}
+            {summary.notTransactions > 0 && <li>{summary.notTransactions} message{summary.notTransactions === 1 ? '' : 's'} left out (not transactions)</li>}
+          </ul>
+          {summary.needsReview > 0 ? <Link to="/actions" className="btn-primary">Take a quick look</Link> : <Link to="/transactions" className="btn-secondary">See your transactions</Link>}
+        </div>
+      )}
+      <style>{`
+        .imp-progress { margin-top: 0.9rem; }
+        .imp-progress p { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--text-secondary); }
+        .imp-bar { height: 8px; border-radius: 999px; background: var(--bg-secondary); overflow: hidden; }
+        .imp-bar span { display: block; height: 100%; background: var(--gradient-secondary); transition: width 0.3s; }
+        .imp-bar span.busy { background: linear-gradient(90deg, var(--teal) 0%, var(--mint) 50%, var(--teal) 100%); background-size: 200% 100%; animation: impbusy 1.4s linear infinite; }
+        @keyframes impbusy { to { background-position: -200% 0; } }
+        @media (prefers-reduced-motion: reduce) { .imp-bar span.busy { animation: none; } }
+        .imp-unbalanced, .imp-summary { border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1rem; background: var(--bg-card); }
+        .imp-unbalanced { border-color: var(--warning-color); }
+        .imp-unbalanced p { margin: 0.4rem 0 0.75rem; color: var(--text-secondary); font-size: 0.9rem; }
+        .imp-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .imp-summary ul { margin: 0.5rem 0 0.9rem; padding-left: 1.1rem; color: var(--text-secondary); }
+        .imp-summary .btn-primary, .imp-summary .btn-secondary { display: inline-flex; text-decoration: none; }
+      `}</style>
 
       {step === 'importing' && (
         <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>

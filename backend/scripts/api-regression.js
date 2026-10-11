@@ -577,6 +577,59 @@ async function main() {
     check('2.3 the card names them plainly', card?.label === 'Alerts with no sender name' && card.guess === null);
   }
 
+  // ── Round 3, section 3: classify first, review stack, personal rules, fees, learning ──
+  {
+    const db = mongoose.connection.db;
+    const { body: k3 } = await call('POST', '/api/capture/key');
+    const C3 = { 'x-capture-key': k3.key, 'Content-Type': 'application/json' };
+    const cap3 = (text) => call('POST', '/api/ingest/capture', { source: 'sms', text, sender: 'GTBANK', postedAt: Date.now() }, C3);
+    const before = (await db.collection('transactions').countDocuments({ userId: insertedId }));
+    const unclear = await cap3('NGN 7,250 sent to TUNDE BAKARE via app');
+    check('3.1 an unclear alert waits in the review stack, not the ledger', unclear.body?.pending === true && (await db.collection('transactions').countDocuments({ userId: insertedId })) === before, JSON.stringify(unclear.body));
+    let ac3 = (await call('GET', '/api/action-center')).body.items.filter((i) => i.type === 'review_alert');
+    check('3.1 it shows in the Action Center with its text', ac3.length === 1 && /7,250/.test(ac3[0].raw));
+    const conf = await call('POST', `/api/pending-alerts/${ac3[0].id}/confirm`, { amount: 7250, type: 'expense', description: 'Transfer to Tunde' });
+    const saved3 = await db.collection('transactions').findOne({ userId: insertedId, description: 'Transfer to Tunde' });
+    check('3.1 confirming it adds the transaction', conf.body?.saved && saved3 && saved3.amount === -7250, JSON.stringify(conf.body));
+    check('3.3 the confirmation is logged as a correction', !!(await db.collection('correctionevents').findOne({ userId: insertedId, kind: 'confirmed' })));
+
+    const promo = 'Hello! NGN 2,000 bonus waiting when you play today. Reply YES';
+    await cap3(promo);
+    const held = (await call('GET', '/api/action-center')).body.items.find((i) => i.type === 'review_alert');
+    await call('POST', `/api/pending-alerts/${held.id}/not-transaction`);
+    const again = await cap3(promo.replace('2,000', '5,000'));
+    check('3.3 "not a transaction" becomes a personal rule for alerts like it', again.body?.ignored === true && again.body.reason === 'yours', JSON.stringify(again.body));
+    check('3.3 and is logged', !!(await db.collection('correctionevents').findOne({ userId: insertedId, kind: 'not_transaction' })));
+
+    await cap3('GTBank Debit Alert\nAcct: ******7788\nAmt: NGN25,000.00\nDesc: NIP TRANSFER TO ADA OBI\nDate: 05-10-2026\nAvail Bal: NGN40,000.00');
+    await cap3('GTBank Debit Alert\nAcct: ******7788\nAmt: NGN26.88\nDesc: NIP TRANSFER FEE\nDate: 05-10-2026\nAvail Bal: NGN39,973.12');
+    const fee = await db.collection('transactions').findOne({ userId: insertedId, amount: -26.88 });
+    const cause = await db.collection('transactions').findOne({ userId: insertedId, amount: -25000 });
+    check('3.1 a fee alert is filed as Bank Charges', fee?.category === 'Bank Charges', JSON.stringify(fee));
+    check('3.1 and linked to the transfer that caused it', fee && cause && fee.feeFor === String(cause._id));
+
+    const imp3 = await call('POST', '/api/import-transactions', { bank: '', channel: 'sms', transactions: [
+      { date: '2026-10-06', amount: 1500, description: 'POS KFC', type: 'expense', category: 'Food', bank: 'GTBank', _parse: { rawText: 'Acct ****7788 debited NGN1,500.00 POS KFC. Bal NGN10,000.00' } },
+      { date: '2026-10-06', amount: 482913, description: 'OTP', type: 'expense', category: 'Other', _parse: { rawText: '482913 is your one-time password. Do not share it.' } },
+      { date: '2026-10-06', amount: 50, description: 'FGN Stamp Duty', type: 'expense', category: 'Other', _parse: { rawText: 'Debit\nAmt:NGN50.00\nDesc:FGN Stamp Duty\nDate:06/10/2026\nAvail Bal:NGN9,950.00' } },
+    ] });
+    check('3.4 the import summary counts added, fees and non-transactions', imp3.body?.summary?.added === 2 && imp3.body.summary.fees === 1 && imp3.body.summary.notTransactions === 1, JSON.stringify(imp3.body));
+    check('3.4 and says it in words', /2 transactions added/.test(imp3.body?.message || '') && /1 fee found/.test(imp3.body.message), imp3.body?.message);
+    check('3.1 an OTP never reaches the ledger', !(await db.collection('transactions').findOne({ userId: insertedId, amount: -482913 })));
+
+    // 3.3: a shared rule needs 5 users and an admin.
+    await db.collection('globalcategories').insertOne({ key: 'r3 test merchant', counts: { Food: 5 }, total: 5, updatedAt: new Date() });
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'superadmin' } });
+    const rep = (await call('GET', '/api/admin/learning')).body;
+    check('3.3 a rule 5 users agree on waits for review', rep.pendingRules?.some((r) => r.key === 'r3 test merchant' && r.category === 'Food'), JSON.stringify(rep.pendingRules));
+    check('3.2 the report carries the test-set coverage per bank', Array.isArray(rep.corpus) && rep.corpus.length >= 7 && rep.corpus.every((r) => 'ruled' in r));
+    const ok3 = await call('POST', `/api/admin/global-rules/${encodeURIComponent('r3 test merchant')}/approve`);
+    const g = await db.collection('globalcategories').findOne({ key: 'r3 test merchant' });
+    check('3.3 approving makes it live', ok3.status === 200 && g.status === 'approved' && g.approvedCategory === 'Food');
+    check('3.3 an approved rule leaves the queue', !(await call('GET', '/api/admin/learning')).body.pendingRules.some((r) => r.key === 'r3 test merchant'));
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
+  }
+
   // ── Round 3, 1.2: account deletion from the website (email link, then confirm) ──
   {
     const db = mongoose.connection.db;

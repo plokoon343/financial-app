@@ -15,6 +15,7 @@ const day = (d) => (d ? new Date(d).toLocaleDateString('en-NG', { day: 'numeric'
 const SOURCE = { email: 'Email alert', notification: 'Bank app notification', sms: 'Bank text', share: 'Shared receipt', import: 'Statement', manual: 'Added by you' };
 
 const SECTIONS = [
+  { type: 'review_alert', title: 'Alerts to check', hint: 'We weren’t sure these were transactions, so nothing was added. Save the real ones, and tell us which aren’t.' },
   { type: 'review_transaction', title: 'Check these transactions', hint: 'We read these automatically but weren’t sure. Confirm, fix or remove each one.' },
   { type: 'possible_duplicate', title: 'Possible duplicates', hint: 'The same amount, a day apart or less, from different places. Remove the copy or keep both.' },
   { type: 'name_subscription', title: 'What are these subscriptions?', hint: 'Your bank printed a name we don’t recognise.' },
@@ -65,9 +66,36 @@ function ReviewCard({ item, act, later }) {
           <>
             <button type="button" className="btn-primary" onClick={() => act(() => axios.post(`${API_URL}/api/transactions/${t.id}/reviewed`, {}, auth()))}>Looks right</button>
             <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>Fix it</button>
-            <button type="button" className="btn-danger" onClick={() => later('Transaction removed', () => axios.delete(`${API_URL}/api/transactions/${t.id}`, auth()))}>Remove</button>
+            <button type="button" className="btn-danger" onClick={() => later('Removed. We’ve noted it wasn’t a transaction.', () => axios.post(`${API_URL}/api/transactions/${t.id}/not-transaction`, {}, auth()))}>Not a transaction</button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// An alert held back because the rules weren't sure: nothing is in the ledger until
+// the user saves it. "Not a transaction" also drops alerts like it from now on.
+function AlertCard({ item, act, later }) {
+  const p = item.parsed || {};
+  const [form, setForm] = useState({ description: p.description || '', amount: p.amount ? String(p.amount) : '', type: p.directionKnown ? p.type : '', date: (p.date || '').slice(0, 10) });
+  const ready = Number(form.amount) > 0 && (form.type === 'income' || form.type === 'expense');
+  return (
+    <div className="acx-card">
+      <pre className="acx-raw">{item.raw}</pre>
+      <span className="acx-meta">{SOURCE[item.source] || 'Alert'}{p.bank ? ` · ${p.bank}` : ''} · we read it as below; fix anything that’s wrong</span>
+      <div className="acx-edit">
+        <input aria-label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <input aria-label="Amount" inputMode="decimal" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d.]/g, '') })} />
+        <Select aria-label="Money in or out" value={form.type} placeholder="Money in or out?" onChange={(e) => setForm({ ...form, type: e.target.value })}>
+          <option value="expense">Money out</option>
+          <option value="income">Money in</option>
+        </Select>
+        <input aria-label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+      </div>
+      <div className="acx-actions">
+        <button type="button" className="btn-primary" disabled={!ready} onClick={() => act(() => axios.post(`${API_URL}/api/pending-alerts/${item.id}/confirm`, { ...form, amount: Number(form.amount) }, auth()))}>Save it</button>
+        <button type="button" className="btn-secondary" onClick={() => later('Got it. Alerts like this will be left out.', () => axios.post(`${API_URL}/api/pending-alerts/${item.id}/not-transaction`, {}, auth()))}>Not a transaction</button>
       </div>
     </div>
   );
@@ -169,6 +197,7 @@ function SenderCard({ item, act, later, banks, setBanks }) {
 }
 
 const CARDS = {
+  review_alert: AlertCard,
   review_transaction: ReviewCard,
   possible_duplicate: DuplicateCard,
   name_subscription: NameSubscriptionCard,
@@ -252,6 +281,7 @@ export default function ActionCenter() {
         .acx-txn-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
         .acx-txn-desc { color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; }
         .acx-meta { color: var(--text-secondary); font-size: 0.8rem; }
+        .acx-raw { margin: 0 0 6px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary); font: 0.82rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }
         .acx-amount { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .acx-amount.income { color: var(--income-color); }
         .acx-amount.expense { color: var(--expense-color); }

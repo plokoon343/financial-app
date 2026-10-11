@@ -81,11 +81,11 @@ check('suggestion never carries an amount', !('total' in validateSuggestion({ me
   const { runStripped } = require('./aiProviders');
   let sent = '';
   const fakeFetch = async (_url, opts) => { sent = opts.body; return { ok: true, json: async () => ({ choices: [{ message: { content: '```json\n{"merchant":"Shoprite","category":"Groceries"}\n```' } }] }) }; };
-  const run = (req) => runStripped(req, { env: { GROQ_API_KEY: 'k' }, fetchImpl: fakeFetch });
+  const run = (req) => runStripped(req, { env: { GEMINI_API_KEY: 'k' }, fetchImpl: fakeFetch });
   const got = await suggestReceiptLLM(red, CATS, run);
   check('AI request body has no digits from the receipt', !/\d/.test(JSON.parse(sent).messages.find((m) => m.role === 'user').content), sent);
   check('fenced JSON reply is read', got && got.merchant === 'Shoprite' && got.category === 'Groceries', got);
-  const junk = await suggestReceiptLLM(red, CATS, async () => ({ text: 'sorry', provider: 'groq' }));
+  const junk = await suggestReceiptLLM(red, CATS, async () => ({ text: 'sorry', provider: 'gemini-free' }));
   check('a non-JSON reply gives null', junk === null);
   check('no provider answering gives null, so the rules result stands', (await suggestReceiptLLM(red, CATS, async () => null)) === null);
   check('a cashier name never reaches the AI', !/Musa/.test(redactForAi('SHOPRITE\nCashier: Musa Bello\nTOTAL 1,000')));

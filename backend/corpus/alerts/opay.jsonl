@@ -1,0 +1,3 @@
+{"raw":"Acct:00*****958\nAmt:4,908.60 Dr\nDesc: Mob trans to MUSA BELLO JOHN ¡ OPay (6351148058)\nTime:17-Aug-26 20:42\nBal:30.65\nAvail:30.65\nPowered by ALLWORKERS","expected":{"amount":4908.6,"direction":"debit","date":"2026-08-17","counterparty":"MUSA BELLO JOHN","category":"Transfer","bank":"OPay"},"anonymised":true}
+{"raw":"You have received NGN 20,000.00 from FUNKE ADEYEMI. Ref: 074185296. Bal: NGN 28,000.00 on 03-Oct-2026","expected":{"amount":20000,"direction":"credit","date":"2026-10-03"},"anonymised":true}
+{"raw":"Reversal: NGN 3,000.00 has been credited back to your account on 03-Oct-2026. Ref: 99812","expected":{"amount":3000,"direction":"credit","date":"2026-10-03"},"anonymised":true}

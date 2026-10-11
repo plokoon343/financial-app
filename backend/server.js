@@ -23,13 +23,17 @@ const { parseOpayStatement } = require('./lib/opayStatement');
 const { extractStatement: llmExtractStatement } = require('./lib/llmStatement');
 const { extractCounterparty, contactKey, familySignal, isSelf } = require('./lib/counterparty');
 const { normalizeAmount } = require('./lib/amount');
+const { MONTH_MAP, fixYear, isSaneDate, normalizeAnyDate } = require('./lib/dates');
 const inboundEmail = require('./lib/inboundEmail');
 const shareIngest = require('./lib/shareIngest');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
 const { channelFor, isChannelName, cleanBank } = require('./lib/channel');
+const { BANK_SIGNATURES, detectBank, normalizeSenderKey, fingerprintAccount } = require('./lib/bankDetect');
 const { resolveBank: resolveBankRegistry, guessBank, extractAccountMask, BANKS: BANK_REGISTRY, TYPES: BANK_TYPES } = require('./lib/bankRegistry');
-const { detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason } = require('./lib/alertParse');
+const { detectDirection, parseLabeledAlert, alertDescription } = require('./lib/alertParse');
+const { classifyAlert, alertIgnoreReason, alertShape } = require('./lib/alertClassify');
+const { parseAlert } = require('./lib/alertParser');
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
@@ -312,6 +316,9 @@ const userSchema = new mongoose.Schema({
   customBanks: { type: [{ _id: false, code: String, name: String, type: { type: String, enum: ['bank', 'mfb', 'fintech'] } }], default: [] },
   // First-time tips already shown, so they never repeat on any device.
   seenTips:    { type: [String], default: [] },
+  // Personal "not a transaction" rules: the shape of alerts the user said aren't
+  // transactions (digits blanked), so the same kind of alert is dropped next time.
+  ignoreShapes: { type: [String], default: [], select: false },
   lastActiveAt: { type: Date },
   // Which app the account was created in (web, android-beta, android-play, ios), for
   // the signup metrics. Sent by the clients as the X-Client header.
@@ -475,6 +482,8 @@ const transactionSchema = new mongoose.Schema({
   cashParentId:  { type: String, default: '' },
   // Share-to-Automonie ingestion (share-sheet channel): provenance of a shared alert.
   parseConfidence: { type: String, default: '' },   // 'high' | 'low' at confirm time
+  // A bank fee (stamp duty, transfer fee, VAT...) points at the transaction that caused it.
+  feeFor: { type: String, default: '' },
   parseId:         { type: String, default: '' },   // ties the saved row to its parse
   dedupeGroupId:   { type: String, default: '' },   // shared with a merged auto-forward twin
   // Set when the user confirms a low-confidence row in the Action Center.
@@ -650,6 +659,12 @@ const globalCategorySchema = new mongoose.Schema({
   counts:   { type: mongoose.Schema.Types.Mixed, default: {} }, // { <catSlug>: votes }
   total:    { type: Number, default: 0 },
   updatedAt:{ type: Date, default: Date.now },
+  // Admin review (Round 3, 3.3): a rule only applies to everyone once approved.
+  status:           { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  approvedCategory: { type: String, default: '' },
+  rejectedCategory: { type: String, default: '' },
+  reviewedBy:       { type: String, default: '' },
+  reviewedAt:       { type: Date },
 });
 const GlobalCategory = mongoose.model('GlobalCategory', globalCategorySchema);
 
@@ -733,7 +748,7 @@ const globalEligible = (c) => GLOBAL_ELIGIBLE_CATEGORIES.has(c);
 const catSlug = (c) => c.replace(/[^a-z0-9]+/gi, '_');
 const SLUG_TO_CAT = new Map([...GLOBAL_ELIGIBLE_CATEGORIES].map((c) => [catSlug(c), c]));
 // Consensus is only trusted with enough independent votes AND a clear majority.
-const GLOBAL_MIN_VOTES = 4;
+const GLOBAL_MIN_VOTES = 5; // different users, then an admin approves it (Admin, Learning)
 const GLOBAL_MIN_SHARE = 0.6;
 
 // Support tickets submitted from the Support/FAQ page; superadmins review them.
@@ -1185,7 +1200,6 @@ const extractPdfText = async (buffer, password = '') => {
 };
 
 // Month map for DD-Mon-YYYY dates used by most Nigerian banks.
-const MONTH_MAP = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
 // Money: 1,234.56 / 50.00 / .75  (comma thousands optional, leading digits optional)
 const STMT_MONEY_RE = /(?:\d{1,3}(?:,\d{3})+|\d+)?\.\d{2}/g;
 // A line that *starts* a transaction record begins with a date in one of these forms:
@@ -1194,57 +1208,8 @@ const STMT_MONEY_RE = /(?:\d{1,3}(?:,\d{3})+|\d+)?\.\d{2}/g;
 //   2026-05-09   (YYYY-MM-DD)
 const STMT_DATE_START_RE = /^(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2})/;
 
-// Repair a year token to a 4-digit year. Bank-statement PDFs have no column
-// delimiters, so the text extractor glues the date to the next column. A 2-digit
-// year ("26") then absorbs the following day ("29") and arrives here as "2629".
-// A 4-digit year ("2026") can absorb a day and arrive as "202629". Recover the
-// real year for each case instead of trusting the raw digits.
-const fixYear = (raw) => {
-  const y = String(raw || '');
-  if (y.length === 2) return '20' + y;                                  // 26 -> 2026
-  if (y.length === 4) {
-    if (/^(?:19|20)\d{2}$/.test(y)) return y;                           // 2026 -> 2026
-    if (y.startsWith('0')) return '20' + y.slice(2);                    // 0026 -> 2026
-    return '20' + y.slice(0, 2);                                        // 2629 -> 2026 (glued 2-digit yr)
-  }
-  if (y.length > 4) {
-    if (/^(?:19|20)/.test(y)) return y.slice(0, 4);                     // 202629 -> 2026 (glued 4-digit yr)
-    return '20' + y.slice(0, 2);                                        // 262912 -> 2026
-  }
-  return y;
-};
 
-// Reject dates that parsed to something impossible - a wrong year/month/day means
-// the row was mis-read and should be skipped rather than saved with bad data.
-const isSaneDate = (y, mo, dy) => {
-  const yr = parseInt(y, 10), m = parseInt(mo, 10), d = parseInt(dy, 10);
-  if (yr < 2000 || yr > new Date().getFullYear() + 1) return false;
-  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
-  return true;
-};
 
-// Normalise any supported date token to YYYY-MM-DD (returns null if unrecognised
-// or implausible).
-const normalizeAnyDate = (raw) => {
-  const s = (raw || '').trim();
-  let m, y, mon, day;
-  // DD-Mon-YYYY (also DD/Mon/YYYY)
-  if ((m = s.match(/^(\d{1,2})[\/-]([A-Za-z]{3})[\/-](\d{2,4})$/))) {
-    mon = MONTH_MAP[m[2].toLowerCase()];
-    if (!mon) return null;
-    y = fixYear(m[3]); day = m[1].padStart(2, '0');
-  // YYYY-MM-DD
-  } else if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/))) {
-    y = m[1]; mon = m[2]; day = m[3];
-  // DD/MM/YY or DD/MM/YYYY (also DD-MM-YYYY)
-  } else if ((m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/))) {
-    y = fixYear(m[3]); mon = m[2].padStart(2, '0'); day = m[1].padStart(2, '0');
-  } else {
-    return null;
-  }
-  if (!isSaneDate(y, mon, day)) return null;
-  return `${y}-${mon}-${day}`;
-};
 
 // Broader date normaliser for the generic fallback strategies, which also see
 // "2 May 2024" and "02.05.2024" / "2024/05/02" forms. Returns YYYY-MM-DD or null.
@@ -1764,7 +1729,8 @@ const applyGlobalCategories = async (transactions) => {
     for (const [slug, n] of Object.entries(counts)) { if (n > 0) { total += n; if (n > bestN) { bestN = n; bestSlug = slug; } } }
     if (bestSlug && bestN >= GLOBAL_MIN_VOTES && total > 0 && bestN / total >= GLOBAL_MIN_SHARE) {
       const cat = SLUG_TO_CAT.get(bestSlug);
-      if (cat) winner.set(d.key, cat);
+      // Live only once an admin approved this exact category.
+      if (cat && d.status === 'approved' && d.approvedCategory === cat) winner.set(d.key, cat);
     }
   }
   if (!winner.size) return transactions;
@@ -1922,63 +1888,7 @@ const reconcileTransfers = async (userId, { allHistory = false } = {}) => {
   return { classified: auto.length, charges, ask: ask.length };
 };
 
-// Best-effort detection of the issuing bank from statement text. List order is the
-// priority (so a statement that merely *mentions* another bank in a narration still
-// resolves to its real issuer). Keywords are specific phrases to avoid false hits
-// (e.g. bare "uba" would match "Abuja"). The user confirms/overrides on review.
-const BANK_SIGNATURES = [
-  ['Union Bank', ['union bank']],
-  ['GTBank', ['gtbank', 'guaranty trust', 'gtworld', 'gt bank']],
-  ['Kuda', ['kuda']],
-  ['Access Bank', ['access bank', 'diamond bank']],
-  ['Zenith Bank', ['zenith bank']],
-  ['First Bank', ['first bank', 'firstbank']],
-  ['UBA', ['united bank for africa']],
-  ['Wema Bank', ['wema bank', 'alat']],
-  ['Fidelity Bank', ['fidelity bank']],
-  ['FCMB', ['fcmb', 'first city monument']],
-  ['Sterling Bank', ['sterling bank']],
-  ['Stanbic IBTC', ['stanbic']],
-  ['Polaris Bank', ['polaris bank']],
-  ['Ecobank', ['ecobank']],
-  ['Keystone Bank', ['keystone bank']],
-  ['Unity Bank', ['unity bank']],
-  ['Providus Bank', ['providus']],
-  ['Opay', ['opay']],
-  ['PalmPay', ['palmpay']],
-  ['Moniepoint', ['moniepoint']],
-  ['Paystack-Titan', ['titan-paystack', 'paystack titan']],
-];
-const detectBank = (text = '') => {
-  // Registry cascade first (resolves truncated sender IDs like PREMIUMTRST, and email
-  // domains), then the legacy keyword signatures as a fallback.
-  const m = resolveBankRegistry(text);
-  if (m) return m.name;
-  const l = (text || '').toLowerCase();
-  for (const [name, kws] of BANK_SIGNATURES) {
-    if (kws.some(kw => l.includes(kw))) return name;
-  }
-  return '';
-};
 
-// Account fingerprint from an alert/statement (spec Addendum A, slice 2): the
-// registry bank code + name (so multiple sender-ID spellings collapse to one code)
-// and the masked account tail. Returns empty strings when unknown: never guesses.
-// An explicit sender ID (SMS address / email from) is fed to the resolver's fuzzy
-// path and, when the bank is still unknown, kept as senderKey for the learn-unknown
-// -senders flywheel (Addendum A slice 3).
-const normalizeSenderKey = (s = '') => (s || '').toString().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
-const fingerprintAccount = (text = '', sender = '') => {
-  const m = resolveBankRegistry(text, sender || undefined);
-  const key = normalizeSenderKey(sender);
-  return {
-    bankCode: m ? m.code : '',
-    bankName: m ? m.name : detectBank(text),
-    accountMask: extractAccountMask(text) || '',
-    // Only a meaningful (≥4 char) sender is worth learning; skip shortcodes/blanks.
-    senderKey: !m && key.length >= 4 ? key : '',
-  };
-};
 
 // Record that a (bankCode, accountMask) pair was seen for a user, creating the
 // UserAccount on first sight (unnamed) and bumping its counters otherwise. Needs a
@@ -2568,7 +2478,7 @@ async function deleteUserData(userId, email) {
   await Promise.all([
     Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
-    Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview,
+    Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview, PendingAlert, CorrectionEvent,
   ].map((M) => M.deleteMany({ userId: uid })));
   await ActivityDay.deleteMany({ userId: uid });
   // 'billpayments' also holds the current bill purchases (they carry a VTpass
@@ -2975,6 +2885,8 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
     if (!txn) return res.status(404).json({ message: 'Transaction not found' });
     const { date, description, amount, category, type } = req.body;
     const categoryChanged = category !== undefined && category.trim() !== txn.category;
+    // Every correction is logged for learning (personal rules + the weekly report).
+    const before = { description: txn.description, category: txn.category, type: txn.type, amount: Math.abs(txn.amount) };
     if (date !== undefined) txn.date = new Date(date);
     if (description !== undefined) txn.description = description.trim();
     if (type !== undefined) txn.type = type;
@@ -2989,6 +2901,10 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
       txn.amount = newType === 'expense' ? -a : a;
     }
     await txn.save();
+    if (categoryChanged) logCorrection(req.user._id, 'category', { description: before.description, from: before.category, to: txn.category });
+    if (description !== undefined && txn.description !== before.description) logCorrection(req.user._id, 'merchant', { description: before.description, from: before.description, to: txn.description });
+    if (type !== undefined && type !== before.type && ['income', 'expense'].includes(type)) logCorrection(req.user._id, 'direction', { description: txn.description, from: before.type, to: type, bankCode: txn.bankCode });
+    if (amount !== undefined && Math.abs(Math.abs(parseFloat(amount)) - before.amount) >= 0.01) logCorrection(req.user._id, 'amount', { description: txn.description, from: before.amount, to: Math.abs(parseFloat(amount)), bankCode: txn.bankCode });
     if (categoryChanged) {
       await learnCategories(req.user._id, [{ description: txn.description, category: txn.category }]);
       // "or any other way": a manual recategorise to Subscriptions also surfaces it.
@@ -3879,76 +3795,9 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
 // here we reuse the server's amount/date/type/category helpers to seed the review
 // table. What matters for accuracy is that the RAW text + the values the user
 // finalises are logged (source 'sms'), so they grow the golden corpus.
-// Money in an alert: "NGN 5,000.00" / "₦5,000" / "N5000" (N only when it directly
-// precedes a digit, so the 'n' in "on"/"in" isn't mistaken for naira) / a bare 2dp
-// figure. Groups 1|2|3 hold the number.
-const SMS_MONEY_RE = /(?:ngn|naira|₦)\s*([\d,]+(?:\.\d{1,2})?)|\bn(\d[\d,]*(?:\.\d{1,2})?)|\b([\d,]+\.\d{2})\b/gi;
-// detectDirection (tiered credit/debit inference) + parseLabeledAlert (structured
-// "Label : Value" alerts like GTBank GeNS) live in lib/alertParse: pure + corpus-
-// tested against real bank emails.
-const SMS_DATE_RE = /\b(\d{1,2}[\/-][A-Za-z]{3}[\/-]\d{2,4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/i;
-
-function parseOneAlert(msg, source = 'sms', sender = '') {
-  const raw = msg.trim();
-  if (!raw) return null;
-  if (alertIgnoreReason(raw)) return null; // Stage 1.3: not a transaction → drop
-
-  // Fast path: structured "Label : Value" alerts (GTBank GeNS et al.) state the
-  // amount + direction explicitly, so parse the fields directly: far more reliable
-  // than inferring from free text. Falls through to the generic path when it's not
-  // a labelled alert.
-  const labeled = parseLabeledAlert(raw);
-
-  // Amount: labelled field if present, else first money-looking token (normalised).
-  let amount = null, amtConf = 'low';
-  if (labeled) { amount = labeled.amount; amtConf = 'high'; }
-  else {
-    const monies = [];
-    let m;
-    SMS_MONEY_RE.lastIndex = 0;
-    while ((m = SMS_MONEY_RE.exec(raw)) !== null) monies.push(m[1] || m[2] || m[3]);
-    for (const tok of monies) {
-      const norm = normalizeAmount(tok);
-      if (norm.value != null) { amount = norm.value; amtConf = norm.confidence; break; }
-    }
-  }
-  // Direction: labelled field is authoritative; else tiered inference.
-  const dir = labeled ? { type: labeled.type, conf: 'high' } : detectDirection(raw);
-  const type = dir.type;
-  const dirConf = dir.conf;
-  // Date: labelled Value Date, else first date-looking token, else today. The caller
-  // can see whether the text had a date (email falls back to when it was received).
-  const dm = raw.match(SMS_DATE_RE);
-  const textDate = (labeled && labeled.date && normalizeAnyDate(labeled.date)) || (dm && normalizeAnyDate(dm[1])) || null;
-  const date = textDate || new Date().toISOString().slice(0, 10);
-  // Description: labelled field, else a narration field or the counterparty phrase
-  // (never the email subject or greeting), else strip money/dates/refs from the body.
-  const description = (labeled && labeled.description) || alertDescription(raw) || (raw
-    .replace(SMS_MONEY_RE, ' ')
-    .replace(SMS_DATE_RE, ' ')
-    .replace(/\b(?:ref|txn|transaction id|receipt)[:#\s]*[A-Za-z0-9]+/gi, ' ')
-    .replace(/\b\d{6,}\b/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-    .slice(0, 140)) || 'Bank alert';
-  const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(raw, sender);
-  const bank = bankName || detectBank(raw);
-  const category = categorizeTransaction(description, type);
-  const confidence = amount != null && dirConf === 'high' && amtConf !== 'low' ? 'high' : (amount != null ? 'medium' : 'low');
-  return {
-    date, dateFromText: !!textDate, directionKnown: dirConf !== 'low', description, amount: amount != null ? +Number(amount).toFixed(2) : 0,
-    type, category, bank, bankCode, accountMask, senderKey, reference: null, raw,
-    // low-confidence amount is left visibly empty for the user to fill (spec A6).
-    needsReview: confidence === 'low',
-    confidence,
-    _parse: {
-      rawText: raw, source, bank, parserVersion: 'backend-sms-lite-v1', parserPath: 'deterministic',
-      amount: amount != null ? +Number(amount).toFixed(2) : null,
-      direction: type === 'income' ? 'credit' : 'debit',
-      date, counterparty: description, category, confidence,
-    },
-  };
-}
+// One alert -> one row (lib/alertParser: classify first, then the bank's patterns,
+// then the shared ones; the amount is never the balance). null = not a transaction.
+const parseOneAlert = (msg, source = 'sms', sender = '') => parseAlert(msg, { source, sender });
 
 // Tier-2 rescue for an alert the rules couldn't read (personal data: paid Gemini only).
 // The model only points at the amount by quoting it; lib/llmExtract checks the quote
@@ -4218,6 +4067,73 @@ app.post('/api/inbound-email/gmail-verification/clear', auth, async (req, res) =
 // Save one parsed alert for a user unless it duplicates a row within a day (any
 // source). Returns 1 when saved, 0 for a duplicate. Shared by email, background
 // capture and the quiet share target.
+// ── Review stack, corrections and fees (Round 3, 3.1 and 3.3) ──
+// An alert the rules weren't sure about waits here (shown in the Action Center) until
+// the user confirms it or says it isn't a transaction. Kept 60 days at most.
+const pendingAlertSchema = new mongoose.Schema({
+  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  source:  { type: String, default: 'sms' },
+  raw:     { type: String, default: '' },   // shown to the user so they can judge it
+  parsed:  { type: mongoose.Schema.Types.Mixed, default: {} },
+  reason:  { type: String, default: 'unclear' },
+  createdAt: { type: Date, default: Date.now, expires: 60 * 86400 },
+});
+const PendingAlert = mongoose.model('PendingAlert', pendingAlertSchema);
+
+// Every correction a user makes (category, merchant, direction, amount, "not a
+// transaction"), for personal rules and the weekly learning report. Only the
+// anonymised merchant key and the values, never the alert text.
+const correctionEventSchema = new mongoose.Schema({
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  kind:        { type: String, enum: ['category', 'merchant', 'direction', 'amount', 'not_transaction', 'confirmed'], required: true },
+  merchantKey: { type: String, default: '' },
+  from:        { type: String, default: '' },
+  to:          { type: String, default: '' },
+  bankCode:    { type: String, default: '' },
+  createdAt:   { type: Date, default: Date.now, expires: 400 * 86400 },
+});
+correctionEventSchema.index({ createdAt: -1, kind: 1 });
+const CorrectionEvent = mongoose.model('CorrectionEvent', correctionEventSchema);
+
+const isUnsure = (p) => !p || p.kind === 'unsure' || !(p.amount > 0) || !p.directionKnown;
+const slimParsed = (p) => ({
+  date: p.date, description: p.description, amount: p.amount || 0, type: p.type, category: p.category,
+  bank: p.bank || '', bankCode: p.bankCode || '', accountMask: p.accountMask || '', senderKey: p.senderKey || '',
+  directionKnown: !!p.directionKnown, isFee: !!p.isFee,
+});
+async function holdForReview(userId, parsed, raw, source, reason) {
+  try { await PendingAlert.create({ userId, source, raw: String(raw || '').slice(0, 1000), parsed: slimParsed(parsed), reason }); }
+  catch (e) { console.error('[review-stack]', e.message); }
+}
+function logCorrection(userId, kind, { description = '', from = '', to = '', bankCode = '' } = {}) {
+  CorrectionEvent.create({ userId, kind, merchantKey: deriveCategoryKey(description) || '', from: String(from).slice(0, 60), to: String(to).slice(0, 60), bankCode: String(bankCode || '').slice(0, 24) })
+    .catch((e) => console.error('[correction-log]', e.message));
+}
+async function isIgnoredByUser(userId, text) {
+  const shape = alertShape(text);
+  if (!shape) return false;
+  return !!(await User.exists({ _id: userId, ignoreShapes: shape }));
+}
+async function rememberNotTransaction(userId, text) {
+  const shape = alertShape(text);
+  if (shape) await User.updateOne({ _id: userId }, { $push: { ignoreShapes: { $each: [shape], $slice: -200 } } });
+}
+
+// Point a fee at the transaction that caused it: a debit the same day on the same
+// bank (and account, when known). Only when exactly one fits; a weekly stamp-duty
+// summary or a busy day stays unlinked rather than guessed.
+async function linkFee(userId, fee) {
+  try {
+    const d = new Date(fee.date);
+    const start = new Date(d.getTime() - 12 * 3600000), end = new Date(d.getTime() + 12 * 3600000);
+    const q = { userId, _id: { $ne: fee._id }, type: 'expense', category: { $ne: 'Bank Charges' }, date: { $gte: start, $lte: end } };
+    if (fee.bankCode) q.bankCode = fee.bankCode;
+    if (fee.accountMask) q.accountMask = fee.accountMask;
+    const hits = await Transaction.find(q).select('_id').limit(2).lean();
+    if (hits.length === 1) await Transaction.updateOne({ _id: fee._id }, { $set: { feeFor: String(hits[0]._id) } });
+  } catch (e) { console.error('[link-fee]', e.message); }
+}
+
 async function ingestAlert(user, parsed, source = 'email') {
   const when = new Date(parsed.date);
   const gte = new Date(when.getTime() - 86400000), lte = new Date(when.getTime() + 86400000);
@@ -4241,13 +4157,14 @@ async function ingestAlert(user, parsed, source = 'email') {
     const st = await resolveAccountStamp(user._id, eCode, eMask);
     if (st.merged) { eCode = st.bankCode; eMask = st.accountMask; eBank = st.bankName || eBank; }
   }
-  await new Transaction({
+  const saved = await new Transaction({
     userId: user._id, date: when, description: parsed.description, amount: signed,
-    category: parsed.category || 'Other', type: kind || parsed.type,
+    category: parsed.isFee ? 'Bank Charges' : (parsed.category || 'Other'), type: parsed.isFee ? 'expense' : (kind || parsed.type),
     source, bank: eBank, importedAt: new Date(),
     bankCode: eCode, accountMask: eMask, senderKey: eSender,
     ...(parsed.confidence ? { parseConfidence: String(parsed.confidence).slice(0, 8) } : {}),
   }).save();
+  if (parsed.isFee) await linkFee(user._id, saved);
   await touchUserAccount(user._id, { bankCode: eCode, bankName: eBank, accountMask: eMask }, when);
   await maybeLinkSubscription(user._id, { description: parsed.description, amount: parsed.amount, category: parsed.category, date: when, bankName: eBank });
   return 1;
@@ -4403,11 +4320,11 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     for (const parsed of parsedRows) {
       // Only the rules decide direction. With no debit/credit wording at all it is
       // a notice, not a transaction, and must not land in the ledger as spending.
-      if (!parsed.directionKnown) continue;
       if (sentDay && parsed.dateFromText === false) parsed.date = sentDay;
+      if (isUnsure(parsed)) { await holdForReview(user._id, parsed, parsed.raw || '', 'email', 'unclear'); continue; }
       if (bodyDescription) {
         parsed.description = bodyDescription;
-        parsed.category = categorizeTransaction(bodyDescription, parsed.type);
+        parsed.category = parsed.isFee ? 'Bank Charges' : categorizeTransaction(bodyDescription, parsed.type);
       }
       created += await ingestAlert(user, parsed, 'email');
     }
@@ -4459,7 +4376,8 @@ async function actionCenterItems(userId) {
   const keptRows = await KeptPair.find({ userId }, { pairKey: 1 }).lean();
   const kept = new Set(keptRows.map((k) => k.pairKey));
   const notSenders = await dismissedSenderKeys(userId);
-  const [lowConf, dupes, unnamedSubs, detected, accounts, senders] = await Promise.all([
+  const [pending, lowConf, dupes, unnamedSubs, detected, accounts, senders] = await Promise.all([
+    PendingAlert.find({ userId }).sort({ createdAt: -1 }).limit(30).lean(),
     // Anything saved without the user seeing it that the rules weren't sure about.
     Transaction.find({ userId, reviewedAt: { $exists: false }, $or: [{ parseConfidence: 'low' }, { parseConfidence: 'medium', source: { $in: ['email', 'notification', 'sms'] } }] }).sort({ date: -1 }).limit(30).lean(),
     findPossibleDuplicates(userId, kept),
@@ -4473,6 +4391,7 @@ async function actionCenterItems(userId) {
     ]),
   ]);
   const items = [
+    ...pending.map((p) => ({ type: 'review_alert', id: String(p._id), source: p.source, raw: (p.raw || '').slice(0, 400), parsed: p.parsed || {}, createdAt: p.createdAt })),
     ...lowConf.map((t) => ({ type: 'review_transaction', id: String(t._id), transaction: slimTxn(t) })),
     ...dupes.map(({ a, b, score }) => ({ type: 'possible_duplicate', id: pairKeyOf(a._id, b._id), score, first: slimTxn(a), second: slimTxn(b) })),
     ...unnamedSubs.map((s) => ({ type: 'name_subscription', id: String(s._id), key: s.sourceKey || subscriptionKey(s.name), name: s.name, cost: s.cost, lastCharge: s.lastCharge || null })),
@@ -4497,6 +4416,55 @@ app.post('/api/transactions/:id/reviewed', auth, async (req, res) => {
   try {
     const t = await Transaction.findOneAndUpdate({ _id: req.params.id, userId: req.user._id }, { $set: { reviewedAt: new Date(), parseConfidence: 'high' } }, { new: true });
     if (!t) return res.status(404).json({ message: 'Transaction not found' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// An alert waiting in the review stack: the user confirms it (with any fixes), and
+// only then does it become a transaction.
+app.post('/api/pending-alerts/:id/confirm', auth, async (req, res) => {
+  try {
+    const p = await PendingAlert.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!p) return res.status(404).json({ message: 'Already handled.' });
+    const b = req.body || {};
+    const was = p.parsed || {};
+    const amount = Math.abs(Number(b.amount ?? was.amount));
+    const type = b.type === 'income' || b.type === 'expense' ? b.type : was.type;
+    if (!(amount > 0)) return res.status(400).json({ message: 'Enter the amount.' });
+    if (type !== 'income' && type !== 'expense') return res.status(400).json({ message: 'Is it money in or money out?' });
+    const description = String(b.description ?? was.description ?? 'Bank alert').trim().slice(0, 140) || 'Bank alert';
+    const category = String(b.category || (was.isFee ? 'Bank Charges' : categorizeTransaction(description, type)) || 'Other');
+    const date = b.date && !isNaN(new Date(b.date)) ? new Date(b.date).toISOString().slice(0, 10) : (was.date || new Date().toISOString().slice(0, 10));
+    const created = await ingestAlert(req.user, { ...was, amount, type, description, category, date, isFee: category === 'Bank Charges' && was.isFee, confidence: 'high' }, p.source === 'email' ? 'email' : p.source === 'notification' ? 'notification' : 'sms');
+    await PendingAlert.deleteOne({ _id: p._id });
+    logCorrection(req.user._id, 'confirmed', { description, bankCode: was.bankCode });
+    if (was.amount && Math.abs(was.amount - amount) >= 0.01) logCorrection(req.user._id, 'amount', { description, from: was.amount, to: amount, bankCode: was.bankCode });
+    if (was.directionKnown && was.type !== type) logCorrection(req.user._id, 'direction', { description, from: was.type, to: type, bankCode: was.bankCode });
+    if (b.category && b.category !== was.category) {
+      logCorrection(req.user._id, 'category', { description, from: was.category, to: category });
+      await learnCategories(req.user._id, [{ description, category }]);
+    }
+    res.json({ ok: true, saved: !!created, duplicate: !created });
+  } catch (e) { console.error('[pending/confirm]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// "Not a transaction": drop it, and drop alerts of the same shape from now on.
+app.post('/api/pending-alerts/:id/not-transaction', auth, async (req, res) => {
+  try {
+    const p = await PendingAlert.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+    if (!p) return res.status(404).json({ message: 'Already handled.' });
+    await rememberNotTransaction(req.user._id, p.raw);
+    logCorrection(req.user._id, 'not_transaction', { description: p.parsed?.description || '', bankCode: p.parsed?.bankCode });
+    res.json({ ok: true });
+  } catch (e) { console.error('[pending/not-txn]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// A saved row that was never a transaction (an OTP or promo that slipped through).
+app.post('/api/transactions/:id/not-transaction', auth, async (req, res) => {
+  try {
+    const t = await Transaction.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+    if (!t) return res.status(404).json({ message: 'Transaction not found' });
+    logCorrection(req.user._id, 'not_transaction', { description: t.description, bankCode: t.bankCode });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -4560,9 +4528,13 @@ app.delete('/api/capture/key', auth, async (req, res) => {
 
 // Parse a captured alert text and save it. Returns { saved, duplicate, ignored }.
 async function ingestCapturedText(user, { text, sender = '', source, day }) {
+  if (await isIgnoredByUser(user._id, text)) return { saved: false, ignored: true, reason: 'yours' };
   const parsed = parseOneAlert(text, source, sender);
-  if (!parsed || !(parsed.amount > 0) || !parsed.directionKnown) return { saved: false, ignored: true };
+  if (!parsed) return { saved: false, ignored: true };
   if (day && parsed.dateFromText === false) parsed.date = day;
+  // Not sure it's a transaction, or of its amount or direction: it waits in the
+  // review stack and never goes straight into the ledger.
+  if (isUnsure(parsed)) { await holdForReview(user._id, parsed, text, source, 'unclear'); return { saved: false, pending: true }; }
   const created = await ingestAlert(user, parsed, source);
   if (created) {
     user.captureCount = (user.captureCount || 0) + 1;
@@ -4660,8 +4632,20 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     // The channel (statement upload, or alerts scanned / pasted) is metadata; older
     // apps send it as the bank ("SMS"), which must never become a bank name.
     const channel = channelFor({ channel: req.body.channel, source: 'import', bank });
-    const valid = transactions.filter(t => t.date && t.amount && t.description && t.type);
+    let valid = transactions.filter(t => t.date && t.amount && t.description && t.type);
     if (valid.length === 0) return res.status(400).json({ message: 'All transactions are missing required fields' });
+    // Alert rows carry their text: anything that isn't a transaction (OTP, promo,
+    // failed payment...) is skipped, and fees are filed as Bank Charges.
+    let notTransactions = 0, fees = 0;
+    valid = valid.filter((t) => {
+      const raw = t._parse?.rawText || t.raw || '';
+      if (!raw) return true;
+      const c = classifyAlert(raw, { description: t.description });
+      if (c.kind === 'ignore') { notTransactions++; return false; }
+      if (c.kind === 'fee') { t.category = 'Bank Charges'; t.type = 'expense'; t.isFee = true; fees++; }
+      return true;
+    });
+    if (valid.length === 0) return res.json({ message: `Nothing to import: ${notTransactions} message(s) weren't transactions.`, count: 0, skipped: 0, notTransactions, fees: 0 });
     // Each upload becomes one deletable group (importBatch), tagged with its bank.
     const importBatch = new mongoose.Types.ObjectId().toString();
     const importedAt = new Date();
@@ -4696,7 +4680,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       seen.add(k); fresh.push(t);
     }
     const skipped = valid.length - fresh.length;
-    if (fresh.length === 0) return res.json({ message: `Skipped ${skipped} duplicate(s) - nothing new to import.`, count: 0, skipped });
+    if (fresh.length === 0) return res.json({ message: `Skipped ${skipped} duplicate(s) - nothing new to import.`, count: 0, skipped, summary: { added: 0, needsReview: 0, duplicates: skipped, fees: 0, notTransactions, transfers: 0 } });
 
     // Learn-unknown-senders (Addendum A slice 3): for rows the parser couldn't map
     // to a bank but that carry a sender ID, try the learning layer (the user's own
@@ -4767,9 +4751,12 @@ app.post('/api/import-transactions', auth, async (req, res) => {
         bankCode: (t.bankCode || '').toString().toLowerCase().slice(0, 24),
         accountMask: (t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4),
         senderKey: (t.senderKey || '').toString().slice(0, 24), // unresolved sender (slice 3)
+        // Rows the parser flagged stay in the ledger but wait in the Action Center for a look.
+        ...(t.needsReview ? { parseConfidence: 'low' } : {}),
       });
     });
     const inserted = await Transaction.insertMany(docs, { ordered: false });
+    for (let i = 0; i < docs.length; i++) if (fresh[i].isFee) await linkFee(req.user._id, docs[i]);
     // Register any accounts these transactions touched, so a new (bank, account)
     // pair can be surfaced for naming. One touch per distinct account in the batch.
     try {
@@ -4822,8 +4809,21 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       const [cat, m] = pair.split('|');
       checkBudgetAlert(req.user._id, cat, m);
     }
-    const suffix = skipped ? ` (skipped ${skipped} duplicate${skipped > 1 ? 's' : ''}).` : ' successfully.';
-    return res.json({ message: `Imported ${inserted.length} transaction(s)${suffix}`, count: inserted.length, skipped, transfersFound });
+    // The import summary: "42 transactions added, 3 need a quick look, 2 duplicates
+    // skipped, 5 fees found".
+    const needsReview = fresh.filter((t) => t.needsReview).length;
+    const feesFound = fresh.filter((t) => t.isFee || t.category === 'Bank Charges').length;
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const parts = [`${plural(inserted.length, 'transaction', 'transactions')} added`];
+    if (needsReview) parts.push(`${needsReview} need${needsReview === 1 ? 's' : ''} a quick look`);
+    if (skipped) parts.push(`${plural(skipped, 'duplicate', 'duplicates')} skipped`);
+    if (feesFound) parts.push(`${plural(feesFound, 'fee', 'fees')} found`);
+    if (notTransactions) parts.push(`${plural(notTransactions, 'message', 'messages')} that weren't transactions left out`);
+    return res.json({
+      message: parts.join(', ') + '.',
+      count: inserted.length, skipped, transfersFound,
+      summary: { added: inserted.length, needsReview, duplicates: skipped, fees: feesFound, notTransactions, transfers: transfersFound },
+    });
   } catch (error) {
     if (error.result) return res.json({ message: `Imported ${error.result.nInserted} transaction(s).`, count: error.result.nInserted });
     console.error('Import error:', error);
@@ -6877,6 +6877,7 @@ app.post(['/api/cron/nudges', '/api/cron/insights'], async (req, res) => {
   res.status(202).json({ ok: true });
   reconcileBillPayments().catch((e) => console.error('[cron/nudges] billpay', e.message));
   runNudgesJob(at).then((r) => console.log('[cron/nudges]', r)).catch((e) => console.error('[cron/nudges]', e.message));
+  maybeSendWeeklyReport(new Date()).then((r) => r && console.log('[weekly-report]', r)).catch((e) => console.error('[weekly-report]', e.message));
 });
 
 // Stopgap in-process run every hour while the server is awake; the limits and the
@@ -8103,6 +8104,139 @@ app.post('/api/admin/migrate/channel-banks', auth, superAdminAuth, async (req, r
     res.json(await mongoose.connection.collection('migrations').findOne({ _id: 'channel-banks-2026-10' }));
   } catch (e) { console.error('[migrate/channel-banks]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
+
+
+// ── Learning: global rules queue, weekly report, parser coverage (Round 3, 3.2 and 3.3) ──
+// A merchant -> category rule goes global only after GLOBAL_MIN_VOTES different users
+// agree AND an admin approves it here. Until then it only helps the users who taught it.
+const globalWinner = (d) => {
+  let bestSlug = null, bestN = 0, total = 0;
+  for (const [slug, n] of Object.entries(d.counts || {})) { if (n > 0) { total += n; if (n > bestN) { bestN = n; bestSlug = slug; } } }
+  const category = bestSlug ? SLUG_TO_CAT.get(bestSlug) : null;
+  return { category, votes: bestN, total, ready: !!category && bestN >= GLOBAL_MIN_VOTES && total > 0 && bestN / total >= GLOBAL_MIN_SHARE };
+};
+
+// One-time: rules that were already live under the old automatic threshold stay live
+// (approved), so nobody's categories change overnight. New ones wait for review.
+async function grandfatherGlobalRules() {
+  const marks = mongoose.connection.collection('migrations');
+  const ID = 'global-rules-review-2026-10';
+  if (await marks.findOne({ _id: ID })) return;
+  let kept = 0;
+  for await (const d of GlobalCategory.find({ status: { $in: [null, 'pending'] } }).lean().cursor()) {
+    let bestSlug = null, bestN = 0, total = 0;
+    for (const [slug, n] of Object.entries(d.counts || {})) { if (n > 0) { total += n; if (n > bestN) { bestN = n; bestSlug = slug; } } }
+    const cat = bestSlug ? SLUG_TO_CAT.get(bestSlug) : null;
+    if (cat && bestN >= 4 && bestN / total >= GLOBAL_MIN_SHARE) {
+      await GlobalCategory.updateOne({ _id: d._id }, { $set: { status: 'approved', approvedCategory: cat, reviewedBy: 'grandfathered', reviewedAt: new Date() } });
+      kept++;
+    }
+  }
+  await marks.insertOne({ _id: ID, at: new Date(), kept });
+}
+mongoose.connection.once('open', () => { grandfatherGlobalRules().catch((e) => console.error('[migrate] global rules', e.message)); });
+
+async function pendingGlobalRules(limit = 100) {
+  const docs = await GlobalCategory.find({ total: { $gte: GLOBAL_MIN_VOTES }, status: { $ne: 'rejected_all' } }).sort({ total: -1 }).limit(1000).lean();
+  return docs.map((d) => ({ d, w: globalWinner(d) }))
+    .filter(({ d, w }) => w.ready && !(d.status === 'approved' && d.approvedCategory === w.category) && !(d.status === 'rejected' && d.rejectedCategory === w.category))
+    .slice(0, limit)
+    .map(({ d, w }) => ({ key: d.key, category: w.category, users: w.votes, totalVotes: w.total, live: d.status === 'approved' ? d.approvedCategory : null, updatedAt: d.updatedAt }));
+}
+
+// The weekly learning report. Merchant keys are only shown when at least two different
+// users have them, so a person's name in a transfer never appears here.
+async function buildLearningReport(days = 7) {
+  const since = new Date(Date.now() - days * 86400000);
+  const others = await Transaction.find({ createdAt: { $gte: since }, type: 'expense', category: { $in: ['Other', '', null] } })
+    .select('userId description').limit(5000).lean();
+  const byKey = new Map();
+  for (const t of others) {
+    const k = deriveCategoryKey(t.description);
+    if (!k) continue;
+    const e = byKey.get(k) || { key: k, rows: 0, users: new Set() };
+    e.rows++; e.users.add(String(t.userId)); byKey.set(k, e);
+  }
+  const uncategorised = [...byKey.values()].filter((e) => e.users.size >= 2)
+    .sort((a, b) => b.users.size - a.users.size || b.rows - a.rows).slice(0, 15)
+    .map((e) => ({ key: e.key, users: e.users.size, rows: e.rows }));
+
+  const corr = await CorrectionEvent.aggregate([
+    { $match: { createdAt: { $gte: since } } },
+    { $group: { _id: { kind: '$kind', from: '$from', to: '$to' }, n: { $sum: 1 }, users: { $addToSet: '$userId' } } },
+    { $sort: { n: -1 } }, { $limit: 60 },
+  ]);
+  const byKind = {};
+  for (const c of corr) byKind[c._id.kind] = (byKind[c._id.kind] || 0) + c.n;
+  const topCorrections = corr.filter((c) => c._id.kind === 'category' || c._id.kind === 'direction')
+    .slice(0, 15).map((c) => ({ kind: c._id.kind, from: c._id.from, to: c._id.to, times: c.n, users: c.users.length }));
+
+  const parses = await ParseCorrection.aggregate([
+    { $match: { createdAt: { $gte: since }, source: { $in: ['sms', 'email'] } } },
+    { $group: { _id: { bank: '$bankCode', path: '$parserPath' }, n: { $sum: 1 } } },
+  ]);
+  const banks = new Map();
+  for (const r of parses) {
+    const b = banks.get(r._id.bank || 'unknown') || { bank: r._id.bank || 'unknown', total: 0, rules: 0 };
+    b.total += r.n; if (r._id.path === 'deterministic') b.rules += r.n;
+    banks.set(b.bank, b);
+  }
+  const ruleOnly = [...banks.values()].sort((a, b) => b.total - a.total).map((b) => ({ ...b, rate: b.total ? Math.round((b.rules / b.total) * 1000) / 10 : null }));
+  const allParsed = ruleOnly.reduce((s, b) => s + b.total, 0), allRules = ruleOnly.reduce((s, b) => s + b.rules, 0);
+
+  let corpus = null;
+  try { const { coverage } = require('./scripts/parser-coverage'); corpus = coverage().rows; } catch (e) { console.error('[learning] corpus', e.message); }
+  const [pendingRules, heldAlerts] = await Promise.all([pendingGlobalRules(50), PendingAlert.countDocuments({})]);
+  return {
+    days, since,
+    uncategorised, topCorrections, corrections: byKind,
+    ruleOnlyRate: allParsed ? Math.round((allRules / allParsed) * 1000) / 10 : null, ruleOnlyByBank: ruleOnly,
+    corpus, pendingRules, heldAlerts,
+  };
+}
+
+app.get('/api/admin/learning', auth, superAdminAuth, async (req, res) => {
+  try { res.json(await buildLearningReport(Math.min(90, Math.max(1, Number(req.query.days) || 7)))); }
+  catch (e) { console.error('[admin/learning]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.post('/api/admin/global-rules/:key/:decision', auth, superAdminAuth, async (req, res) => {
+  try {
+    const d = await GlobalCategory.findOne({ key: req.params.key });
+    if (!d) return res.status(404).json({ message: 'Rule not found' });
+    const w = globalWinner(d.toObject());
+    if (req.params.decision === 'approve') {
+      const category = GLOBAL_ELIGIBLE_CATEGORIES.has(req.body?.category) ? req.body.category : w.category;
+      if (!category) return res.status(400).json({ message: 'No category to approve' });
+      Object.assign(d, { status: 'approved', approvedCategory: category, reviewedBy: req.user.email, reviewedAt: new Date() });
+    } else if (req.params.decision === 'reject') {
+      Object.assign(d, { status: 'rejected', rejectedCategory: w.category || '', approvedCategory: '', reviewedBy: req.user.email, reviewedAt: new Date() });
+    } else return res.status(400).json({ message: 'Approve or reject' });
+    await d.save();
+    res.json({ ok: true, key: d.key, status: d.status, category: d.approvedCategory || null });
+  } catch (e) { console.error('[admin/global-rules]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Weekly report to the superadmins, Monday morning (Lagos), sent by the hourly cron.
+async function maybeSendWeeklyReport(at = new Date()) {
+  const lagos = new Date(at.getTime() + 3600000);
+  if (lagos.getUTCDay() !== 1 || lagos.getUTCHours() < 8) return null;
+  const week = `weekly-report-${lagos.toISOString().slice(0, 10)}`;
+  const marks = mongoose.connection.collection('migrations');
+  try { await marks.insertOne({ _id: week, at: new Date() }); } catch { return null; } // already sent this Monday
+  if (!emailConfigured()) return null;
+  const r = await buildLearningReport(7);
+  const admins = await User.find({ role: 'superadmin' }).select('email').lean();
+  const li = (rows, fmt) => (rows.length ? `<ul>${rows.map((x) => `<li>${fmt(x)}</li>`).join('')}</ul>` : '<p>None this week.</p>');
+  const html = `<h2>Automonie learning report</h2>
+    <p>Rule-only parse rate (SMS and email, last 7 days): <b>${r.ruleOnlyRate == null ? 'no data' : `${r.ruleOnlyRate}%`}</b>. Alerts waiting for users in the review stack: ${r.heldAlerts}.</p>
+    <h3>Top uncategorised merchants</h3>${li(r.uncategorised, (x) => `${x.key}: ${x.rows} rows, ${x.users} users`)}
+    <h3>Top corrections</h3>${li(r.topCorrections, (x) => `${x.kind}: ${x.from || '(none)'} to ${x.to} (${x.times} times, ${x.users} users)`)}
+    <h3>Global rules waiting for review</h3>${li(r.pendingRules.slice(0, 15), (x) => `${x.key} to ${x.category} (${x.users} users)`)}
+    <p>Review them in Admin, Learning.</p>`;
+  for (const a of admins) await sendEmail({ to: a.email, subject: 'Automonie weekly learning report', text: html.replace(/<[^>]+>/g, ' '), html }).catch((e) => console.error('[weekly-report]', e.message));
+  return { sent: admins.length };
+}
 
 // Unknown routes → 404 (must stay after every real route).
 app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));

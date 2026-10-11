@@ -1,0 +1,2 @@
+{"raw":"PREMIUMTRST\nAcct: ******1073\nAmt: NGN27,000.00 DR\nDesc: POS PURCHASE SHOPRITE\nDate: 23/07/2026\nBal: NGN53,000.00","expected":{"amount":27000,"direction":"debit","date":"2026-07-23","bank":"Premium Trust"},"anonymised":true}
+{"raw":"Premium-Trst Alert: Your acct ******1073 was credited NGN150,000.00 (SALARY) on 25/07/2026. Bal: NGN203,000.00","expected":{"amount":150000,"direction":"credit","date":"2026-07-25","bank":"Premium Trust"},"anonymised":true}

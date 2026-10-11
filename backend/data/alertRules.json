@@ -41,7 +41,7 @@
   },
   "transaction": {
     "money": "(?:ngn|naira|₦)\\s*[\\d,]+(?:\\.\\d{1,2})?|\\bn\\d[\\d,]*(?:\\.\\d{1,2})?|\\b[\\d,]+\\.\\d{2}\\b",
-    "direction": "\\b(debit(?:ed)?|credit(?:ed)?|dr|cr|withdraw(?:n|al)?|deposit(?:ed)?|received|transfer(?:red)?|pos\\b|reversal)\\b",
+    "direction": "\\b(debit(?:ed)?|credit(?:ed)?|dr|cr|withdraw(?:n|al)?|deposit(?:ed)?|received|transfer(?:red)?|pos\\b|reversal|sent|paid|you sent|you paid|you received)\\b",
     "context": "\\b(bal(?:ance)?|avail|a\\/c|acct|account|ref|value date|txn|transaction|desc)\\b"
   },
   "fees": [

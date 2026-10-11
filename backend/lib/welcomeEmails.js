@@ -59,77 +59,87 @@ ${header({ headerImageUrl, headerAlt, template })}
 </body></html>`;
 }
 
-// Waitlist: thanks, and exactly what happens next.
+// Waitlist: thanks, what happens next, and something to do while they wait (Launch
+// Ops Pack, Part 3.1).
 function waitlistWelcome({ name, whatsappUrl, headerImageUrl, template = false } = {}) {
   if (template) whatsappUrl = '{{ params.whatsappUrl }}';
-  const headerAlt = 'You’re on the Automonie waitlist';
+  const headerAlt = 'You’re on the Automonie list';
   const html = shell({
-    preheader: 'Here’s what happens next, and how to get in early.',
+    preheader: 'Here’s what happens next, and something to do while you wait.',
     headerImageUrl, headerAlt, template,
     bodyHtml: `<p style="margin:0 0 14px">${greeting(name, template)}</p>
-<p style="margin:0 0 14px">Thanks for joining. Automonie shows you where every naira goes, from your bank alerts and statements, without you typing a thing.</p>
+<p style="margin:0 0 14px">You’re in. Thanks for joining the Automonie waitlist.</p>
+<p style="margin:0 0 14px">Automonie reads your bank alerts and statements and shows you where your money actually goes, across every bank, in naira. No more “where did my money go?” at the end of the month.</p>
 <p style="margin:0 0 6px;font-weight:600">What happens next</p>
-<ol style="margin:0 0 16px;padding-left:20px">
-<li style="margin-bottom:6px">We’ll email you when your invite is ready.</li>
-<li style="margin-bottom:6px">You download the app (Android first, iPhone soon) and set up your first bank in a couple of minutes.</li>
-<li>Your first look at where your money went arrives the same day.</li>
-</ol>
-${whatsappUrl ? `<p style="margin:0 0 12px">Want in sooner? Join the community: early testers get invites first and help shape what we build.</p>
-<p style="margin:0 0 20px">${button(whatsappUrl, 'Join the WhatsApp community')}</p>` : ''}
-<p style="margin:0">The Automonie team</p>`,
-    footerHtml: `You’re getting this because you joined the waitlist at automonie.com. We’ll only email you about your invite and big updates.<br>${POSTAL}`,
+<ul style="margin:0 0 16px;padding-left:20px">
+<li style="margin-bottom:6px">We’ll email you the moment Automonie is live on the Play Store.</li>
+<li>Early members get first access to new features.</li>
+</ul>
+<p style="margin:0 0 6px;font-weight:600">While you wait</p>
+<p style="margin:0 0 12px">Find your money personality in 2 minutes.</p>
+<p style="margin:0 0 18px">${button(`${SITE}/quiz`, 'Take the quiz')}</p>
+${whatsappUrl ? `<p style="margin:0 0 12px">Join our WhatsApp community for money tips and early updates.</p>
+<p style="margin:0 0 20px">${button(whatsappUrl, 'Join the community')}</p>` : ''}
+<p style="margin:0">Talk soon,<br>The Automonie team</p>`,
+    footerHtml: `You’re receiving this because you joined the Automonie waitlist at automonie.com.<br>${POSTAL}`,
   });
   const hiText = template ? greeting(null, true) : (firstName(name) ? `Hi ${firstName(name)},` : 'Hi there,');
   const text = `${hiText}
 
-Thanks for joining. Automonie shows you where every naira goes, from your bank alerts and statements, without you typing a thing.
+You're in. Thanks for joining the Automonie waitlist.
+
+Automonie reads your bank alerts and statements and shows you where your money actually goes, across every bank, in naira. No more "where did my money go?" at the end of the month.
 
 What happens next
-1. We'll email you when your invite is ready.
-2. You download the app (Android first, iPhone soon) and set up your first bank in a couple of minutes.
-3. Your first look at where your money went arrives the same day.
-${whatsappUrl ? `\nWant in sooner? Join the community: early testers get invites first.\n${whatsappUrl}\n` : ''}
+- We'll email you the moment Automonie is live on the Play Store.
+- Early members get first access to new features.
+
+While you wait
+- Find your money personality in 2 minutes: ${SITE}/quiz
+${whatsappUrl ? `- Join our WhatsApp community for money tips and early updates: ${whatsappUrl}\n` : ''}
+Talk soon,
 The Automonie team
 
-You're getting this because you joined the waitlist at automonie.com.
+You're receiving this because you joined the Automonie waitlist at automonie.com.
 ${POSTAL}`;
-  return { subject: 'You’re on the Automonie waitlist', text, html };
+  return { subject: 'You’re on the Automonie list', preheader: 'Here’s what happens next, and something to do while you wait.', text, html };
 }
 
-// Newsletter: what they'll get, how often, and a one-click way out.
+// Newsletter: what they'll get, a first tip, and a one-click way out (Launch Ops
+// Pack, Part 3.2).
 function newsletterWelcome({ name, unsubscribeUrl, headerImageUrl, template = false } = {}) {
   if (template) unsubscribeUrl = '{{ params.unsubscribeUrl }}';
   if (!unsubscribeUrl) throw new Error('The newsletter welcome needs an unsubscribe link.');
-  const headerAlt = 'Welcome to the Automonie newsletter';
+  const headerAlt = 'Welcome to Automonie money tips';
   const html = shell({
-    preheader: 'Money tips that fit Nigerian life, about twice a month.',
+    preheader: 'Twice a month, short and useful. Here’s your first one.',
     headerImageUrl, headerAlt, template,
     bodyHtml: `<p style="margin:0 0 14px">${greeting(name, template)}</p>
-<p style="margin:0 0 14px">You’re subscribed. About twice a month you’ll get one short email with:</p>
-<ul style="margin:0 0 16px;padding-left:20px">
-<li style="margin-bottom:6px">a money habit worth trying, in plain words;</li>
-<li style="margin-bottom:6px">what’s new in Automonie;</li>
-<li>the occasional tool, like our budget calculators and quizzes.</li>
-</ul>
-<p style="margin:0 0 20px">${button(SITE, 'Visit automonie.com')}</p>
-<p style="margin:0">The Automonie team</p>`,
-    footerHtml: `You’re getting this because you subscribed at automonie.com. <a href="${esc(unsubscribeUrl)}" style="color:${BRAND.teal}">Unsubscribe</a> in one click, any time.<br>${POSTAL}`,
+<p style="margin:0 0 14px">Thanks for subscribing. About twice a month we’ll send you short, practical money tips for real Nigerian life: salary, allawee, side hustles, rent, Detty December, all of it.</p>
+<p style="margin:0 0 6px;font-weight:600">Your first tip: decide before you spend</p>
+<p style="margin:0 0 12px">When money lands, give every naira a job before you touch it: needs first, then savings, then fun. Even a rough split beats none. Our free budget calculator does the maths for you.</p>
+<p style="margin:0 0 18px">${button(`${SITE}/budget-calculator`, 'Try the budget calculator')}</p>
+<p style="margin:0 0 12px">Want to see where your money actually goes? Automonie reads your bank alerts and statements and sorts it all for you.</p>
+<p style="margin:0 0 20px">${button('https://app.automonie.com', 'Open the web app')}</p>
+<p style="margin:0">See you in your inbox,<br>The Automonie team</p>`,
+    footerHtml: `You’re getting this because you subscribed at automonie.com. <a href="${esc(unsubscribeUrl)}" style="color:${BRAND.teal}">Unsubscribe</a> in one click, no hard feelings.<br>${POSTAL}`,
   });
   const hiText = template ? greeting(null, true) : (firstName(name) ? `Hi ${firstName(name)},` : 'Hi there,');
   const text = `${hiText}
 
-You're subscribed. About twice a month you'll get one short email with:
-- a money habit worth trying, in plain words;
-- what's new in Automonie;
-- the occasional tool, like our budget calculators and quizzes.
+Thanks for subscribing. About twice a month we'll send you short, practical money tips for real Nigerian life: salary, allawee, side hustles, rent, Detty December, all of it.
 
-${SITE}
+Your first tip: decide before you spend
+When money lands, give every naira a job before you touch it: needs first, then savings, then fun. Even a rough split beats none. Our free budget calculator does the maths for you: ${SITE}/budget-calculator
 
+Want to see where your money actually goes? Automonie reads your bank alerts and statements and sorts it all for you: https://app.automonie.com
+
+See you in your inbox,
 The Automonie team
 
-Unsubscribe in one click: ${unsubscribeUrl}
+Unsubscribe in one click, no hard feelings: ${unsubscribeUrl}
 ${POSTAL}`;
-  return { subject: 'Welcome to the Automonie newsletter', text, html };
+  return { subject: 'Welcome to Automonie money tips', preheader: 'Twice a month, short and useful. Here’s your first one.', text, html };
 }
 
 module.exports = { waitlistWelcome, newsletterWelcome, BRAND };

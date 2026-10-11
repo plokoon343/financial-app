@@ -83,7 +83,10 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {
     .replace(/\b\d{6,}\b/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim()
-    .slice(0, 140)) || 'Bank alert';
+    .slice(0, 140))
+    // "DR Alert: POS PURCHASE..." reads better without the alert label.
+    .replace(/^(?:dr|cr|debit|credit|txn)\s*(?:alert)?\s*[:\-.]\s*/i, '')
+    .replace(/[\s.:;,-]+$/, '') || 'Bank alert';
 
   // Second look with the narration: a fee alert is Bank Charges, a debit.
   const kind = first.kind === 'unsure' ? 'unsure' : (isFeeText(description) ? 'fee' : 'transaction');

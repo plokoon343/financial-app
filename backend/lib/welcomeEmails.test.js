@@ -9,15 +9,18 @@ const emoji = /\p{Extended_Pictographic}/u;
 
 const w = waitlistWelcome({ name: 'Ada Obi', whatsappUrl: 'https://chat.whatsapp.com/x' });
 check('waitlist greets by first name', w.html.includes('Hi Ada,') && w.text.startsWith('Hi Ada,'));
-check('waitlist says what happens next', /What happens next/.test(w.html) && /invite is ready/.test(w.text));
+check('waitlist says what happens next', /What happens next/.test(w.html) && /live on the Play Store/.test(w.text));
+check('waitlist offers the quiz while they wait', w.html.includes('https://www.automonie.com/quiz') && w.text.includes('https://www.automonie.com/quiz'));
 check('waitlist links the community', w.html.includes('https://chat.whatsapp.com/x'));
 check('waitlist without a name still reads well', waitlistWelcome({}).html.includes('Hi there,'));
 const wGif = waitlistWelcome({ headerImageUrl: 'https://www.automonie.com/email/welcome.gif' });
-check('header image has alt text', /<img src="https:\/\/www\.automonie\.com\/email\/welcome\.gif"[^>]*alt="You’re on the Automonie waitlist"/.test(wGif.html));
+check('header image has alt text', /<img src="https:\/\/www\.automonie\.com\/email\/welcome\.gif"[^>]*alt="You’re on the Automonie list"/.test(wGif.html));
 check('default header has alt text too', /<img src="[^"]+logo-full-light\.png"[^>]*alt="automonie"/.test(w.html));
 
 const n = newsletterWelcome({ name: 'Tunde', unsubscribeUrl: 'https://api.automonie.com/unsubscribe?token=abc' });
 check('newsletter has one-click unsubscribe in html and text', n.html.includes('unsubscribe?token=abc') && n.text.includes('unsubscribe?token=abc'));
+check('subjects and preview text match the ops pack', w.subject === 'You’re on the Automonie list' && n.subject === 'Welcome to Automonie money tips' && /something to do while you wait/.test(w.preheader) && /Twice a month/.test(n.preheader));
+check('newsletter gives the first tip and the calculator link', /decide before you spend/.test(n.html) && n.html.includes('/budget-calculator'));
 let threw = false;
 try { newsletterWelcome({}); } catch { threw = true; }
 check('newsletter refuses to build without an unsubscribe link', threw);

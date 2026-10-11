@@ -14,3 +14,6 @@
 {"raw":"Debit\nAmt:NGN50.00\nAcc:111******222\nDesc:ELECTRONIC MONEY TRANSFER LEVY\nDate:02/10/2026\nAvail Bal:NGN9,936.00","expected":{"amount":50,"direction":"debit","date":"2026-10-02","category":"Bank Charges"},"synthetic":true,"case":"EMTL levy"}
 {"raw":"Debit\nAmt:NGN20,000.00\nAcc:111******222\nDesc:NIP TRANSFER TO TUNDE BAKARE fee: NGN10.75\nDate:02/10/2026\nAvail Bal:NGN9,916.00","expected":{"amount":20000,"direction":"debit","date":"2026-10-02"},"synthetic":true,"case":"a fee mentioned inside a transfer is still a transfer"}
 {"raw":"OWealth update: your balance is NGN 52,000.00 at 08:00","expected":{"ignore":true},"synthetic":true,"case":"balance-only push"}
+{"raw":"DR Alert: NGN2,500.00 POS PURCHASE SHOPRITE LEKKI. Bal: NGN45,320.50. 08-10-2026 14:22","expected":{"amount":2500,"direction":"debit","date":"2026-10-08","counterparty":"POS PURCHASE SHOPRITE LEKKI"},"synthetic":true,"case":"Play reviewer sample: short DR alert"}
+{"raw":"CR Alert: NGN150,000.00 SALARY OCT 2026. Bal: NGN195,320.50. 01-10-2026 09:05","expected":{"amount":150000,"direction":"credit","date":"2026-10-01"},"synthetic":true,"case":"Play reviewer sample: short CR alert"}
+{"raw":"You sent NGN5,000.00 to JOHN DOE. Balance: NGN12,450.00.","expected":{"amount":5000,"direction":"debit","date":"2026-10-11"},"synthetic":true,"case":"Play reviewer sample: wallet 'You sent'"}

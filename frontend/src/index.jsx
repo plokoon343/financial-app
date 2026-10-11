@@ -2,6 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './theme.css';
 import './ui.css';
+// Only the Font Awesome icons the app uses (scripts/build-icons.mjs), not the whole set from a CDN.
+import './assets/icons/fa-icons.css';
 import axios from 'axios';
 import App from './App';
 

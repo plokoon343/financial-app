@@ -19,10 +19,14 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "icons": "node scripts/build-icons.mjs",
+    "icons:check": "node scripts/build-icons.mjs --check",
+    "prebuild": "node scripts/build-icons.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@fortawesome/fontawesome-free": "^6.4.0",
     "@vitejs/plugin-react": "^5.2.0",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^5.2.0",

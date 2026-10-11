@@ -44,9 +44,15 @@ const Login = () => {
     return () => window.removeEventListener('popstate', onPop);
   }, [otpStep]);
 
-  // Render the Google Identity Services button when a client ID is configured.
+  // Render the Google Identity Services button when a client ID is configured. Google's
+  // script (~90 KB) is fetched here, only on this screen, instead of on every page.
   useEffect(() => {
     if (!googleClientId || otpStep) return;
+    if (!document.getElementById('gsi-client')) {
+      const s = document.createElement('script');
+      s.id = 'gsi-client'; s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.defer = true;
+      document.head.appendChild(s);
+    }
     let iv;
     const tryInit = () => {
       if (!window.google?.accounts?.id) return false;
@@ -67,7 +73,7 @@ const Login = () => {
     };
     if (!tryInit()) {
       iv = setInterval(() => { if (tryInit()) clearInterval(iv); }, 300);
-      setTimeout(() => iv && clearInterval(iv), 6000);
+      setTimeout(() => iv && clearInterval(iv), 15000);
     }
     return () => iv && clearInterval(iv);
   }, [googleClientId, otpStep, loginWithGoogle, navigate]);

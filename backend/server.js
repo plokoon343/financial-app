@@ -43,6 +43,7 @@ const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
 const { llmConfig, llmActive, inferPurposesLLM } = require('./lib/llmPurpose');
 const { extractAlertLLM, validateExtract } = require('./lib/llmExtract');
 const receipt = require('./lib/receipt');
+const googlePlay = require('./lib/googlePlay');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -252,13 +253,18 @@ const userSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   // Subscription tier. 'pro' unlocks the AI assistant + advanced features (Paystack
   // billing wires `plan`/`planExpiry` later; for now the AI assistant is open to all).
-  plan:       { type: String, enum: ['free', 'pro', 'student', 'power'], default: 'free' }, // 'pro' is shown as Plus
+  plan:       { type: String, enum: ['free', 'pro', 'student', 'sync', 'power'], default: 'free' }, // 'pro' is shown as Plus, 'sync' as Pro
   // When true, this user's parse corrections are NOT logged for training. Off by
   // default; user can opt out in settings. See ParseCorrection.
   trainingOptOut: { type: Boolean, default: false },
   familyPromptDone: { type: Boolean, default: false }, // the one-time "are these family?" prompt was answered
   planExpiry: { type: Date },
   planEverPaid:     { type: Boolean, default: false }, // has paid for a plan: no second free trial
+  // Google Play Billing (Play Store app): the subscription token that currently sets
+  // this user's plan, and the id the app sends with purchases so a token only ever
+  // unlocks this account.
+  playToken:        { type: String, default: '' },
+  playAccountId:    { type: String, default: '', index: true },
   trialEndNotified: { type: Boolean, default: false }, // told once that the Plus trial ended
   // Student plan verification (lib/student): valid for a year from verifiedAt.
   student: {
@@ -391,6 +397,20 @@ const proPaymentSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 const ProPayment = mongoose.model('ProPayment', proPaymentSchema);
+
+// One row per Google Play subscription token: who it belongs to and Google's latest
+// answer for it. A token is bound to the first account that verifies it.
+const playPurchaseSchema = new mongoose.Schema({
+  token:     { type: String, required: true, unique: true },
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  productId: { type: String, default: '' },
+  plan:      { type: String, default: '' },
+  expiry:    { type: Date },
+  entitled:  { type: Boolean, default: false },
+  autoRenew: { type: Boolean, default: false },
+  test:      { type: Boolean, default: false },
+}, { timestamps: true });
+const PlayPurchase = mongoose.model('PlayPurchase', playPurchaseSchema);
 
 // Sign-ups are held here until the email OTP is confirmed - the real User is
 // only created on verification, so an unverified email never becomes an account.
@@ -2399,10 +2419,11 @@ const trialOut = (u, ent) => ({
 // Pro / billing status for the client paywall. checkoutAvailable is false until
 // Paystack subscription billing is wired: the gate is real regardless, and flips
 // the moment a user's plan becomes 'pro'.
-app.get('/api/billing/status', auth, (req, res) => {
+app.get('/api/billing/status', auth, async (req, res) => {
   const ps = req.user.proSub || {};
   const cfg = plans.config();
   const ent = plans.entitlement(req.user, new Date(), cfg);
+  const playAccountId = googlePlay.configured() ? await playAccountIdFor(req.user).catch(() => '') : '';
   res.json({
     plan: req.user.plan || 'free',
     tier: ent.tier, tierName: ent.name, source: ent.source,
@@ -2414,6 +2435,13 @@ app.get('/api/billing/status', auth, (req, res) => {
     student: studentOut(req.user),
     planExpiry: req.user.planExpiry || null,
     checkoutAvailable: proCheckoutReady(),
+    // The Play Store app buys through Google Play: its product ids and the account id
+    // it must send with a purchase.
+    play: playAccountId ? {
+      products: Object.fromEntries(Object.entries(googlePlay.config().products).map(([sku, code]) => [code, sku])),
+      accountId: playAccountId,
+      source: !!req.user.playToken,
+    } : null,
     autoRenew: !!ps.autoRenew,
     card: ps.last4 ? { last4: ps.last4, cardType: ps.cardType || '' } : null,
   });
@@ -5368,12 +5396,12 @@ app.patch('/api/admin/users/:id/newsletter-editor', auth, superAdminAuth, async 
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 // Grant / revoke a plan for a user (how testers and comped users get one). `plan` =
-// 'free'|'pro' (Plus)|'student'|'power'; optional `months` sets an expiry. A Student
+// 'free'|'pro' (Plus)|'student'|'sync' (Pro)|'power'; optional `months` sets an expiry. A Student
 // plan still needs a current verification to count. Billing flips the same fields.
 app.patch('/api/admin/users/:id/plan', auth, superAdminAuth, async (req, res) => {
   try {
     const { plan, months } = req.body;
-    if (!['free', 'pro', 'student', 'power'].includes(plan)) return res.status(400).json({ message: 'Invalid plan' });
+    if (!['free', 'pro', 'student', 'sync', 'power'].includes(plan)) return res.status(400).json({ message: 'Invalid plan' });
     const update = { plan };
     if (plan !== 'free') update.planExpiry = months ? new Date(Date.now() + Number(months) * 30 * 24 * 60 * 60 * 1000) : null;
     else update.planExpiry = null;
@@ -5790,7 +5818,7 @@ async function grantProFromCharge(user, data, kind = 'checkout') {
   const amount = koboToNaira(data.amount || 0);
   const base = user.planExpiry && new Date(user.planExpiry) > new Date() ? new Date(user.planExpiry) : new Date();
   const expiry = new Date(base.getTime() + months * 30 * 24 * 60 * 60 * 1000);
-  const paidPlan = ['pro', 'student', 'power'].includes(data.metadata?.plan) ? data.metadata.plan : 'pro';
+  const paidPlan = ['pro', 'student', 'sync', 'power'].includes(data.metadata?.plan) ? data.metadata.plan : 'pro';
   user.plan = paidPlan;
   user.planExpiry = expiry;
   user.planEverPaid = true;
@@ -5814,12 +5842,79 @@ async function grantProFromCharge(user, data, kind = 'checkout') {
   return { plan: paidPlan, planExpiry: expiry };
 }
 
+// ── Google Play Billing (the Play Store app) ────────────────────────────────────
+// The app buys through Google Play and sends the purchase token here; Google's own
+// answer decides the plan. Renewals, cancellations and refunds arrive as real-time
+// developer notifications (Pub/Sub push) and are looked up the same way.
+const playAccountSecret = () => process.env.PLAY_ACCOUNT_SECRET || JWT_SECRET;
+async function playAccountIdFor(user) {
+  const id = googlePlay.accountIdFor(user._id, playAccountSecret());
+  if (user.playAccountId !== id) await User.updateOne({ _id: user._id }, { $set: { playAccountId: id } });
+  return id;
+}
+
+// Record Google's answer for a token and, when it is the token that sets this user's
+// plan (or a new entitled purchase), update the plan. Acknowledges new purchases.
+async function applyPlaySubscription(user, token, info, cfg) {
+  await PlayPurchase.updateOne({ token }, {
+    $set: { userId: user._id, productId: info.productId, plan: info.plan, expiry: info.expiry, entitled: info.entitled, autoRenew: info.autoRenew, test: info.test },
+  }, { upsert: true });
+  if (info.entitled) {
+    user.plan = info.plan;
+    user.planExpiry = info.expiry;
+    user.planEverPaid = true;
+    user.playToken = token;
+    if (user.proSub?.autoRenew) user.proSub.autoRenew = false; // Play renews now, not Paystack
+    await user.save();
+  } else if (user.playToken === token || user.playToken === info.linkedToken) {
+    user.planExpiry = info.expiry; // on hold, paused, refunded or expired: access ends
+    await user.save();
+  }
+  if (info.needsAck && !info.pending) await googlePlay.acknowledge(info.productId, token, cfg);
+}
+
+app.post('/api/billing/play/verify', auth, async (req, res) => {
+  try {
+    const cfg = googlePlay.config();
+    if (!googlePlay.configured(cfg)) return res.status(503).json({ message: 'Payments aren’t available yet.' });
+    const token = String(req.body?.purchaseToken || '').slice(0, 512);
+    if (!token) return res.status(400).json({ message: 'Missing purchase' });
+    const info = googlePlay.readSubscription(await googlePlay.getSubscription(token, cfg), cfg);
+    if (!info) return res.status(400).json({ message: 'We couldn’t find that purchase.' });
+    const mine = await playAccountIdFor(req.user);
+    const bound = await PlayPurchase.findOne({ token }).select('userId').lean();
+    if ((info.accountId && info.accountId !== mine) || (bound && String(bound.userId) !== String(req.user._id))) {
+      return res.status(409).json({ message: 'This purchase belongs to another Automonie account.' });
+    }
+    if (info.pending) return res.status(202).json({ pending: true, message: 'Your payment is pending. Your plan starts as soon as Google confirms it.' });
+    await applyPlaySubscription(req.user, token, info, cfg);
+    res.json({ isPro: isPro(req.user), plan: req.user.plan, planExpiry: req.user.planExpiry });
+  } catch (e) { console.error('[billing/play/verify]', e.message); res.status(502).json({ message: 'We couldn’t confirm the purchase with Google. Try again.' }); }
+});
+
+// Pub/Sub push endpoint. The push subscription URL carries ?secret=PLAY_RTDN_SECRET.
+// Errors return 500 so Pub/Sub retries; anything not ours is accepted and dropped.
+app.post('/api/billing/play/rtdn', async (req, res) => {
+  const cfg = googlePlay.config();
+  if (!cfg.rtdnSecret || !safeEqual(String(req.query.secret || ''), cfg.rtdnSecret)) return res.status(403).end();
+  const token = googlePlay.rtdnToken(req.body);
+  if (!token || !googlePlay.configured(cfg)) return res.status(204).end();
+  try {
+    const info = googlePlay.readSubscription(await googlePlay.getSubscription(token, cfg), cfg);
+    if (!info) return res.status(204).end();
+    const known = await PlayPurchase.findOne({ token: { $in: [token, info.linkedToken].filter(Boolean) } }).select('userId').lean();
+    const user = known ? await User.findById(known.userId) : (info.accountId ? await User.findOne({ playAccountId: info.accountId }) : null);
+    if (user) await applyPlaySubscription(user, token, info, cfg);
+    res.status(204).end();
+  } catch (e) { console.error('[billing/play/rtdn]', e.message); res.status(500).end(); }
+});
+
 // Start Pro checkout: returns the Paystack authorization_url to open.
 app.post('/api/billing/checkout', auth, async (req, res) => {
   try {
     if (!proCheckoutReady()) return res.status(503).json({ message: 'Checkout is not available yet.' });
     const months = Math.max(1, Math.min(12, Number(req.body.months) || 1));
-    const planCode = ['pro', 'student', 'power'].includes(req.body.plan) ? req.body.plan : 'pro';
+    const planCode = ['pro', 'student', 'sync', 'power'].includes(req.body.plan) ? req.body.plan : 'pro';
     const plan = plans.catalog().find((p) => p.code === planCode);
     if (!plan.onSale || !(plan.priceNaira > 0)) return res.status(400).json({ message: `${plan.name} isn't on sale yet.` });
     if (planCode === 'student' && !plans.studentVerified(req.user, new Date())) return res.status(403).json({ message: 'Verify that you’re a student first.' });
@@ -5879,7 +5974,7 @@ app.post('/api/cron/renew-pro', async (req, res) => {
     if (!proCheckoutReady()) return res.json({ renewed: 0, skipped: 'not-live' });
     const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const due = await User.find({
-      plan: { $in: ['pro', 'student', 'power'] }, 'proSub.autoRenew': true,
+      plan: { $in: ['pro', 'student', 'sync', 'power'] }, 'proSub.autoRenew': true,
       'proSub.authorizationCode': { $nin: ['', null] },
       planExpiry: { $lte: soon },
     }).limit(200);

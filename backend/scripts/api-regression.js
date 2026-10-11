@@ -300,6 +300,75 @@ async function main() {
     check('9 receipt: an unknown payment method is dropped', (await call('POST', '/api/transactions', { date: '2026-09-12', description: 'X', amount: 1, category: 'Food', type: 'expense', paymentMethod: 'crypto' }, OH)).body.paymentMethod === '');
   }
 
+  // ── Google Play Billing (run the API with GOOGLE_PLAY_TEST_BASE=http://localhost:5098,
+  // a GOOGLE_PLAY_SERVICE_ACCOUNT test key and PLAY_RTDN_SECRET=rtdn-test) ──
+  if (process.env.GOOGLE_PLAY_TEST_BASE) {
+    const http = require('http');
+    const { accountIdFor } = require('../lib/googlePlay');
+    await users.updateOne({ _id: insertedId }, { $set: { plan: 'free', createdAt: new Date('2026-01-01'), planEverPaid: false }, $unset: { planExpiry: 1, playToken: 1 } });
+    const mine = accountIdFor(insertedId, process.env.PLAY_ACCOUNT_SECRET || process.env.JWT_SECRET);
+    const later = new Date(Date.now() + 30 * 86400000).toISOString();
+    // A stand-in for Google: purchase tokens and their state, and what was acknowledged.
+    const subs = {
+      'tok-a': { state: 'SUBSCRIPTION_STATE_ACTIVE', product: 'plus_monthly', account: mine, ack: false },
+      'tok-other': { state: 'SUBSCRIPTION_STATE_ACTIVE', product: 'plus_monthly', account: 'someone-else', ack: false },
+      'tok-pending': { state: 'SUBSCRIPTION_STATE_PENDING', product: 'plus_monthly', account: mine, ack: false },
+    };
+    const acked = [];
+    const fake = http.createServer((req, res) => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(obj ? JSON.stringify(obj) : ''); };
+      if (req.url === '/token') return send(200, { access_token: 'fake', expires_in: 3600 });
+      const m = req.url.match(/\/purchases\/subscriptionsv2\/tokens\/([^/?]+)$/);
+      if (m) {
+        const s = subs[decodeURIComponent(m[1])];
+        if (!s) return send(404);
+        return send(200, {
+          subscriptionState: s.state,
+          acknowledgementState: s.ack ? 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED' : 'ACKNOWLEDGEMENT_STATE_PENDING',
+          externalAccountIdentifiers: { obfuscatedExternalAccountId: s.account },
+          lineItems: [{ productId: s.product, expiryTime: s.expiry || later, autoRenewingPlan: { autoRenewEnabled: true } }],
+        });
+      }
+      const a = req.url.match(/\/tokens\/([^/?]+):acknowledge$/);
+      if (a) { const t = decodeURIComponent(a[1]); acked.push(t); if (subs[t]) subs[t].ack = true; return send(204); }
+      return send(404);
+    });
+    await new Promise((r) => fake.listen(new URL(process.env.GOOGLE_PLAY_TEST_BASE).port, r));
+
+    const st = (await call('GET', '/api/billing/status')).body;
+    check('play: billing status gives the product ids and this account\'s id', st.play?.products?.pro === 'plus_monthly' && st.play?.products?.student === 'student_monthly' && st.play?.accountId === mine, JSON.stringify(st.play));
+    check('play: the trial is over for this user', st.tier === 'free');
+    const v = await call('POST', '/api/billing/play/verify', { purchaseToken: 'tok-a' });
+    check('play: a verified purchase turns on Plus until Google\'s expiry', v.status === 200 && v.body.isPro && v.body.plan === 'pro' && Math.abs(new Date(v.body.planExpiry) - new Date(later)) < 1000, JSON.stringify(v.body));
+    check('play: the server acknowledged it', acked.includes('tok-a'));
+    check('play: an unknown token is refused', (await call('POST', '/api/billing/play/verify', { purchaseToken: 'tok-nope' })).status === 400);
+    check('play: a purchase made by another account is refused', (await call('POST', '/api/billing/play/verify', { purchaseToken: 'tok-other' })).status === 409);
+    const { insertedId: thief } = await users.insertOne({ name: 'Other', email: 'play-other@example.test', password: 'x', createdAt: new Date('2026-01-01') });
+    const TH = { Authorization: `Bearer ${jwt.sign({ userId: thief }, process.env.JWT_SECRET, { expiresIn: '1h' })}`, 'Content-Type': 'application/json' };
+    check('play: one purchase can\'t unlock a second account', (await call('POST', '/api/billing/play/verify', { purchaseToken: 'tok-a' }, TH)).status === 409);
+    const p = await call('POST', '/api/billing/play/verify', { purchaseToken: 'tok-pending' });
+    check('play: a pending payment waits', p.status === 202 && p.body.pending);
+
+    const rtdn = (t, secret = 'rtdn-test') => fetch(`${API}/api/billing/play/rtdn?secret=${secret}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: { data: Buffer.from(JSON.stringify({ subscriptionNotification: { purchaseToken: t, notificationType: 4 } })).toString('base64') } }),
+    });
+    check('play: notifications need the secret', (await rtdn('tok-a', 'wrong')).status === 403);
+    subs['tok-a'].state = 'SUBSCRIPTION_STATE_ON_HOLD';
+    check('play: a notification is accepted', (await rtdn('tok-a')).status === 204);
+    check('play: payment on hold ends access', (await call('GET', '/api/billing/status')).body.tier === 'free');
+    subs['tok-a'].state = 'SUBSCRIPTION_STATE_ACTIVE';
+    await rtdn('tok-a');
+    check('play: recovered payment brings Plus back', (await call('GET', '/api/billing/status')).body.tier === 'pro');
+    subs['tok-late'] = { state: 'SUBSCRIPTION_STATE_ACTIVE', product: 'plus_monthly', account: mine, ack: false };
+    await users.updateOne({ _id: insertedId }, { $set: { plan: 'free' }, $unset: { planExpiry: 1, playToken: 1 } });
+    await rtdn('tok-late');
+    const late = (await call('GET', '/api/billing/status')).body;
+    check('play: a purchase the app never reported is found by account id and acknowledged', late.tier === 'pro' && acked.includes('tok-late'), JSON.stringify(late.tier));
+    check('play: a notification for a token we\'ve never seen and nobody owns is dropped', (await rtdn('tok-other')).status === 204);
+    fake.close();
+  }
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

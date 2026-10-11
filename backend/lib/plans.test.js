@@ -10,7 +10,11 @@ const cfg = config({});
 const ago = (d) => new Date(now.getTime() - d * DAY);
 const ahead = (d) => new Date(now.getTime() + d * DAY);
 
-check('defaults: Plus 1500, Student 700 after 90 free days, 14-day trial, Power not on sale', cfg.plusPrice === 1500 && cfg.studentPrice === 700 && cfg.studentFreeDays === 90 && cfg.trialDays === 14 && !catalog(cfg).find((p) => p.code === 'power').onSale);
+check('defaults: Plus 1500, Student 700 after 90 free days, 14-day trial', cfg.plusPrice === 1500 && cfg.studentPrice === 700 && cfg.studentFreeDays === 90 && cfg.trialDays === 14);
+check('launch: Pro and Power are coming soon until bank sync is on', !catalog(cfg).find((p) => p.code === 'sync').onSale && !catalog(cfg).find((p) => p.code === 'power').onSale);
+check('Power is ₦7,000 and goes on sale with bank sync', (() => { const c = catalog(config({ BANK_SYNC_ENABLED: 'true' })); return c.find((p) => p.code === 'power').priceNaira === 7000 && c.find((p) => p.code === 'power').onSale; })());
+check('Pro needs a price as well as bank sync', !catalog(config({ BANK_SYNC_ENABLED: 'true' })).find((p) => p.code === 'sync').onSale && catalog(config({ BANK_SYNC_ENABLED: 'true', SYNC_PRICE_NAIRA: '4000' })).find((p) => p.code === 'sync').onSale);
+check('Pro is shown as Pro, Plus as Plus', catalog(cfg).find((p) => p.code === 'sync').name === 'Pro');
 check('PRO_PRICE_NAIRA still sets the Plus price', config({ PRO_PRICE_NAIRA: '2000' }).plusPrice === 2000);
 check('Pro is shown as Plus', catalog(cfg).find((p) => p.code === 'pro').name === 'Plus');
 
@@ -33,7 +37,8 @@ check('Student with lapsed verification drops to Free', entitlement({ ...student
 check('Student without verification is Free', entitlement({ ...student, student: { status: 'pending' } }, now, cfg).tier === 'free');
 
 check('superadmin is never blocked', hasFeature({ role: 'superadmin', createdAt: ago(900) }, 'report', now, cfg));
-check('Power includes Plus features', entitlement({ createdAt: ago(100), plan: 'power', planExpiry: ahead(5) }, now, cfg).features.includes('bank-link'));
+check('Power includes Plus features and bank sync', (() => { const f = entitlement({ createdAt: ago(100), plan: 'power', planExpiry: ahead(5) }, now, cfg).features; return f.includes('report') && f.includes('bank-link'); })());
+check('Plus does not include bank sync', !hasFeature(plus, 'bank-link', now, cfg));
 check('no user is Free', entitlement(null).tier === 'free');
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -81,18 +81,18 @@ export default function Plans() {
           <div key={p.code} className={`plan-card ${s.tier === p.code ? 'on' : ''}`}>
             <h3>{p.name}</h3>
             <div className="plan-price">
-              {p.code === 'free' ? 'Free' : p.priceNaira ? `${fmtNaira(p.priceNaira)}/month` : 'Coming soon'}
+              {p.code === 'free' ? 'Free' : p.onSale ? `${fmtNaira(p.priceNaira)}/month` : 'Coming soon'}
               {p.freeDays ? <span className="plan-small">after {Math.round(p.freeDays / 30)} free months</span> : null}
             </div>
             {p.code === 'free'
               ? <p className="plan-small">Your money in one place: imports, budgets, goals, insights.</p>
-              : <ul>{s.features.map((f) => <li key={f}>{f}</li>)}</ul>}
+              : <ul>{(p.perks || s.features).map((f) => <li key={f}>{f}</li>)}</ul>}
             {p.code === 'pro' && s.tier !== 'pro' && <button className="btn-primary" onClick={() => buy('pro')} disabled={busy === 'buy:pro'}>Get Plus</button>}
             {p.code === 'pro' && s.source === 'trial' && <button className="btn-primary" onClick={() => buy('pro')} disabled={busy === 'buy:pro'}>Keep Plus after the trial</button>}
             {p.code === 'student' && (verified
               ? (s.tier !== 'student' && <button className="btn-primary" onClick={startStudent} disabled={busy === 'start'}>{st.freeUsed ? 'Continue on Student' : 'Start 3 free months'}</button>)
               : <p className="plan-small">For students and corps members. Verify below first.</p>)}
-            {p.code === 'power' && !p.onSale && <p className="plan-small">More for heavy users. Coming soon.</p>}
+            {!p.onSale && p.code !== 'free' && <p className="plan-small">Arrives with automatic bank sync.</p>}
           </div>
         ))}
       </div>

@@ -29,10 +29,10 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
 
   if (!open) return null;
   const features = status?.features || [
-    'Export your income & financial report as a PDF',
-    'Guided subscription cancellation + charge tracking',
-    'Ask questions about your money',
-    'Faster automatic bank sync',
+    'Export your income and financial report as a PDF',
+    'Guided subscription cancellation, and we confirm the charge stopped',
+    'Scan receipts and cash spending',
+    'Ask questions about your money in plain words',
   ];
   const onUpgrade = async () => {
     if (!status?.checkoutAvailable) { alert("Plus is launching soon: we'll let you know the moment it's live."); return; }

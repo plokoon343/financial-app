@@ -1,5 +1,8 @@
 'use strict';
 
+const { stripText } = require('./aiStrip');
+const { parseJSON } = require('./aiProviders');
+
 // Receipt reading: OCR text (read on the phone) to { total, date, merchant }.
 // Deterministic only: the total and the date always come from these rules, never from
 // the AI. The AI may suggest the shop name and the category, and it only ever sees
@@ -115,11 +118,12 @@ function parseReceipt(text, now = new Date()) {
   return { total: total ? total.value : null, date, merchant, confidence, notes };
 }
 
-// The text the AI may see: every digit run removed (amounts, dates, phone and card
-// numbers), emails dropped, capped in size. Only the shape and words remain.
+// The text the AI may see: every number removed (amounts, dates, phone and card
+// numbers), plus emails, currency and names (cashier, "served by"), capped in size.
+// Only the shop's words remain (lib/aiStrip).
 function redactForAi(text) {
   return lines(text).slice(0, 40)
-    .map((l) => l.replace(/\S+@\S+/g, ' ').replace(/[₦]/g, ' ').replace(/\d[\d,.:/-]*/g, '#').replace(/\s+/g, ' ').trim())
+    .map(stripText)
     .filter((l) => /[a-z]/i.test(l))
     .join('\n')
     .slice(0, 1500);
@@ -137,28 +141,16 @@ function validateSuggestion(raw, redacted, categories) {
   return out;
 }
 
-// Ask the AI for the shop name and category of a redacted receipt. Returns the raw
-// { merchant, category } for validateSuggestion; throws on a transport error so the
-// caller keeps the deterministic result.
-async function suggestReceiptLLM(redacted, categories, cfg, fetchImpl = fetch) {
-  const res = await fetchImpl(`${cfg.baseURL}/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: cfg.model,
-      temperature: 0,
-      max_tokens: 200,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: 'You read the words of a shop receipt (all numbers are removed) and name the shop and its spending category. Use the shop name exactly as it is written in the text. If unsure, leave a field empty. Reply with JSON only.' },
-        { role: 'user', content: `${redacted}\n\nCategories: ${categories.join(', ')}.\nReturn JSON exactly like: {"merchant":"","category":""}` },
-      ],
-    }),
+// Ask the AI for the shop name and category of a redacted receipt. `run` is the
+// stripped-data provider call (aiProviders.runStripped). Returns the raw
+// { merchant, category } for validateSuggestion, or null when no provider answered.
+async function suggestReceiptLLM(redacted, categories, run) {
+  const r = await run({
+    system: 'You read the words of a shop receipt (all numbers are removed) and name the shop and its spending category. Use the shop name exactly as it is written in the text. If unsure, leave a field empty. Reply with JSON only.',
+    content: `${redacted}\n\nCategories: ${categories.join(', ')}.\nReturn JSON exactly like: {"merchant":"","category":""}`,
+    maxTokens: 200,
   });
-  if (!res.ok) throw new Error(`${cfg.name} ${res.status}`);
-  const data = await res.json();
-  try { return JSON.parse(String(data?.choices?.[0]?.message?.content || '{}').replace(/^```(json)?|```$/g, '')); }
-  catch { return null; }
+  return r ? parseJSON(r.text) : null;
 }
 
 module.exports = { parseReceipt, redactForAi, validateSuggestion, suggestReceiptLLM, amountsIn };

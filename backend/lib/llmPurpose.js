@@ -1,24 +1,18 @@
-// Gemini Flash is the only LLM provider. It is reached over Google's chat-completions
-// endpoint with plain fetch (no SDK). One config serves every LLM use: statement and
-// alert parsing fallbacks, purpose inference, and the in-app assistant. Only data
-// the deterministic layer couldn't handle is ever sent, and it is redacted first.
+// The config for every AI use that touches personal data: statement and alert
+// fallbacks, receipt-image transcription, purpose inference and the assistant. It is
+// the PERSONAL provider from lib/aiProviders: paid Gemini only (GEMINI_PAID_API_KEY),
+// never a free tier. Free tiers only ever see stripped text (lib/aiProviders).
 
 'use strict';
 
 const { PURPOSE_IDS } = require('./purposeInference');
+const { personalConfig } = require('./aiProviders');
 
-// The Gemini config from env, or null when no key is set (deterministic-only mode).
-// AI_PURPOSE_PROVIDER=none switches the LLM off even when a key is present.
+// The paid Gemini config, or null without a paid key (deterministic-only mode).
+// AI_PURPOSE_PROVIDER=none (or AI_PERSONAL_PROVIDER=none) switches it off.
 function llmConfig(env = process.env) {
   if ((env.AI_PURPOSE_PROVIDER || '').toLowerCase() === 'none') return null;
-  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '';
-  if (!apiKey) return null;
-  return {
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    apiKey,
-    model: env.AI_PURPOSE_MODEL || 'gemini-3.6-flash',
-    name: 'gemini',
-  };
+  return personalConfig(env);
 }
 
 // True when the LLM tier is usable. Tier-1 deterministic logic always runs regardless.

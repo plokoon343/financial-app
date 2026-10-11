@@ -44,6 +44,8 @@ const { llmConfig, llmActive, inferPurposesLLM } = require('./lib/llmPurpose');
 const { extractAlertLLM, validateExtract } = require('./lib/llmExtract');
 const receipt = require('./lib/receipt');
 const googlePlay = require('./lib/googlePlay');
+const aiProviders = require('./lib/aiProviders');
+const merchantSuggest = require('./lib/merchantSuggest');
 const metrics = require('./lib/metrics');
 require('dotenv').config();
 
@@ -2835,9 +2837,10 @@ app.post('/api/transactions', auth, async (req, res) => {
 });
 // Receipt scanning (Plus). The phone reads the receipt's text on-device and sends only
 // that text: the photo never leaves the phone. The total and date come from the rules
-// in lib/receipt; the AI, when on, may only name the shop and the category, from the
-// text with every number removed. Nothing is stored here (the user checks the fields
-// and saves through POST /api/transactions), and the text is never logged.
+// in lib/receipt; the AI may only name the shop and the category, from the text with
+// every number and name removed, on the free stripped-data chain. Nothing is stored
+// here (the user checks the fields and saves through POST /api/transactions), and the
+// text is never logged.
 const RECEIPT_CATEGORIES = [...GLOBAL_ELIGIBLE_CATEGORIES].filter((c) => !['Bank Charges', 'ATM/POS', 'Subscriptions'].includes(c));
 app.post('/api/receipts/parse', aiLimiter, auth, async (req, res) => {
   try {
@@ -2848,11 +2851,10 @@ app.post('/api/receipts/parse', aiLimiter, auth, async (req, res) => {
     let category = r.merchant ? categorizeTransaction(r.merchant, 'expense') : '';
     if (!RECEIPT_CATEGORIES.includes(category)) category = '';
     let assisted = false;
-    const cfg = llmConfig();
-    if (cfg && (!r.merchant || !category)) {
+    if (aiProviders.strippedChain().length && (!r.merchant || !category)) {
       const redacted = receipt.redactForAi(text);
       try {
-        const s = receipt.validateSuggestion(await receipt.suggestReceiptLLM(redacted, RECEIPT_CATEGORIES, cfg), redacted, RECEIPT_CATEGORIES);
+        const s = receipt.validateSuggestion(await receipt.suggestReceiptLLM(redacted, RECEIPT_CATEGORIES, (q) => aiProviders.runStripped(q)), redacted, RECEIPT_CATEGORIES);
         if (!r.merchant && s.merchant) { r.merchant = s.merchant; assisted = true; }
         if (!category && s.category) { category = s.category; assisted = true; }
       } catch (e) { console.error('[receipts/parse] ai', e.message); }
@@ -3843,14 +3845,14 @@ function parseOneAlert(msg, source = 'sms', sender = '') {
   };
 }
 
-// Tier-2 LLM parser rescue (spec 6.1). Uses the shared Gemini config, so one env key
-// lights up parsing and purpose inference together. Returns a validated
-// { amount, type, merchant, date } or null (never throws).
+// Tier-2 rescue for an alert the rules couldn't read (personal data: paid Gemini only).
+// The model only points at the amount by quoting it; lib/llmExtract checks the quote
+// is in the alert and not the balance, parses it in code, and takes the direction from
+// the rules. A rescued row ALWAYS goes to review; it is never saved on its own.
+// Returns a parsed row or null (never throws).
 async function llmRescueRow(rawText, source = 'sms', sender = '') {
   try {
-    const cfg = llmConfig();
-    if (!cfg) return null;
-    const ex = await extractAlertLLM(rawText, cfg);
+    const ex = await extractAlertLLM(rawText, (req) => aiProviders.runPersonal(req));
     const v = validateExtract(ex, rawText);
     if (!v) return null;
     const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(rawText, sender);
@@ -3860,9 +3862,9 @@ async function llmRescueRow(rawText, source = 'sms', sender = '') {
       date: v.date || new Date().toISOString().slice(0, 10),
       description, amount: +Number(v.amount).toFixed(2), type: v.type, category,
       bank: bankName || detectBank(rawText), bankCode, accountMask, senderKey,
-      reference: null, raw: rawText, needsReview: false, confidence: 'medium',
+      reference: null, raw: rawText, needsReview: true, directionKnown: v.directionKnown, confidence: 'medium',
       _parse: {
-        rawText, source, bank: bankName, parserVersion: 'llm-extract-v1', parserPath: 'llm',
+        rawText, source, bank: bankName, parserVersion: 'llm-extract-v2', parserPath: 'llm',
         amount: +Number(v.amount).toFixed(2), direction: v.type === 'income' ? 'credit' : 'debit',
         date: v.date || null, counterparty: description, category, confidence: 'medium',
       },
@@ -3884,9 +3886,11 @@ async function llmParseStatement(rawText) {
 
     const { openingBalance, closingBalance } = extractBalances(rawText);
     const recon = reconcile({ transactions: rows, openingBalance, closingBalance });
-    // Same safety gate as every other parser: a provably-wrong ledger is refused.
-    if (recon.checked && recon.ok === false) {
-      console.warn(`[llmParseStatement] rejected: does not reconcile (off by ${recon.difference}).`);
+    // An AI-read statement is accepted ONLY when it balances to the kobo: opening +
+    // credits − debits = closing. No opening/closing balance to check against, or any
+    // difference at all, and the import is refused.
+    if (!recon.checked || recon.ok !== true) {
+      console.warn(`[llmParseStatement] rejected: ${recon.checked ? `off by ${recon.difference}` : 'no opening and closing balance to check'}.`);
       return null;
     }
     const out = rows.map((r) => ({
@@ -3896,8 +3900,7 @@ async function llmParseStatement(rawText) {
       type: r.type,
       category: categorizeTransaction(r.description, r.type),
       reference: null,
-      // Trust it only as far as the math backs it: balanced → high, unverifiable → medium.
-      confidenceLevel: recon.checked && recon.ok ? 'high' : 'medium',
+      confidenceLevel: 'high', // it balanced exactly
     }));
     out.bank = detectBank(rawText);
     out.openingBalance = openingBalance;
@@ -4002,13 +4005,15 @@ async function applyContactToPast(userId, contact) {
   return ids.length;
 }
 
-// Deterministic parse, with an optional LLM rescue for the needs-review tail (unknown
-// banks / odd wording) when a provider is configured. Rescue is capped per call so a
-// paste of many unparseable lines can't fan out into many LLM calls.
+// Deterministic parse, with an optional AI rescue for the needs-review tail (unknown
+// banks / odd wording) when the paid provider is configured. Rescue only runs where a
+// person reviews the rows before anything is saved (the import screen); automatic
+// paths pass rescue:false, so an AI-read alert never lands in the ledger on its own.
+// Capped per call so a paste of many unreadable lines can't fan out into many calls.
 const LLM_RESCUE_MAX = 8;
-async function parseAlertsWithRescue(rawList, source = 'sms', sender = '') {
+async function parseAlertsWithRescue(rawList, source = 'sms', sender = '', { rescue = true } = {}) {
   const rows = rawList.map((b) => ({ raw: b, row: parseOneAlert(b, source, sender) }));
-  if (llmActive()) {
+  if (rescue && llmActive()) {
     let used = 0;
     for (const item of rows) {
       if (used >= LLM_RESCUE_MAX) break;
@@ -4277,9 +4282,9 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     const segments = inboundEmail.splitEmailAlerts(resolved.bodyOnly);
     let parsedRows;
     if (segments.length > 1) {
-      parsedRows = (await parseAlertsWithRescue(segments, 'email', bankFrom)).filter((r) => r && r.amount > 0);
+      parsedRows = (await parseAlertsWithRescue(segments, 'email', bankFrom, { rescue: false })).filter((r) => r && r.amount > 0);
     } else {
-      const [one] = await parseAlertsWithRescue([resolved.fullText], 'email', bankFrom);
+      const [one] = await parseAlertsWithRescue([resolved.fullText], 'email', bankFrom, { rescue: false });
       parsedRows = one && one.amount > 0 ? [one] : [];
     }
     // An alert with no readable date happened when the bank emailed it, not "today"
@@ -6997,6 +7002,9 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       });
     }
 
+    // "Ask about my money" is a Plus feature (the trial includes it).
+    if (!hasFeature(req.user, 'ask-money')) return res.status(402).json(upgradeRequired('ask-money'));
+
     // Sanitise client-supplied history into a clean alternating turn list.
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-10) : [];
     const priorTurns = history
@@ -7092,6 +7100,10 @@ async function tier2Propose(residual, cfg) {
   return purposeInf.validateProposals(raw, residual).map((p) => ({ ...p, source: 'ai' }));
 }
 
+// Card, POS and web purchases are shops (the merchant suggestions handle those), not
+// transfers to ask a purpose for.
+const isTransferLike = (t) => !/\b(pos|purchase|web ?pmt|card payment)\b/i.test(t.description || '');
+
 // The generic-transfer groups worth asking about: deterministic, no model call. The
 // feature ALWAYS works (Tier-1 is free/on-box); `booster` names the LLM tail provider
 // when one is configured, else null.
@@ -7100,7 +7112,7 @@ app.get('/api/ai/purpose/candidates', auth, async (req, res) => {
     if (!hasFeature(req.user, 'ai-purpose')) return res.status(402).json(upgradeRequired('ai-purpose'));
     const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
       .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
-    const candidates = purposeInf.buildCandidates(txns);
+    const candidates = purposeInf.buildCandidates(txns.filter(isTransferLike));
     const cfg = llmConfig();
     res.json({
       available: true,                    // Tier-1 always available
@@ -7120,7 +7132,7 @@ app.post('/api/ai/purpose/infer', auth, async (req, res) => {
     if (!hasFeature(req.user, 'ai-purpose')) return res.status(402).json(upgradeRequired('ai-purpose'));
     const txns = await Transaction.find({ userId: req.user._id, type: { $in: ['income', 'expense'] } })
       .select('description amount category type date').sort({ date: -1 }).limit(1000).lean();
-    const candidates = purposeInf.buildCandidates(txns);
+    const candidates = purposeInf.buildCandidates(txns.filter(isTransferLike));
     if (!candidates.length) return res.json({ available: true, proposals: [], tiers: { rules: 0, ai: 0 } });
 
     // Tier-1: deterministic, free.
@@ -7151,11 +7163,24 @@ app.post('/api/ai/purpose/infer', auth, async (req, res) => {
   }
 });
 
-// Superadmin diagnostic: one-shot LIVE ping of the configured Tier-2 LLM provider, so
-// you can confirm the key actually works (not just that it's set). Not on any hot path.
+// Superadmin diagnostic: which AI providers are set up in each group, and a one-shot
+// LIVE ping of each, so you can confirm the keys actually work. Not on any hot path.
+app.get('/api/admin/ai/providers', auth, superAdminAuth, async (req, res) => {
+  const ping = async (cfg) => {
+    const started = Date.now();
+    try { const t = await aiProviders.chat(cfg, { content: 'Reply with the single word OK', maxTokens: 5, json: false, timeoutMs: 10000 }); return { provider: cfg.name, model: cfg.model, ok: true, ms: Date.now() - started, sample: t.slice(0, 20) }; }
+    catch (e) { return { provider: cfg.name, model: cfg.model, ok: false, error: String(e.status || e.message).slice(0, 60) }; }
+  };
+  const personal = aiProviders.personalConfig();
+  res.json({
+    personal: personal ? await ping(personal) : { configured: false, note: 'Set GEMINI_PAID_API_KEY (a billed Google project) to switch on the personal-data features.' },
+    stripped: await Promise.all(aiProviders.strippedChain().map(ping)),
+  });
+});
+
 app.get('/api/admin/ai/ping', auth, superAdminAuth, async (req, res) => {
   const cfg = llmConfig();
-  if (!cfg) return res.json({ configured: false, provider: null, message: 'No GEMINI_API_KEY set, running deterministic-only.' });
+  if (!cfg) return res.json({ configured: false, provider: null, message: 'No GEMINI_PAID_API_KEY set: personal-data AI is off, rules only.' });
   const started = Date.now();
   try {
     const r = await fetch(`${cfg.baseURL}/chat/completions`, {
@@ -7175,12 +7200,53 @@ app.get('/api/admin/ai/ping', auth, superAdminAuth, async (req, res) => {
 // Apply a confirmed proposal: set the category on the named transactions and LEARN it
 // so future transfers from the same counterparty auto-apply. Validates the category
 // is one the allow-list produces (a user can't push arbitrary categories through).
+// AI categories for "Other" spending (stripped-data chain). Each merchant is asked
+// about once and cached for everyone: the cache holds a stripped merchant name and a
+// category, nothing about any user.
+const aiMerchantCacheSchema = new mongoose.Schema({
+  key:      { type: String, required: true, unique: true }, // stripped merchant, lower case
+  category: { type: String, required: true },
+  provider: { type: String, default: '' },
+}, { timestamps: true });
+const AiMerchantCache = mongoose.model('AiMerchantCache', aiMerchantCacheSchema);
+const MERCHANT_CATEGORIES = [...GLOBAL_ELIGIBLE_CATEGORIES, 'Other'];
+
+app.get('/api/ai/merchants/suggest', aiLimiter, auth, async (req, res) => {
+  try {
+    if (!hasFeature(req.user, 'ai-purpose')) return res.status(402).json(upgradeRequired('ai-purpose'));
+    const txns = await Transaction.find({ userId: req.user._id, type: 'expense', category: { $in: [...merchantSuggest.UNSORTED] } })
+      .select('description category type').sort({ date: -1 }).limit(1000).lean();
+    const groups = merchantSuggest.merchantGroups(txns);
+    const available = aiProviders.strippedChain().length > 0;
+    if (!groups.length) return res.json({ available, proposals: [] });
+    const cached = new Map((await AiMerchantCache.find({ key: { $in: groups.map((g) => g.key) } }).lean()).map((c) => [c.key, c]));
+    const ask = groups.filter((g) => !cached.has(g.key)).map((g) => g.merchant);
+    if (ask.length && available) {
+      try {
+        const r = await aiProviders.runStripped({ system: merchantSuggest.SYSTEM, content: merchantSuggest.buildPrompt(ask, MERCHANT_CATEGORIES), maxTokens: 800 });
+        if (r) {
+          const found = merchantSuggest.validate(aiProviders.parseJSON(r.text), ask, MERCHANT_CATEGORIES);
+          for (const [key, category] of found) {
+            cached.set(key, { key, category, provider: r.provider });
+            await AiMerchantCache.updateOne({ key }, { $set: { category, provider: r.provider } }, { upsert: true });
+          }
+        }
+      } catch (e) { console.error('[ai/merchants]', e.message); } // no suggestions this time
+    }
+    const proposals = groups.filter((g) => cached.has(g.key)).map((g) => ({
+      merchant: g.merchant, category: cached.get(g.key).category, count: g.count, txnIds: g.txnIds,
+    }));
+    res.json({ available, proposals });
+  } catch (e) { console.error('[ai/merchants/suggest]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 app.post('/api/ai/purpose/apply', auth, async (req, res) => {
   try {
     if (!hasFeature(req.user, 'ai-purpose')) return res.status(402).json(upgradeRequired('ai-purpose'));
     const txnIds = Array.isArray(req.body?.txnIds) ? req.body.txnIds.filter((x) => mongoose.isValidObjectId(x)) : [];
     const category = (req.body?.category || '').toString().trim();
-    const allowed = new Set(purposeInf.PURPOSES.map((p) => p.category).filter(Boolean));
+    // Transfer purposes and merchant spending categories (both come from Smart Categorise).
+    const allowed = new Set([...purposeInf.PURPOSES.map((p) => p.category).filter(Boolean), ...GLOBAL_ELIGIBLE_CATEGORIES]);
     if (!txnIds.length || !allowed.has(category)) return res.status(400).json({ message: 'Nothing to apply.' });
 
     const result = await Transaction.updateMany(

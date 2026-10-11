@@ -3,11 +3,12 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import ProPaywall from './ProPaywall';
 
-// AI counterparty -> purpose inference (spec 6.1): web parity with the mobile
-// /smart-categorize screen. Lists recurring transfers stuck on a generic label and,
-// when the server's model key is live, suggests a purpose per counterparty (rent /
-// savings / family…) that the user confirms. STAGED: shows the list + "coming soon"
-// until keys are set. Pro-gated (402 -> paywall). Only redacted names/amounts leave.
+// Smart categorise (web parity with the mobile /smart-categorize screen), Plus:
+//  - "Other" spending: shops the rules couldn't place get a suggested category. Only
+//    the shop's name goes out, with every number removed; answers are shared per shop.
+//  - Recurring transfers stuck on a generic label get a suggested purpose (rent /
+//    savings / family…), from the paid AI provider when it's switched on.
+// The user confirms every suggestion before anything changes.
 
 const naira = (n) => '₦' + Math.round(Number(n) || 0).toLocaleString('en-NG');
 const cadenceLabel = (c) => (c === 'one-off' ? 'once' : c);
@@ -23,6 +24,8 @@ export default function SmartCategorize() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [paywall, setPaywall] = useState(false);
+  const [shops, setShops] = useState(null); // { available, proposals } after "Sort my Other spending"
+  const [shopsBusy, setShopsBusy] = useState(false);
   const headers = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 1800); };
@@ -55,6 +58,28 @@ export default function SmartCategorize() {
     } finally { setAnalyzing(false); }
   };
 
+  const suggestShops = async () => {
+    setShopsBusy(true); setError('');
+    try {
+      const { data } = await axios.get(`${API_URL}/api/ai/merchants/suggest`, headers);
+      setShops({ available: !!data.available, proposals: data.proposals || [] });
+    } catch (e) {
+      if (e.response?.status === 402) { setPaywall(true); return; }
+      setError('Could not look at your spending.');
+    } finally { setShopsBusy(false); }
+  };
+  const applyShop = async (p) => {
+    setBusy(`shop:${p.merchant}`);
+    try {
+      const { data } = await axios.post(`${API_URL}/api/ai/purpose/apply`, { txnIds: p.txnIds, category: p.category }, headers);
+      flash(`${p.merchant} → ${p.category} (${data.updated} updated)`);
+      setShops((s) => ({ ...s, proposals: s.proposals.filter((x) => x.merchant !== p.merchant) }));
+    } catch (e) {
+      if (e.response?.status === 402) { setPaywall(true); return; }
+      setError('Could not apply that.');
+    } finally { setBusy(''); }
+  };
+
   const apply = async (p) => {
     setBusy(p.counterparty);
     try {
@@ -72,12 +97,35 @@ export default function SmartCategorize() {
     <div className="sc-page">
       <div className="sc-head">
         <h2><i className="fas fa-tags"></i> Smart categorise</h2>
-        <p>{available
-          ? 'These recurring transfers don’t have a real category yet. Let Automonie suggest what each is for: you confirm before anything changes.'
-          : 'These recurring transfers don’t have a category yet. Smart suggestions are coming soon; here’s what we’ll help you sort.'}</p>
+        <p>Automonie suggests categories for spending and transfers it couldn’t sort. You confirm each one before anything changes.</p>
       </div>
 
       {toast && <div className="sc-toast">{toast}</div>}
+
+      <h3 className="sc-section">Spending marked “Other”</h3>
+      {!shops ? (
+        <button className="sc-analyze" disabled={shopsBusy} onClick={suggestShops}>
+          <i className="fas fa-store"></i> {shopsBusy ? 'Looking…' : 'Suggest categories for shops'}
+        </button>
+      ) : shops.proposals.length === 0 ? (
+        <p className="sc-note">{shops.available ? 'Nothing to suggest: your shops are already sorted, or we couldn’t tell what they are.' : 'Shop suggestions aren’t switched on yet.'}</p>
+      ) : shops.proposals.map((p) => (
+        <div key={`s-${p.merchant}`} className="sc-card sc-proposal">
+          <div className="sc-top">
+            <div className="sc-icon"><i className="fas fa-store"></i></div>
+            <div style={{ flex: 1 }}>
+              <div className="sc-name">{p.merchant}</div>
+              <div className="sc-sub">{p.count} transaction{p.count === 1 ? '' : 's'}</div>
+            </div>
+          </div>
+          <div className="sc-suggest"><i className="fas fa-tag"></i> {p.category}</div>
+          <button className="sc-apply" disabled={busy === `shop:${p.merchant}`} onClick={() => applyShop(p)}>
+            Apply to {p.count} transaction{p.count === 1 ? '' : 's'}
+          </button>
+        </div>
+      ))}
+
+      <h3 className="sc-section">Recurring transfers</h3>
       {loading ? <div className="sc-card">Loading…</div> : (
         <>
           {candidates.length === 0 ? (
@@ -137,7 +185,7 @@ export default function SmartCategorize() {
           )}
 
           {error && <div className="sc-card sc-err">{error}</div>}
-          <p className="sc-privacy">We only send a payee name (with account numbers removed), the amounts and how often: never your full statement.</p>
+          <p className="sc-privacy">For shops we send only the shop’s name, with every number removed. For transfers we send a payee name (account numbers removed), the amounts and how often, to our paid AI provider only. Never your full statement.</p>
         </>
       )}
 
@@ -147,6 +195,7 @@ export default function SmartCategorize() {
         .sc-page { max-width: 720px; margin: 0 auto; padding: 20px; }
         .sc-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); margin: 0 0 6px; }
         .sc-head p { color: var(--text-secondary); margin: 0 0 18px; }
+        .sc-section { color: var(--text-primary); font-size: 1rem; margin: 18px 0 10px; }
         .sc-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 14px; color: var(--text-primary); }
         .sc-proposal { border: 2px solid var(--accent-primary); }
         .sc-top { display: flex; align-items: center; gap: 12px; }

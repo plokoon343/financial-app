@@ -1,13 +1,18 @@
-// Tier-2 LLM extraction fallback for bank alerts (spec 6.1 hybrid, applied to the
-// PARSER). Only the ambiguous tail the deterministic layer can't handle: unknown
-// banks / unstructured wording: is sent here. The model PROPOSES a structured
-// transaction; validateExtract checks it against the raw text so a hallucinated
-// amount/direction is rejected. Uses the same Gemini config as the purpose tier.
-// Pure except the injected fetch, so it unit-tests.
+// AI fallback for bank alerts the rules can't read (unknown banks, odd wording). The
+// model never decides the amount or the direction:
+//  - it may only POINT at the amount, by quoting it exactly as written in the alert;
+//    the quote must appear verbatim, must not be the balance, and the code parses it;
+//  - the direction comes from the deterministic rules (lib/alertParse), never the model.
+// A rescued alert always goes to review; it is never saved automatically. The alert
+// carries personal data, so this runs on the PERSONAL provider only (paid Gemini).
+// Pure except the injected chat call, so it unit-tests.
 
 'use strict';
 
-const EXTRACT_SYSTEM = 'You extract ONE financial transaction from a bank alert (SMS or email). Reply with JSON only, no prose.';
+const { normalizeAmount } = require('./amount');
+const { detectDirection } = require('./alertParse');
+
+const EXTRACT_SYSTEM = 'You find the transaction amount in ONE bank alert (SMS or email) by quoting it exactly as written. Reply with JSON only, no prose.';
 
 function buildExtractPrompt(text) {
   return [
@@ -17,9 +22,9 @@ function buildExtractPrompt(text) {
     '"""',
     '',
     'Return JSON exactly like:',
-    '{"is_transaction": true, "amount": 1500.00, "direction": "credit"|"debit", "merchant": "who the money went to or came from (short)", "date": "YYYY-MM-DD or null"}',
+    '{"is_transaction": true, "amount_text": "the transaction amount copied character for character from the alert, e.g. NGN15,000.00", "merchant": "who the money went to or came from (short)", "date": "YYYY-MM-DD or null"}',
     '',
-    'Rules: amount is the TRANSACTION amount, never the account balance. direction is "credit" if money came IN, "debit" if money went OUT. If this is not a real money-movement alert (OTP, promo, balance enquiry, card delivery), return {"is_transaction": false}.',
+    'Rules: amount_text is the TRANSACTION amount, never the account balance, copied exactly. If this is not a real money-movement alert (OTP, promo, balance enquiry, card delivery), return {"is_transaction": false}.',
   ].join('\n');
 }
 
@@ -31,39 +36,36 @@ function parseExtract(txt) {
   return o && typeof o === 'object' ? o : null;
 }
 
-// Validate the model's extraction against the RAW text (anti-hallucination):
-//  - must be flagged a transaction with a positive amount,
-//  - the amount's integer part must literally appear in the alert's digits,
-//  - direction must be credit|debit.
-// Returns { amount, type, merchant, date } or null.
+// Check the model's pointer against the RAW alert and build the row from rules:
+//  - amount_text must appear verbatim in the alert and parse to a clear positive amount;
+//  - it must not be the balance (no "bal"/"avail" just before it);
+//  - direction is read by detectDirection; when the rules can't tell, directionKnown is
+//    false and the user picks.
+// Returns { amount, type, directionKnown, merchant, date, amountText } or null.
 function validateExtract(ex, rawText) {
   if (!ex || ex.is_transaction === false) return null;
-  const amount = Number(ex.amount);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  const digits = (rawText || '').replace(/[^\d]/g, '');
-  const intPart = String(Math.trunc(amount));
-  if (intPart.length >= 2 && !digits.includes(intPart)) return null; // amount not in text → reject
-  const dir = (ex.direction || '').toString().toLowerCase();
-  if (dir !== 'credit' && dir !== 'debit') return null;
+  const raw = String(rawText || '');
+  const quote = String(ex.amount_text || '').trim();
+  if (!quote || quote.length > 30 || !/\d/.test(quote)) return null;
+  const at = raw.indexOf(quote);
+  if (at < 0) return null;                                         // not in the alert: invented
+  if (/\b(bal|balance|avail|available|ledger)\b[^\d]{0,12}$/i.test(raw.slice(Math.max(0, at - 20), at))) return null;
+  const n = normalizeAmount(quote.replace(/([A-Za-z₦])(?=\d)/g, '$1 ')); // "NGN15,000" -> "NGN 15,000"
+  if (n.value == null || n.ambiguous || !(n.value > 0)) return null;
+  const dir = detectDirection(raw);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(ex.date || '') ? ex.date : null;
-  return { amount: +amount.toFixed(2), type: dir === 'credit' ? 'income' : 'expense', merchant: (ex.merchant || '').toString().replace(/\s+/g, ' ').trim().slice(0, 140), date };
+  return {
+    amount: +n.value.toFixed(2), type: dir.type, directionKnown: dir.conf !== 'low',
+    merchant: (ex.merchant || '').toString().replace(/\s+/g, ' ').trim().slice(0, 140), date, amountText: quote,
+  };
 }
 
-// Ask the model to extract; returns the RAW parsed object (validate it with
-// validateExtract). Throws on transport/HTTP error.
-async function extractAlertLLM(text, cfg, fetchImpl = fetch) {
-  const res = await fetchImpl(`${cfg.baseURL}/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: cfg.model, temperature: 0, max_tokens: 300,
-      response_format: { type: 'json_object' },
-      messages: [{ role: 'system', content: EXTRACT_SYSTEM }, { role: 'user', content: buildExtractPrompt(text) }],
-    }),
-  });
-  if (!res.ok) { const b = await res.text().catch(() => ''); throw new Error(`${cfg.name} ${res.status} ${b.slice(0, 150)}`); }
-  const data = await res.json();
-  return parseExtract(data?.choices?.[0]?.message?.content || '{}');
+// Ask the model; returns the RAW parsed object (validate it with validateExtract).
+// `run` is the provider call (aiProviders.runPersonal); null when AI is off.
+async function extractAlertLLM(text, run) {
+  const r = await run({ system: EXTRACT_SYSTEM, content: buildExtractPrompt(text), maxTokens: 300 });
+  if (!r) return null;
+  return parseExtract(r.text || '{}');
 }
 
 module.exports = { EXTRACT_SYSTEM, buildExtractPrompt, parseExtract, validateExtract, extractAlertLLM };

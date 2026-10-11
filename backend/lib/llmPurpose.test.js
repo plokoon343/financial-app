@@ -7,11 +7,11 @@ const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`F
 
 // --- provider config resolution (Gemini only) ---
 check('no key -> null', llmConfig({}) === null);
-check('gemini config', (() => { const c = llmConfig({ GEMINI_API_KEY: 'k' }); return c.baseURL.includes('googleapis') && c.apiKey === 'k' && c.model.includes('gemini') && c.name === 'gemini'; })());
-check('google key alias', llmConfig({ GOOGLE_API_KEY: 'g' }).apiKey === 'g');
-check('model override', llmConfig({ GEMINI_API_KEY: 'k', AI_PURPOSE_MODEL: 'custom-model' }).model === 'custom-model');
-check('explicit off', llmConfig({ GEMINI_API_KEY: 'k', AI_PURPOSE_PROVIDER: 'none' }) === null);
-check('active with key', llmActive({ GEMINI_API_KEY: 'k' }) === true);
+check('paid gemini config', (() => { const c = llmConfig({ GEMINI_PAID_API_KEY: 'k' }); return c.baseURL.includes('googleapis') && c.apiKey === 'k' && c.model.includes('gemini') && c.name === 'gemini-paid'; })());
+check('the free Gemini key never powers personal-data AI', llmConfig({ GEMINI_API_KEY: 'free' }) === null && llmConfig({ GOOGLE_API_KEY: 'g' }) === null);
+check('model override', llmConfig({ GEMINI_PAID_API_KEY: 'k', GEMINI_PAID_MODEL: 'custom-model' }).model === 'custom-model');
+check('explicit off', llmConfig({ GEMINI_PAID_API_KEY: 'k', AI_PURPOSE_PROVIDER: 'none' }) === null);
+check('active with the paid key', llmActive({ GEMINI_PAID_API_KEY: 'k' }) === true);
 check('inactive without key', llmActive({}) === false);
 
 // --- tolerant JSON parsing ---
@@ -28,7 +28,7 @@ check('missing proposals -> []', parseProposals('{"foo":1}').length === 0);
     seen = { url, body: JSON.parse(opts.body), auth: opts.headers.Authorization };
     return { ok: true, json: async () => ({ choices: [{ message: { content: '{"proposals":[{"ref":0,"purpose":"rent","confidence":"high"}]}' } }] }) };
   };
-  const cfg = llmConfig({ GEMINI_API_KEY: 'secret' });
+  const cfg = llmConfig({ GEMINI_PAID_API_KEY: 'secret' });
   const out = await inferPurposesLLM('CANDIDATES HERE', cfg, mockFetch);
   check('calls chat/completions', seen && seen.url.endsWith('/chat/completions'));
   check('sends bearer key', seen && seen.auth === 'Bearer secret');

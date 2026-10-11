@@ -325,6 +325,49 @@ async function main() {
     await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
   }
 
+  // ── 11: AI provider layer (run the API with AI_TEST_BASE=http://localhost:5097) ──
+  if (process.env.AI_TEST_BASE) {
+    const http = require('http');
+    const seen = [];
+    const fake = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const j = JSON.parse(body || '{}');
+        const sys = j.messages?.find((m) => m.role === 'system')?.content || '';
+        const user = j.messages?.find((m) => m.role === 'user')?.content || '';
+        seen.push({ sys, user });
+        let reply = '{}';
+        if (/shop and merchant names/.test(sys)) {
+          const items = [...user.matchAll(/^- (.+)$/gm)].map((m) => ({ merchant: m[1], category: /SHOPRITE/i.test(m[1]) ? 'Groceries' : 'Other' }));
+          reply = JSON.stringify({ items });
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: reply } }] }));
+      });
+    });
+    await new Promise((r) => fake.listen(new URL(process.env.AI_TEST_BASE).port, r));
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user', plan: 'pro', planExpiry: new Date(Date.now() + 30 * 86400000) } });
+    for (const d of ['POS PURCHASE SHOPRITE LEKKI 4500', 'POS PURCHASE SHOPRITE LEKKI 1200', 'NIP TRF TO ADEBAYO OKONKWO 0123456789']) {
+      await call('POST', '/api/transactions', { date: '2026-10-01', description: d, amount: 1000, category: 'Other', type: 'expense' });
+    }
+    const s1 = await call('GET', '/api/ai/merchants/suggest');
+    const shop = (s1.body.proposals || []).find((p) => /SHOPRITE/.test(p.merchant));
+    check('11 merchants: "Other" spending gets an AI category to confirm', s1.status === 200 && shop?.category === 'Groceries' && shop.count === 2, JSON.stringify(s1.body));
+    const asked = seen.filter((x) => /shop and merchant names/.test(x.sys));
+    check('11 merchants: one request for all merchants', asked.length === 1);
+    check('11 merchants: no digits reach the free tier', !/\d/.test(asked[0]?.user || 'x'), asked[0]?.user);
+    check('11 merchants: person transfers never reach the free tier', !/ADEBAYO|OKONKWO/.test(asked[0]?.user || ''));
+    await call('GET', '/api/ai/merchants/suggest');
+    check('11 merchants: answers are cached (no second request)', seen.filter((x) => /shop and merchant names/.test(x.sys)).length === 1);
+    const ap = await call('POST', '/api/ai/purpose/apply', { txnIds: shop.txnIds, category: 'Groceries' });
+    check('11 merchants: confirming applies the category', ap.status === 200 && ap.body.updated === 2, JSON.stringify(ap.body));
+    check('11 merchants: an unknown category is refused', (await call('POST', '/api/ai/purpose/apply', { txnIds: shop.txnIds, category: 'Loans' })).status === 400);
+    await users.updateOne({ _id: insertedId }, { $set: { plan: 'free' }, $unset: { planExpiry: 1 } });
+    check('11 merchants: a Plus feature', (await call('GET', '/api/ai/merchants/suggest')).status === 402);
+    fake.close();
+  }
+
   // ── Google Play Billing (run the API with GOOGLE_PLAY_TEST_BASE=http://localhost:5098,
   // a GOOGLE_PLAY_SERVICE_ACCOUNT test key and PLAY_RTDN_SECRET=rtdn-test) ──
   if (process.env.GOOGLE_PLAY_TEST_BASE) {

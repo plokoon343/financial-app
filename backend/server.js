@@ -46,6 +46,7 @@ const receipt = require('./lib/receipt');
 const googlePlay = require('./lib/googlePlay');
 const aiProviders = require('./lib/aiProviders');
 const merchantSuggest = require('./lib/merchantSuggest');
+const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
 require('dotenv').config();
 
@@ -5563,7 +5564,7 @@ app.post('/api/admin/setup', authLimiter, async (req, res) => {
 const paystackHeaders = () => ({ Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' });
 const koboToNaira = (kobo) => Math.round(kobo) / 100;
 
-// Paystack webhook. Only Pro subscription charges are acted on.
+// Paystack webhook: plan payments, and card payments for airtime and bills.
 app.post('/api/paystack/webhook', async (req, res) => {
   try {
     const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -5572,6 +5573,11 @@ app.post('/api/paystack/webhook', async (req, res) => {
     if (!safeEqual(hash, req.headers['x-paystack-signature'])) return res.sendStatus(401);
     const event = req.body;
     const d = event?.data || {};
+    // A card payment for airtime / a bill: confirm it and buy (once, see settleBill).
+    if (event?.event === 'charge.success' && d.metadata?.purpose === 'bill' && billPay.config().enabled) {
+      const rec = await BillPayment.findById(d.metadata.billPaymentId).catch(() => null);
+      if (rec) await settleBill(rec, d);
+    }
     if (event?.event === 'charge.success' && d.metadata?.purpose === 'pro_subscription') {
       let user = d.metadata?.userId ? await User.findById(d.metadata.userId).catch(() => null) : null;
       if (!user && d.customer?.email) user = await User.findOne({ email: d.customer.email });
@@ -5582,6 +5588,205 @@ app.post('/api/paystack/webhook', async (req, res) => {
     console.error('[paystack/webhook]', e.message);
     res.sendStatus(200);
   }
+});
+
+// ── Airtime, data, TV and electricity (behind FEATURE_BILL_PAYMENTS, off by default) ──
+// Card pass-through only (lib/billPay): the user pays the exact amount by card through
+// Paystack; the server confirms that payment with Paystack, then buys from VTpass. A
+// clear decline is refunded through Paystack. An unclear outcome stays "pending" and is
+// re-checked by reconcileBillPayments, never refunded blind.
+const testOnly = (v) => (process.env.NODE_ENV !== 'production' && v) || '';
+const VTPASS_BASE = () => testOnly(process.env.VTPASS_TEST_BASE) || (billPay.config().sandbox ? 'https://sandbox.vtpass.com/api' : 'https://vtpass.com/api');
+const PAYSTACK_BASE = () => testOnly(process.env.PAYSTACK_TEST_BASE) || 'https://api.paystack.co';
+const vtpassPostHeaders = () => ({ 'api-key': process.env.VTPASS_API_KEY, 'secret-key': process.env.VTPASS_SECRET_KEY, 'Content-Type': 'application/json' });
+const vtpassGetHeaders = () => ({ 'api-key': process.env.VTPASS_API_KEY, 'public-key': process.env.VTPASS_PUBLIC_KEY });
+
+const billPaymentSchema = new mongoose.Schema({
+  userId:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  billType:      { type: String, enum: ['airtime', 'data', 'tv', 'electricity'], required: true },
+  serviceID:     { type: String, required: true },
+  provider:      { type: String, default: '' },
+  phone:         { type: String, default: '' },
+  billersCode:   { type: String, default: '' },
+  variationCode: { type: String, default: '' },
+  planName:      { type: String, default: '' },
+  meterType:     { type: String, default: '' },
+  amount:        { type: Number, required: true },  // naira bought from VTpass
+  chargeNaira:   { type: Number, required: true },  // naira charged to the card (amount + fee)
+  requestId:     { type: String, required: true, unique: true }, // VTpass
+  paystackRef:   { type: String, default: '', index: true },
+  status:        { type: String, enum: ['awaiting_payment', 'paying', 'pending', 'completed', 'refund_pending', 'refunded', 'expired'], default: 'awaiting_payment', index: true },
+  token:         { type: String, default: '' },     // electricity token
+  providerRef:   { type: String, default: '' },
+  message:       { type: String, default: '' },
+}, { timestamps: true });
+const BillPayment = mongoose.model('BillPayment', billPaymentSchema);
+
+const billOut = (b) => ({
+  id: b._id, billType: b.billType, provider: b.provider, description: billPay.label(b), amount: b.amount, chargeNaira: b.chargeNaira,
+  status: b.status, token: b.token || undefined, createdAt: b.createdAt,
+});
+const billPayOn = (req, res, next) => (billPay.config().enabled ? next() : res.status(404).json({ message: 'Not available.' }));
+
+// Plans and bouquets from VTpass, cached briefly (they change rarely).
+const variationCache = new Map();
+async function vtpassVariations(serviceID) {
+  const hit = variationCache.get(serviceID);
+  if (hit && hit.at > Date.now() - 10 * 60000) return hit.list;
+  const r = await axios.get(`${VTPASS_BASE()}/service-variations`, { headers: vtpassGetHeaders(), params: { serviceID }, timeout: 20000 });
+  const raw = r.data?.content?.varations || r.data?.content?.variations || [];
+  const list = raw.map((v) => ({ code: v.variation_code, name: v.name, amount: Number(v.variation_amount) || 0 }));
+  variationCache.set(serviceID, { at: Date.now(), list });
+  return list;
+}
+
+// Give the card payment back through Paystack. If Paystack can't take the refund now,
+// it stays refund_pending and the next check tries again.
+async function refundBill(rec, why) {
+  try {
+    await axios.post(`${PAYSTACK_BASE()}/refund`, { transaction: rec.paystackRef }, { headers: paystackHeaders(), timeout: 20000 });
+    const r = await BillPayment.findOneAndUpdate({ _id: rec._id, status: { $in: ['paying', 'pending', 'refund_pending'] } }, { $set: { status: 'refunded', message: why } }, { new: true });
+    if (r) await createNotification(r.userId, { type: 'info', title: 'Payment refunded', message: `${billPay.label(r)} didn’t go through, so your card payment is being refunded.`, dedupeKey: `billpay-refund:${r._id}` }).catch(() => {});
+    return r || BillPayment.findById(rec._id);
+  } catch (e) {
+    console.error('[billpay/refund]', e.response?.status || e.message);
+    await BillPayment.updateOne({ _id: rec._id }, { $set: { status: 'refund_pending', message: why } });
+    return BillPayment.findById(rec._id);
+  }
+}
+
+// The outcome of a VTpass purchase, applied once. Delivered: recorded as spending;
+// failed: refunded to the card; anything else: pending, re-checked later.
+async function applyBillOutcome(rec, outcome, data) {
+  const t = data?.content?.transactions || {};
+  if (outcome === 'delivered') {
+    const done = await BillPayment.findOneAndUpdate({ _id: rec._id, status: { $in: ['paying', 'pending'] } },
+      { $set: { status: 'completed', token: String(t.token || data?.token || data?.purchased_code || '').slice(0, 120), providerRef: String(t.transactionId || ''), message: 'Delivered' } }, { new: true });
+    if (!done) return BillPayment.findById(rec._id);
+    await new Transaction({ userId: done.userId, date: new Date(), description: billPay.label(done), amount: -Math.abs(done.chargeNaira), category: billPay.CATEGORY[done.billType], type: 'expense', source: 'manual', paymentMethod: 'card' }).save().catch(() => {});
+    await createNotification(done.userId, { type: 'success', title: 'Payment complete', message: `${billPay.label(done)}${done.token ? `. Token: ${done.token}` : ''}`, dedupeKey: `billpay:${done._id}` }).catch(() => {});
+    return done;
+  }
+  if (outcome === 'failed') return refundBill(rec, String(data?.response_description || 'Declined by the provider').slice(0, 120));
+  await BillPayment.updateOne({ _id: rec._id, status: 'paying' }, { $set: { status: 'pending', message: 'Waiting for the provider to confirm' } });
+  return BillPayment.findById(rec._id);
+}
+
+// A confirmed card payment: buy from VTpass, exactly once (the status claim makes the
+// webhook and the app's confirm call race safely).
+async function settleBill(rec, tx) {
+  if (!rec || rec.status !== 'awaiting_payment') return rec;
+  const why = billPay.checkCharge(tx, rec);
+  if (why === 'not paid') return rec;
+  const claimed = await BillPayment.findOneAndUpdate({ _id: rec._id, status: 'awaiting_payment' }, { $set: { status: 'paying' } }, { new: true });
+  if (!claimed) return BillPayment.findById(rec._id);
+  // Paid, but not for this exact purchase: give the money back rather than guess.
+  if (why) return refundBill(claimed, `Payment did not match (${why})`);
+  let data = null;
+  try {
+    data = (await axios.post(`${VTPASS_BASE()}/pay`, billPay.vtpassPayload(claimed, claimed.requestId), { headers: vtpassPostHeaders(), timeout: 45000 })).data;
+  } catch (e) {
+    console.error('[billpay/pay]', e.response?.status || e.message);
+    // The call may have failed AFTER VTpass delivered: ask before deciding anything.
+    try { data = (await axios.post(`${VTPASS_BASE()}/requery`, { request_id: claimed.requestId }, { headers: vtpassPostHeaders(), timeout: 20000 })).data; } catch { data = null; }
+  }
+  return applyBillOutcome(claimed, billPay.readVtpass(data), data);
+}
+
+const paystackVerify = async (reference) => (await axios.get(`${PAYSTACK_BASE()}/transaction/verify/${encodeURIComponent(reference)}`, { headers: paystackHeaders(), timeout: 20000 })).data?.data || null;
+
+// Re-check anything unfinished: pending purchases (requery VTpass), refunds Paystack
+// couldn't take yet, purchases stuck mid-call, and card payments the app never
+// confirmed (verify with Paystack). Runs every 10 minutes and from the crons.
+async function reconcileBillPayments(now = new Date()) {
+  if (!billPay.config().enabled) return { skipped: true };
+  const ago = (min) => new Date(now.getTime() - min * 60000);
+  const out = { checked: 0 };
+  const stuck = await BillPayment.find({ $or: [{ status: 'pending', updatedAt: { $lte: ago(5) } }, { status: 'paying', updatedAt: { $lte: ago(15) } }] }).limit(50);
+  for (const rec of stuck) {
+    out.checked += 1;
+    let data = null;
+    try { data = (await axios.post(`${VTPASS_BASE()}/requery`, { request_id: rec.requestId }, { headers: vtpassPostHeaders(), timeout: 20000 })).data; } catch { continue; }
+    if (rec.status === 'paying') await BillPayment.updateOne({ _id: rec._id, status: 'paying' }, { $set: { status: 'pending' } });
+    await applyBillOutcome(rec, billPay.readVtpass(data), data);
+  }
+  for (const rec of await BillPayment.find({ status: 'refund_pending' }).limit(50)) { out.checked += 1; await refundBill(rec, rec.message); }
+  for (const rec of await BillPayment.find({ status: 'awaiting_payment', createdAt: { $lte: ago(10) } }).limit(50)) {
+    out.checked += 1;
+    let tx = null;
+    try { tx = rec.paystackRef ? await paystackVerify(rec.paystackRef) : null; } catch { continue; }
+    if (tx?.status === 'success') await settleBill(rec, tx);
+    else if (rec.createdAt <= ago(24 * 60)) await BillPayment.updateOne({ _id: rec._id, status: 'awaiting_payment' }, { $set: { status: 'expired', message: 'Not paid' } });
+  }
+  return out;
+}
+setInterval(() => { reconcileBillPayments().catch((e) => console.error('[billpay:interval]', e.message)); }, 10 * 60 * 1000);
+
+app.get('/api/billpay/config', auth, (req, res) => {
+  const cfg = billPay.config();
+  res.json({ enabled: cfg.enabled, providers: billPay.PROVIDERS, feeNaira: cfg.feeNaira, maxNaira: cfg.maxNaira, minNaira: cfg.minNaira });
+});
+
+app.get('/api/billpay/variations', auth, billPayOn, async (req, res) => {
+  const serviceID = String(req.query.serviceID || '');
+  if (![...billPay.PROVIDERS.data, ...billPay.PROVIDERS.tv].some((p) => p.id === serviceID)) return res.status(400).json({ message: 'Choose a provider.' });
+  try { res.json({ serviceID, variations: await vtpassVariations(serviceID) }); }
+  catch (e) { console.error('[billpay/variations]', e.response?.status || e.message); res.status(502).json({ message: 'Could not load the plans. Try again.' }); }
+});
+
+// Check a smartcard or meter number and show whose it is before paying.
+app.post('/api/billpay/verify', auth, billPayOn, async (req, res) => {
+  const v = billPay.validateOrder({ ...req.body, phone: req.body?.phone || '08030000000', amount: 1000, variationCode: req.body?.variationCode || 'x' });
+  if (!v.ok || !['tv', 'electricity'].includes(v.order.billType)) return res.status(400).json({ message: v.message || 'Nothing to check.' });
+  try {
+    const body = { billersCode: v.order.billersCode, serviceID: v.order.serviceID, ...(v.order.billType === 'electricity' ? { type: v.order.meterType } : {}) };
+    const c = (await axios.post(`${VTPASS_BASE()}/merchant-verify`, body, { headers: vtpassPostHeaders(), timeout: 20000 })).data?.content || {};
+    if (c.error || c.WrongBillersCode) return res.status(400).json({ message: 'That number wasn’t recognised. Check it and try again.' });
+    res.json({ customerName: c.Customer_Name || '', address: c.Address || '' });
+  } catch (e) { console.error('[billpay/verify]', e.response?.status || e.message); res.status(502).json({ message: 'Could not check that number. Try again.' }); }
+});
+
+// Start a purchase: record it, then open a Paystack card payment for the exact amount.
+app.post('/api/billpay/checkout', authLimiter, auth, billPayOn, async (req, res) => {
+  try {
+    const cfg = billPay.config();
+    const v = billPay.validateOrder(req.body, cfg);
+    if (!v.ok) return res.status(400).json({ message: v.message });
+    const variations = ['data', 'tv'].includes(v.order.billType) ? await vtpassVariations(v.order.serviceID) : [];
+    const p = billPay.priceOrder(v.order, variations, cfg);
+    if (!p.ok) return res.status(400).json({ message: p.message });
+    const rec = await BillPayment.create({ ...p.order, userId: req.user._id, chargeNaira: p.chargeNaira, requestId: billPay.requestId() });
+    const r = await axios.post(`${PAYSTACK_BASE()}/transaction/initialize`, {
+      email: req.user.email, amount: Math.round(p.chargeNaira * 100), channels: ['card'],
+      metadata: { purpose: 'bill', billPaymentId: String(rec._id), userId: String(req.user._id) },
+      ...(process.env.BILLS_CALLBACK_URL ? { callback_url: process.env.BILLS_CALLBACK_URL } : {}),
+    }, { headers: paystackHeaders(), timeout: 20000 });
+    const d = r.data?.data || {};
+    rec.paystackRef = d.reference || '';
+    await rec.save();
+    res.json({ authorization_url: d.authorization_url, reference: d.reference, bill: billOut(rec) });
+  } catch (e) { console.error('[billpay/checkout]', e.response?.status || e.message); res.status(502).json({ message: 'Could not start the payment. Try again.' }); }
+});
+
+// The app returns from Paystack: confirm the card payment, then buy.
+app.post('/api/billpay/confirm', auth, billPayOn, async (req, res) => {
+  try {
+    const reference = String(req.body?.reference || '');
+    const rec = reference ? await BillPayment.findOne({ paystackRef: reference, userId: req.user._id }) : null;
+    if (!rec) return res.status(404).json({ message: 'Purchase not found.' });
+    const done = rec.status === 'awaiting_payment' ? await settleBill(rec, await paystackVerify(reference)) : rec;
+    res.json({ bill: billOut(done) });
+  } catch (e) { console.error('[billpay/confirm]', e.response?.status || e.message); res.status(502).json({ message: 'Could not confirm the payment yet. We’ll keep checking.' }); }
+});
+
+app.get('/api/billpay/history', auth, async (req, res) => {
+  const items = await BillPayment.find({ userId: req.user._id, status: { $ne: 'expired' } }).sort({ createdAt: -1 }).limit(30).lean();
+  res.json({ items: items.map(billOut) });
+});
+
+app.post('/api/cron/billpay', async (req, res) => {
+  if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
+  res.json(await reconcileBillPayments());
 });
 
 // ── Automonie Pro subscription (Paystack) ───────────────────────────────────────
@@ -6500,6 +6705,7 @@ app.post(['/api/cron/nudges', '/api/cron/insights'], async (req, res) => {
   const at = testing && req.query.at ? new Date(req.query.at) : new Date();
   if (testing && req.query.wait) return res.json(await runNudgesJob(at));
   res.status(202).json({ ok: true });
+  reconcileBillPayments().catch((e) => console.error('[cron/nudges] billpay', e.message));
   runNudgesJob(at).then((r) => console.log('[cron/nudges]', r)).catch((e) => console.error('[cron/nudges]', e.message));
 });
 
@@ -6982,6 +7188,7 @@ app.get('/api/features', auth, (req, res) => {
     assistant: aiConfigured(),
     bankLink: monoConfigured(),
     sharedExpenses: process.env.FEATURE_SHARED_EXPENSES === 'true',
+    billPay: billPay.config().enabled,
   });
 });
 

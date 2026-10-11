@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import BillPay from './BillPay';
 
 // Recurring bills the user wants to be reminded about. Nothing is paid from here:
 // on the due day Automonie sends a reminder and moves the bill to its next cycle.
@@ -84,6 +85,8 @@ const BillsManager = () => {
       </div>
 
       {message && <div className={`bm-msg ${message.type}`}>{message.text}</div>}
+
+      <BillPay />
 
       <section className="bm-card">
         <div className="bm-summary">

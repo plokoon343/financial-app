@@ -325,6 +325,92 @@ async function main() {
     await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
   }
 
+  // ── 15: airtime and bills (run the API with FEATURE_BILL_PAYMENTS=true, test VTPASS_*
+  // and PAYSTACK_SECRET_KEY, and VTPASS_TEST_BASE / PAYSTACK_TEST_BASE pointing here) ──
+  if (process.env.BILLPAY_TEST_PORT) {
+    const http = require('http');
+    const crypto = require('crypto');
+    const charges = {};          // paystack reference -> { amount, metadata, status }
+    const vt = { pays: [], refunds: [], requery: {} };
+    let n = 0;
+    const fake = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const j = body ? JSON.parse(body) : {};
+        const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+        const u = req.url;
+        if (u === '/ps/transaction/initialize') { const ref = `ref-${++n}`; charges[ref] = { amount: j.amount, metadata: j.metadata, status: 'success', currency: 'NGN' }; return send(200, { data: { authorization_url: `http://pay/${ref}`, reference: ref } }); }
+        if (u.startsWith('/ps/transaction/verify/')) { const c = charges[decodeURIComponent(u.split('/').pop())]; return send(200, { data: c ? { ...c, reference: u.split('/').pop() } : null }); }
+        if (u === '/ps/refund') { vt.refunds.push(j.transaction); return send(200, { status: true }); }
+        if (u.startsWith('/vt/service-variations')) return send(200, { content: { varations: [{ variation_code: 'mtn-1gb', name: '1GB 30 days', variation_amount: '1000' }] } });
+        if (u === '/vt/pay') {
+          vt.pays.push(j);
+          if (j.phone === '08030000002') return send(200, { code: '016', response_description: 'TRANSACTION FAILED', content: { transactions: { status: 'failed' } } });
+          if (j.phone === '08030000003') { vt.requery[j.request_id] = { code: '099' }; return req.socket.destroy(); }
+          return send(200, { code: '000', content: { transactions: { status: 'delivered', transactionId: 'T1' } } });
+        }
+        if (u === '/vt/requery') return send(200, vt.requery[j.request_id] || { code: '099' });
+        return send(404, {});
+      });
+    });
+    await new Promise((r) => fake.listen(Number(process.env.BILLPAY_TEST_PORT), r));
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
+    const bills = mongoose.connection.db.collection('billpayments');
+    const buy = (b) => call('POST', '/api/billpay/checkout', { billType: 'airtime', serviceID: 'mtn', amount: 500, ...b });
+
+    check('15 the feature flag is on in this run', (await call('GET', '/api/billpay/config')).body.enabled === true);
+    const c1 = await buy({ phone: '08030000001' });
+    check('15 checkout opens a card payment for the exact amount', c1.status === 200 && charges[c1.body.reference]?.amount === 50000 && c1.body.bill.status === 'awaiting_payment', JSON.stringify(c1.body));
+    const f1 = await call('POST', '/api/billpay/confirm', { reference: c1.body.reference });
+    check('15 a confirmed card payment buys the airtime', f1.body.bill?.status === 'completed' && vt.pays.length === 1, JSON.stringify(f1.body));
+    const spent = await mongoose.connection.db.collection('transactions').findOne({ userId: insertedId, description: 'MTN airtime for 08030000001' });
+    check('15 it is recorded as card spending on Airtime & Data', spent && spent.amount === -500 && spent.category === 'Airtime & Data' && spent.paymentMethod === 'card');
+    await call('POST', '/api/billpay/confirm', { reference: c1.body.reference });
+    const sig = (b) => crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(b).digest('hex');
+    const hook = async (ref) => { const b = JSON.stringify({ event: 'charge.success', data: { ...charges[ref], reference: ref } }); return fetch(`${API}/api/paystack/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-paystack-signature': sig(b) }, body: b }); };
+    await hook(c1.body.reference);
+    check('15 a repeat confirm or webhook never buys twice', vt.pays.length === 1);
+
+    const c2 = await buy({ phone: '08030000002' });
+    const f2 = await call('POST', '/api/billpay/confirm', { reference: c2.body.reference });
+    check('15 a declined purchase is refunded to the card', f2.body.bill?.status === 'refunded' && vt.refunds.includes(c2.body.reference), JSON.stringify(f2.body));
+
+    const c3 = await buy({ phone: '08030000001' });
+    charges[c3.body.reference].status = 'abandoned';
+    const pays = vt.pays.length;
+    const f3 = await call('POST', '/api/billpay/confirm', { reference: c3.body.reference });
+    check('15 nothing is bought until the card payment succeeds', f3.body.bill?.status === 'awaiting_payment' && vt.pays.length === pays);
+
+    const c4 = await buy({ phone: '08030000003' });
+    const f4 = await call('POST', '/api/billpay/confirm', { reference: c4.body.reference });
+    check('15 an unclear outcome stays pending, with no refund', f4.body.bill?.status === 'pending' && !vt.refunds.includes(c4.body.reference), JSON.stringify(f4.body));
+    const rid = (await bills.findOne({ paystackRef: c4.body.reference })).requestId;
+    vt.requery[rid] = { code: '000', content: { transactions: { status: 'delivered' } } };
+    await bills.updateOne({ paystackRef: c4.body.reference }, { $set: { updatedAt: new Date(Date.now() - 10 * 60000) } });
+    await fetch(`${API}/api/cron/billpay`, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET } });
+    check('15 the re-check completes it once the provider confirms', (await bills.findOne({ paystackRef: c4.body.reference })).status === 'completed');
+
+    const c5 = await call('POST', '/api/billpay/checkout', { billType: 'data', serviceID: 'mtn-data', phone: '08030000001', variationCode: 'mtn-1gb', amount: 1 });
+    check('15 data is priced by the provider, not the client', c5.status === 200 && charges[c5.body.reference]?.amount === 100000, JSON.stringify(c5.body));
+
+    const c6 = await buy({ phone: '08030000001' });
+    charges[c6.body.reference].amount = 100;
+    const f6 = await call('POST', '/api/billpay/confirm', { reference: c6.body.reference });
+    check('15 a payment for the wrong amount is refunded, not used', f6.body.bill?.status === 'refunded' && vt.refunds.includes(c6.body.reference));
+
+    const c7 = await buy({ phone: '08030000001' });
+    const h7 = await hook(c7.body.reference);
+    check('15 the signed Paystack webhook completes a purchase', h7.status === 200 && (await bills.findOne({ paystackRef: c7.body.reference })).status === 'completed');
+    const bad = JSON.stringify({ event: 'charge.success', data: charges[c7.body.reference] });
+    check('15 an unsigned webhook is refused', (await fetch(`${API}/api/paystack/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-paystack-signature': 'nope' }, body: bad })).status === 401);
+
+    check('15 a bad phone number is refused', (await buy({ phone: '123' })).status === 400);
+    const hist = (await call('GET', '/api/billpay/history')).body.items;
+    check('15 history lists the purchases', hist.length >= 6 && hist.every((h) => h.description && h.status));
+    fake.close();
+  }
+
   // ── 11: AI provider layer (run the API with AI_TEST_BASE=http://localhost:5097) ──
   if (process.env.AI_TEST_BASE) {
     const http = require('http');

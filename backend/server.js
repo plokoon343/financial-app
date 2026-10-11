@@ -2556,8 +2556,12 @@ async function deleteUserData(userId, email) {
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
     Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview,
   ].map((M) => M.deleteMany({ userId: uid })));
+  await ActivityDay.deleteMany({ userId: uid });
+  // 'billpayments' also holds the current bill purchases (they carry a VTpass
+  // requestId). Those are payment records kept for accounting and refunds, like
+  // ProPayment; only the retired feature's rows are deleted.
   await Promise.all(LEGACY_USER_COLLECTIONS.map((name) =>
-    mongoose.connection.collection(name).deleteMany({ userId: uid }).catch(() => null)));
+    mongoose.connection.collection(name).deleteMany(name === 'billpayments' ? { userId: uid, requestId: { $exists: false } } : { userId: uid }).catch(() => null)));
   if (email) {
     await Waitlist.deleteMany({ email });
     await PendingRegistration.deleteMany({ email });
@@ -2598,7 +2602,93 @@ app.delete('/api/me', sensitiveLimiter, auth, async (req, res) => {
     const ok = acct && await bcrypt.compare(password, acct.password);
     if (!ok) return res.status(400).json({ message: 'Password is incorrect' });
     await deleteUserData(req.user._id, req.user.email);
+    sendDeletedEmail(req.user.email, req.user.name).catch((e) => console.error('[delete-account] confirmation email failed:', e.message));
     res.json({ message: 'Your account and all data have been deleted.' });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Account deletion without the app (www.automonie.com/delete-account, which Google
+// Play requires). Anyone can ask, so nothing is deleted until the owner of the
+// email clicks a one-time link (hashed, 24 hours). The optional reason is kept
+// without the email so we can learn why people leave.
+const deletionRequestSchema = new mongoose.Schema({
+  email:     { type: String, required: true, index: true },
+  tokenHash: { type: String, required: true, unique: true },
+  reason:    { type: String, default: '' },
+  expiresAt: { type: Date, required: true },
+}, { timestamps: true });
+deletionRequestSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+const DeletionRequest = mongoose.model('DeletionRequest', deletionRequestSchema);
+const deletionReasonSchema = new mongoose.Schema({
+  reason:     { type: String, default: '' },
+  hadAccount: { type: Boolean, default: false },
+  via:        { type: String, enum: ['web', 'app'], default: 'web' },
+}, { timestamps: true });
+const DeletionReason = mongoose.model('DeletionReason', deletionReasonSchema);
+const SITE_URL = (process.env.SITE_URL || 'https://www.automonie.com').replace(/\/$/, '');
+
+const sendDeletedEmail = async (to, name) => {
+  if (!emailConfigured()) return false;
+  const hi = name ? `Hi ${String(name).split(' ')[0]},` : 'Hi,';
+  await sendEmail({
+    to,
+    subject: 'Your Automonie account has been deleted',
+    text: `${hi}\n\nYour Automonie account and its data (transactions, budgets, goals, bills, accounts, contacts and settings) have been deleted. Copies in our routine backups are overwritten within 90 days. Payment records we must keep by law are retained.\n\nIf you didn't ask for this, reply to this email straight away.\n\nThe Automonie team`,
+    html: `<p>${hi}</p><p>Your Automonie account and its data (transactions, budgets, goals, bills, accounts, contacts and settings) have been deleted. Copies in our routine backups are overwritten within 90 days. Payment records we must keep by law are retained.</p><p>If you didn't ask for this, reply to this email straight away.</p><p>The Automonie team</p>`,
+  });
+  return true;
+};
+
+app.post('/api/account-deletion/request', authLimiter, async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').toLowerCase().trim();
+    const reason = String(req.body?.reason || '').trim().slice(0, 500);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return res.status(400).json({ message: 'Enter the email address you use for Automonie.' });
+    const generic = { message: 'If that email has an Automonie account or is on our list, we have sent a link to confirm the deletion. It expires in 24 hours.' };
+    const [user, listed] = await Promise.all([User.findOne({ email }).select('_id name email'), Waitlist.exists({ email })]);
+    if (!user && !listed) return res.json(generic);
+    const raw = crypto.randomBytes(32).toString('hex');
+    await DeletionRequest.create({ email, tokenHash: hashToken(raw), reason, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
+    const link = `${SITE_URL}/delete-account?token=${raw}`;
+    if (!emailConfigured()) {
+      if (process.env.NODE_ENV !== 'production') console.log(`[delete-account] (dev, email off) confirm link for ${email}: ${link}`);
+      return res.json(generic);
+    }
+    const what = user ? 'your Automonie account and all its data' : 'your email from the Automonie waitlist and newsletter';
+    sendEmail({
+      to: email,
+      subject: 'Confirm: delete your Automonie account',
+      text: `Someone (hopefully you) asked us to delete ${what}.\n\nTo confirm, open this link within 24 hours:\n${link}\n\nThis can't be undone. If you didn't ask for this, ignore this email and nothing will change.`,
+      html: `<p>Someone (hopefully you) asked us to delete ${what}.</p><p><a href="${link}">Confirm the deletion</a> (the link works for 24 hours).</p><p>This can't be undone. If you didn't ask for this, ignore this email and nothing will change.</p>`,
+    }).catch((e) => console.error('[delete-account] email send failed:', e.message));
+    res.json(generic);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Look up a link before confirming, so the page can say what will be deleted.
+app.get('/api/account-deletion/:token', authLimiter, async (req, res) => {
+  try {
+    const reqDoc = await DeletionRequest.findOne({ tokenHash: hashToken(String(req.params.token)), expiresAt: { $gt: new Date() } });
+    if (!reqDoc) return res.status(404).json({ message: 'This link has expired or was already used. Ask for a new one below.' });
+    const hasAccount = !!(await User.exists({ email: reqDoc.email }));
+    const [name, domain] = reqDoc.email.split('@');
+    res.json({ email: `${name.slice(0, 2)}***@${domain}`, hasAccount });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+app.post('/api/account-deletion/confirm', sensitiveLimiter, async (req, res) => {
+  try {
+    const token = String(req.body?.token || '');
+    // Claim the request atomically so a double click deletes once.
+    const reqDoc = token && await DeletionRequest.findOneAndDelete({ tokenHash: hashToken(token), expiresAt: { $gt: new Date() } });
+    if (!reqDoc) return res.status(404).json({ message: 'This link has expired or was already used. Ask for a new one below.' });
+    const user = await User.findOne({ email: reqDoc.email }).select('_id name email');
+    if (user) await deleteUserData(user._id, user.email);
+    else await Promise.all([Waitlist.deleteMany({ email: reqDoc.email }), PendingRegistration.deleteMany({ email: reqDoc.email })]);
+    await DeletionRequest.deleteMany({ email: reqDoc.email });
+    if (reqDoc.reason) await DeletionReason.create({ reason: reqDoc.reason, hadAccount: !!user, via: 'web' });
+    if (user) sendDeletedEmail(user.email, user.name).catch((e) => console.error('[delete-account] confirmation email failed:', e.message));
+    res.json({ deleted: true, hadAccount: !!user, message: user ? 'Your account and its data have been deleted.' : 'Your email has been removed from our list.' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 

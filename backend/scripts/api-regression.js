@@ -523,6 +523,37 @@ async function main() {
     fake.close();
   }
 
+  // ── Round 3, 1.2: account deletion from the website (email link, then confirm) ──
+  {
+    const db = mongoose.connection.db;
+    const crypto = require('crypto');
+    const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+    const { insertedId: gone } = await users.insertOne({ name: 'Leaving User', email: 'leaving@example.test', password: 'x', createdAt: new Date() });
+    await db.collection('transactions').insertOne({ userId: gone, description: 'LEAVING TXN', amount: -100, type: 'expense', date: new Date() });
+    await db.collection('billpayments').insertMany([
+      { userId: gone, requestId: 'R3-KEEP', billType: 'airtime', amount: 100, chargeNaira: 100, status: 'completed' },
+      { userId: gone, kind: 'retired-feature-row' },
+    ]);
+    const dreq = () => db.collection('deletionrequests').find({}).toArray();
+    const ask = await call('POST', '/api/account-deletion/request', { email: 'Leaving@Example.test', reason: 'Testing' }, { 'Content-Type': 'application/json' });
+    check('delete-account: a request is accepted and stores only a hashed link', ask.status === 200 && (await dreq()).length === 1 && (await dreq())[0].tokenHash.length === 64);
+    const nobody = await call('POST', '/api/account-deletion/request', { email: 'nobody@example.test' }, { 'Content-Type': 'application/json' });
+    check('delete-account: an unknown email gets the same answer and no link', nobody.body?.message === ask.body?.message && (await dreq()).length === 1);
+    check('delete-account: a bad email is refused', (await call('POST', '/api/account-deletion/request', { email: 'nope' }, { 'Content-Type': 'application/json' })).status === 400);
+    check('delete-account: the user still exists before the link is opened', !!(await users.findOne({ _id: gone })));
+    const raw = 'r3-test-token-0123456789';
+    await db.collection('deletionrequests').updateOne({}, { $set: { tokenHash: sha(raw) } });
+    const peek = await call('GET', `/api/account-deletion/${raw}`, null, {});
+    check('delete-account: the link shows a masked email', peek.body?.hasAccount === true && peek.body.email === 'le***@example.test', JSON.stringify(peek.body));
+    const done = await call('POST', '/api/account-deletion/confirm', { token: raw }, { 'Content-Type': 'application/json' });
+    check('delete-account: confirming deletes the user and their data', done.body?.deleted && !(await users.findOne({ _id: gone })) && !(await db.collection('transactions').findOne({ userId: gone })), JSON.stringify(done.body));
+    const kept = await db.collection('billpayments').find({ userId: gone }).toArray();
+    check('delete-account: bill purchase records are kept, retired-feature rows go', kept.length === 1 && kept[0].requestId === 'R3-KEEP');
+    check('delete-account: the reason is kept without the email', !!(await db.collection('deletionreasons').findOne({ reason: 'Testing', hadAccount: true })) && !(await db.collection('deletionreasons').findOne({ email: { $exists: true } })));
+    check('delete-account: the link works once', (await call('POST', '/api/account-deletion/confirm', { token: raw }, { 'Content-Type': 'application/json' })).status === 404);
+    check('delete-account: a made-up link is refused', (await call('POST', '/api/account-deletion/confirm', { token: 'made-up' }, { 'Content-Type': 'application/json' })).status === 404);
+  }
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

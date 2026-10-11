@@ -271,7 +271,7 @@ const Settings = () => {
       {/* Danger zone */}
       <div className="settings-card danger">
         <h3><i className="fas fa-triangle-exclamation"></i> Danger Zone</h3>
-        <p className="hint">Permanently delete your account and all data. This cannot be undone.</p>
+        <p className="hint">Permanently delete your account and all data. This cannot be undone. Signed up with Google and have no password? Use <a href="https://www.automonie.com/delete-account" target="_blank" rel="noopener">automonie.com/delete-account</a>.</p>
         <div className="form-group"><label>Confirm with your password</label>
           <input type="password" value={delPw} onChange={e => setDelPw(e.target.value)} placeholder="Your password" /></div>
         <button className="btn-danger" onClick={deleteAccount} disabled={deleting || !delPw}>{deleting ? 'Deleting…' : 'Delete my account'}</button>

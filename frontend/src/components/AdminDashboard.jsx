@@ -9,6 +9,7 @@ import NudgeAdmin from './NudgeAdmin';
 import StudentAdmin from './StudentAdmin';
 import MetricsAdmin from './MetricsAdmin';
 import LearningAdmin from './LearningAdmin';
+import SetupStatus from './SetupStatus';
 
 const AdminDashboard = () => {
   const { user, darkMode } = useAuth();
@@ -221,6 +222,7 @@ const AdminDashboard = () => {
 
       {activeTab === 'overview' && stats && (
         <>
+          <SetupStatus />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
             {[
               { label: 'Total Users', value: stats.totalUsers, color: 'var(--accent-primary)' },

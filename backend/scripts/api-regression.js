@@ -627,6 +627,10 @@ async function main() {
     const g = await db.collection('globalcategories').findOne({ key: 'r3 test merchant' });
     check('3.3 approving makes it live', ok3.status === 200 && g.status === 'approved' && g.approvedCategory === 'Food');
     check('3.3 an approved rule leaves the queue', !(await call('GET', '/api/admin/learning')).body.pendingRules.some((r) => r.key === 'r3 test merchant'));
+    const setup = await call('GET', '/api/admin/setup-status');
+    const flat = (setup.body?.groups || []).flatMap((g) => g.keys);
+    check('6 the setup checklist lists keys by name with set or missing', flat.some((k) => k.name === 'CRON_SECRET' && k.set === true) && flat.some((k) => k.name === 'NVIDIA_API_KEY' && k.set === false));
+    check('6 and never sends a value', !JSON.stringify(setup.body).includes(process.env.CRON_SECRET || 'local-test-secret') && !JSON.stringify(setup.body).includes('paystack-test-secret'));
     await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
   }
 

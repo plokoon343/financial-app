@@ -4106,7 +4106,7 @@ async function holdForReview(userId, parsed, raw, source, reason) {
   catch (e) { console.error('[review-stack]', e.message); }
 }
 function logCorrection(userId, kind, { description = '', from = '', to = '', bankCode = '' } = {}) {
-  CorrectionEvent.create({ userId, kind, merchantKey: deriveCategoryKey(description) || '', from: String(from).slice(0, 60), to: String(to).slice(0, 60), bankCode: String(bankCode || '').slice(0, 24) })
+  return CorrectionEvent.create({ userId, kind, merchantKey: deriveCategoryKey(description) || '', from: String(from).slice(0, 60), to: String(to).slice(0, 60), bankCode: String(bankCode || '').slice(0, 24) })
     .catch((e) => console.error('[correction-log]', e.message));
 }
 async function isIgnoredByUser(userId, text) {
@@ -4437,11 +4437,11 @@ app.post('/api/pending-alerts/:id/confirm', auth, async (req, res) => {
     const date = b.date && !isNaN(new Date(b.date)) ? new Date(b.date).toISOString().slice(0, 10) : (was.date || new Date().toISOString().slice(0, 10));
     const created = await ingestAlert(req.user, { ...was, amount, type, description, category, date, isFee: category === 'Bank Charges' && was.isFee, confidence: 'high' }, p.source === 'email' ? 'email' : p.source === 'notification' ? 'notification' : 'sms');
     await PendingAlert.deleteOne({ _id: p._id });
-    logCorrection(req.user._id, 'confirmed', { description, bankCode: was.bankCode });
-    if (was.amount && Math.abs(was.amount - amount) >= 0.01) logCorrection(req.user._id, 'amount', { description, from: was.amount, to: amount, bankCode: was.bankCode });
-    if (was.directionKnown && was.type !== type) logCorrection(req.user._id, 'direction', { description, from: was.type, to: type, bankCode: was.bankCode });
+    await logCorrection(req.user._id, 'confirmed', { description, bankCode: was.bankCode });
+    if (was.amount && Math.abs(was.amount - amount) >= 0.01) await logCorrection(req.user._id, 'amount', { description, from: was.amount, to: amount, bankCode: was.bankCode });
+    if (was.directionKnown && was.type !== type) await logCorrection(req.user._id, 'direction', { description, from: was.type, to: type, bankCode: was.bankCode });
     if (b.category && b.category !== was.category) {
-      logCorrection(req.user._id, 'category', { description, from: was.category, to: category });
+      await logCorrection(req.user._id, 'category', { description, from: was.category, to: category });
       await learnCategories(req.user._id, [{ description, category }]);
     }
     res.json({ ok: true, saved: !!created, duplicate: !created });
@@ -4454,7 +4454,7 @@ app.post('/api/pending-alerts/:id/not-transaction', auth, async (req, res) => {
     const p = await PendingAlert.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     if (!p) return res.status(404).json({ message: 'Already handled.' });
     await rememberNotTransaction(req.user._id, p.raw);
-    logCorrection(req.user._id, 'not_transaction', { description: p.parsed?.description || '', bankCode: p.parsed?.bankCode });
+    await logCorrection(req.user._id, 'not_transaction', { description: p.parsed?.description || '', bankCode: p.parsed?.bankCode });
     res.json({ ok: true });
   } catch (e) { console.error('[pending/not-txn]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -8237,6 +8237,27 @@ async function maybeSendWeeklyReport(at = new Date()) {
   for (const a of admins) await sendEmail({ to: a.email, subject: 'Automonie weekly learning report', text: html.replace(/<[^>]+>/g, ' '), html }).catch((e) => console.error('[weekly-report]', e.message));
   return { sent: admins.length };
 }
+
+
+// Admin setup checklist (Round 3, 6): which keys and settings are present on this
+// server. Names and set/missing only; a value is never sent anywhere.
+const SETUP_KEYS = [
+  { group: 'Payments on the web', keys: [['PAYSTACK_SECRET_KEY', 'Plus checkout, webhook and bill payments']], note: 'Paystack needs only the secret key here; the web app redirects to Paystack, so no public key is used.' },
+  { group: 'Google Play Billing', keys: [['GOOGLE_PLAY_SERVICE_ACCOUNT', 'checks every Play purchase with Google'], ['PLAY_RTDN_SECRET', 'Play renewal and cancel notifications'], ['PLAY_ACCOUNT_SECRET', 'ties purchases to accounts (falls back to JWT_SECRET)']] },
+  { group: 'Email (Brevo)', keys: [['BREVO_API_KEY', 'all email'], ['BREVO_TEMPLATE_WAITLIST_WELCOME', 'waitlist welcome'], ['BREVO_TEMPLATE_NEWSLETTER_WELCOME', 'newsletter welcome'], ['WELCOME_HEADER_URL', 'header image in welcome emails']] },
+  { group: 'Scheduled jobs', keys: [['CRON_SECRET', 'hourly /api/cron/nudges (header x-cron-secret): reminders, nudges, bill re-checks, weekly report']] },
+  { group: 'AI, personal data (paid only)', keys: [['GEMINI_PAID_API_KEY', 'unknown alerts and statements, ask about my money; must be on a billing-enabled Google project']] },
+  { group: 'AI, stripped shop names (free tiers)', keys: [['GEMINI_API_KEY', 'Gemini free'], ['CF_ACCOUNT_ID', 'Cloudflare Workers AI'], ['CF_AI_TOKEN', 'Cloudflare Workers AI'], ['OPENROUTER_API_KEY', 'OpenRouter free models'], ['NVIDIA_API_KEY', 'NVIDIA NIM']] },
+  { group: 'Email forwarding (inbound)', keys: [['INBOUND_EMAIL_SECRET', 'webhook key the inbound provider sends'], ['INBOUND_EMAIL_DOMAIN', 'the forwarding domain']], note: 'The server only needs the webhook key; a Postmark server token is not used by the code.' },
+  { group: 'Sign in with Google', keys: [['GOOGLE_CLIENT_IDS', 'web and Android client IDs (or GOOGLE_CLIENT_ID)']] },
+  { group: 'Bank linking (Mono)', keys: [['MONO_SECRET_KEY', 'bank sync'], ['MONO_PUBLIC_KEY', 'bank sync'], ['MONO_WEBHOOK_SEC', 'bank sync webhook']] },
+  { group: 'Airtime and bills (off by default)', keys: [['FEATURE_BILL_PAYMENTS', 'switch'], ['VTPASS_API_KEY', 'VTpass'], ['VTPASS_SECRET_KEY', 'VTpass'], ['VTPASS_PUBLIC_KEY', 'VTpass'], ['BILLS_CALLBACK_URL', 'where web users return after paying']] },
+  { group: 'Push notifications', keys: [], note: 'Expo push needs no server key here. EAS build and project credentials live in your Expo account, not on Render.' },
+];
+app.get('/api/admin/setup-status', auth, superAdminAuth, (req, res) => {
+  const has = (k) => (k === 'GOOGLE_CLIENT_IDS' ? !!(process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID) : !!(process.env[k] && String(process.env[k]).trim()));
+  res.json({ groups: SETUP_KEYS.map((g) => ({ group: g.group, note: g.note || '', keys: g.keys.map(([name, use]) => ({ name, use, set: has(name) })) })) });
+});
 
 // Unknown routes → 404 (must stay after every real route).
 app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));

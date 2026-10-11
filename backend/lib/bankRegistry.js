@@ -4,44 +4,10 @@
 // Trust); resolveBank runs exact/contains → domain → fuzzy(sender only) and returns
 // the canonical bank + confidence, or null when unsure (unknown > wrong).
 
-const BANKS = [
-  { code: 'gtbank', name: 'GTBank', aliases: ['GTBANK', 'GTB', 'GTWORLD', 'GUARANTYTRUST', 'GTBANKPLC'], domains: ['gtbank.com', 'gtworld.com'] },
-  { code: 'access', name: 'Access', aliases: ['ACCESSBANK', 'ACCESS', 'ACCESSMORE', 'DIAMONDXTRA', 'ACCESSBANKPLC'], domains: ['accessbankplc.com'] },
-  { code: 'uba', name: 'UBA', aliases: ['UBA', 'UBAGROUP', 'UBAMOBILE', 'LEO'], domains: ['ubagroup.com'] },
-  { code: 'zenith', name: 'Zenith', aliases: ['ZENITH', 'ZENITHBANK', 'ZENITHDIRECT', 'EAZYBANKING'], domains: ['zenithbank.com'] },
-  { code: 'firstbank', name: 'First Bank', aliases: ['FIRSTBANK', 'FBN', 'FIRSTONLINE', 'FIRSTMONIE', 'FIRSTBANKNG'], domains: ['firstbanknigeria.com'] },
-  { code: 'fidelity', name: 'Fidelity', aliases: ['FIDELITY', 'FIDELITYBANK'], domains: ['fidelitybank.ng'] },
-  { code: 'fcmb', name: 'FCMB', aliases: ['FCMB', 'FCMBMOBILE'], domains: ['fcmb.com'] },
-  { code: 'union', name: 'Union', aliases: ['UNIONBANK', 'UNION', 'UNIONBANKNG', 'UNIONMOBILE'], domains: ['unionbankng.com'] },
-  { code: 'wema', name: 'Wema (ALAT)', aliases: ['WEMA', 'WEMABANK', 'ALAT'], domains: ['wemabank.com', 'alat.ng'] },
-  { code: 'sterling', name: 'Sterling', aliases: ['STERLING', 'STERLINGBANK', 'ONESTERLING'], domains: ['sterling.ng', 'sterlingbankng.com'] },
-  { code: 'stanbic', name: 'Stanbic IBTC', aliases: ['STANBIC', 'STANBICIBTC', 'IBTC'], domains: ['stanbicibtc.com'] },
-  { code: 'ecobank', name: 'Ecobank', aliases: ['ECOBANK', 'ECOMOBILE'], domains: ['ecobank.com'] },
-  { code: 'polaris', name: 'Polaris', aliases: ['POLARIS', 'POLARISBANK', 'POLARISBANKLTD'], domains: ['polarisbanklimited.com'] },
-  { code: 'keystone', name: 'Keystone', aliases: ['KEYSTONE', 'KEYSTONEBANK'], domains: ['keystonebankng.com'] },
-  { code: 'unity', name: 'Unity', aliases: ['UNITYBANK', 'UNITY'], domains: ['unitybankng.com'] },
-  { code: 'providus', name: 'Providus', aliases: ['PROVIDUS', 'PROVIDUSBANK'], domains: ['providusbank.com'] },
-  { code: 'globus', name: 'Globus', aliases: ['GLOBUS', 'GLOBUSBANK'], domains: ['globusbank.com'] },
-  { code: 'suntrust', name: 'SunTrust', aliases: ['SUNTRUST', 'SUNTRUSTBANK'] },
-  { code: 'titan', name: 'Titan Trust', aliases: ['TITANTRUST', 'TITAN'] },
-  { code: 'premiumtrust', name: 'Premium Trust', aliases: ['PREMIUMTRUST', 'PREMIUMTRST', 'PREMIUMTRUSTBANK', 'PTB'], domains: ['premiumtrustbank.com'] },
-  { code: 'jaiz', name: 'Jaiz', aliases: ['JAIZ', 'JAIZBANK'], domains: ['jaizbankplc.com'] },
-  { code: 'lotus', name: 'Lotus', aliases: ['LOTUS', 'LOTUSBANK'] },
-  { code: 'taj', name: 'TAJ Bank', aliases: ['TAJBANK', 'TAJ'] },
-  { code: 'opay', name: 'OPay', aliases: ['OPAY', 'PAYCOM'], domains: ['opayweb.com', 'opay-inc.com'] },
-  { code: 'palmpay', name: 'PalmPay', aliases: ['PALMPAY'], domains: ['palmpay.com'] },
-  { code: 'kuda', name: 'Kuda', aliases: ['KUDA', 'KUDABANK'], domains: ['kuda.com'] },
-  { code: 'moniepoint', name: 'Moniepoint', aliases: ['MONIEPOINT', 'MONIE'], domains: ['moniepoint.com'] },
-  { code: 'carbon', name: 'Carbon', aliases: ['CARBON', 'GETCARBON'], domains: ['getcarbon.co'] },
-  { code: 'fairmoney', name: 'FairMoney', aliases: ['FAIRMONEY'] },
-  { code: 'vfd', name: 'VBank', aliases: ['VBANK', 'VFD', 'VFDBANK'], domains: ['vbank.ng', 'vfdgroup.com'] },
-  { code: 'rubies', name: 'Rubies', aliases: ['RUBIES', 'RUBIESBANK'] },
-  { code: 'sparkle', name: 'Sparkle', aliases: ['SPARKLE'] },
-  { code: 'eyowo', name: 'Eyowo', aliases: ['EYOWO'] },
-  { code: '9psb', name: '9PSB', aliases: ['9PSB', '9PAYMENTSB', '9MOBILEPSB'] },
-  { code: 'momo', name: 'MoMo PSB', aliases: ['MOMOPSB', 'MOMO'] },
-  { code: 'smartcash', name: 'SmartCash PSB', aliases: ['SMARTCASH', 'SMARTCASHPSB'] },
-];
+// The list lives in data/banks.json (commercial banks, microfinance banks and
+// fintechs/wallets, each with a type) so adding a bank is a data change, not code.
+const BANKS = require('../data/banks.json');
+const TYPES = { bank: 'Banks', mfb: 'Microfinance banks', fintech: 'Fintechs and wallets' };
 
 const up = (s) => (s || '').toUpperCase();
 const alnum = (s) => up(s).replace(/[^A-Z0-9]/g, '');
@@ -106,9 +72,29 @@ function resolveBank(text, sender) {
   return null;
 }
 
+// A looser guess for a sender we could not resolve, used only to pre-select the bank
+// in the "Which bank sent these?" picker (the user still confirms). Prefix match on
+// an alias or the bank's name ("ALLWORKERS" -> Allworkers MFB), else the closest
+// alias by Jaro-Winkler above 0.8.
+function guessBank(sender) {
+  const s = alnum(sender);
+  if (s.length < 3) return null;
+  const hit = resolveBank('', sender);
+  if (hit) return { code: hit.code, name: hit.name };
+  let best = null;
+  for (const b of BANKS) {
+    const names = [...b.aliases, alnum(b.name)];
+    for (const a of names) {
+      const score = (a.length >= 4 && (s.startsWith(a) || a.startsWith(s))) ? 0.95 : jaroWinkler(s, a);
+      if (score >= 0.8 && (!best || score > best.score)) best = { code: b.code, name: b.name, score };
+    }
+  }
+  return best ? { code: best.code, name: best.name } : null;
+}
+
 function extractAccountMask(text) {
   const m = (text || '').match(/(?:acc(?:t|ount)?|a\/c)\s*[:.]?\s*[\dx*•]*[*x•](\d{3,4})\b/i);
   return m ? m[1] : null;
 }
 
-module.exports = { BANKS, resolveBank, extractAccountMask, jaroWinkler };
+module.exports = { BANKS, TYPES, resolveBank, guessBank, extractAccountMask, jaroWinkler };

@@ -6,6 +6,8 @@ import { useAccountScope, scopeKey } from '../contexts/AccountScope';
 import { undoable } from '../lib/undo';
 import ChoiceDialog from './ChoiceDialog';
 import { FeatureTip } from './FeatureTip';
+import Select from './Select';
+import BankPicker from './BankPicker';
 
 // Bank accounts: the ones we fingerprinted from alerts and statements, plus any the
 // user adds by hand. Name, type, merge, deactivate and delete each one; tag senders
@@ -178,9 +180,9 @@ export default function Accounts() {
             <div className="ac-mask">{a.accountMask ? `•••• ${a.accountMask}` : 'No account digits'} · {a.txnCount} txn{a.txnCount === 1 ? '' : 's'}</div>
           </div>
           {!prompt && (
-            <select className="ac-type" aria-label="Account type" value={a.type || ''} onChange={(e) => saveType(a, e.target.value)}>
+            <Select className="ac-type" aria-label="Account type" value={a.type || ''} onChange={(e) => saveType(a, e.target.value)}>
               {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
+            </Select>
           )}
         </div>
         <input
@@ -251,17 +253,7 @@ export default function Accounts() {
         <form className="ac-card ac-form" onSubmit={addAccount}>
           <h3 className="ac-form-title">Add an account</h3>
           <label htmlFor="ac-bank">Bank</label>
-          <select id="ac-bank" className="ac-select" value={form.bankCode} onChange={(e) => setForm({ ...form, bankCode: e.target.value })}>
-            <option value="">Choose bank…</option>
-            {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
-            <option value="other">Another bank…</option>
-          </select>
-          {form.bankCode === 'other' && (
-            <>
-              <label htmlFor="ac-bankname">Bank name</label>
-              <input id="ac-bankname" className="ac-input" maxLength={40} value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} />
-            </>
-          )}
+          <BankPicker id="ac-bank" className="ac-select" banks={banks} setBanks={setBanks} value={form.bankCode} onChange={(code) => setForm({ ...form, bankCode: code })} />
           <div className="ac-form-row">
             <div>
               <label htmlFor="ac-mask">Last 4 digits (optional)</label>
@@ -269,9 +261,9 @@ export default function Accounts() {
             </div>
             <div>
               <label htmlFor="ac-typenew">Type</label>
-              <select id="ac-typenew" className="ac-select" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+              <Select id="ac-typenew" className="ac-select" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
                 {TYPES.map((t) => <option key={t.value} value={t.value}>{t.value ? t.label : 'Choose…'}</option>)}
-              </select>
+              </Select>
             </div>
           </div>
           <label htmlFor="ac-label">Name (optional)</label>
@@ -302,20 +294,17 @@ export default function Accounts() {
                   <div className="ac-top">
                     <div className="ac-icon ac-qicon"><i className="fas fa-question" aria-hidden="true"></i></div>
                     <div>
-                      <div className="ac-bank">{u.senderKey}</div>
+                      <div className="ac-bank">{u.label || u.senderKey}</div>
                       <div className="ac-mask">{u.count} txn{u.count === 1 ? '' : 's'}{u.sample ? ` · ${u.sample}` : ''}</div>
                     </div>
                   </div>
                   {u.suggestion && (
                     <button className="ac-suggest" disabled={busy === u.senderKey} onClick={() => tagSender(u.senderKey, u.suggestion.bankCode)}>
-                      <i className="fas fa-users" aria-hidden="true"></i> Others say this is {u.suggestion.bankName}: use it
+                      <i className={`fas ${u.suggestion.source === 'community' ? 'fa-users' : 'fa-lightbulb'}`} aria-hidden="true"></i> {u.suggestion.source === 'community' ? `Others say this is ${u.suggestion.bankName}` : `Looks like ${u.suggestion.bankName}`}: use it
                     </button>
                   )}
                   <div className="ac-actions">
-                    <select className="ac-select" aria-label="Bank" value={picks[u.senderKey] || ''} onChange={(e) => setPicks((p) => ({ ...p, [u.senderKey]: e.target.value }))}>
-                      <option value="">Choose bank…</option>
-                      {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
-                    </select>
+                    <BankPicker className="ac-select" banks={banks} setBanks={setBanks} value={picks[u.senderKey] || ''} onChange={(code) => setPicks((p) => ({ ...p, [u.senderKey]: code }))} />
                     <button className="ac-save" disabled={busy === u.senderKey} onClick={() => tagSender(u.senderKey, picks[u.senderKey])}>Tag</button>
                     <button className="ac-ghost" onClick={() => dismissSender(u.senderKey)}>Not a bank</button>
                   </div>

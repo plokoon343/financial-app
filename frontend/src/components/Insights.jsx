@@ -9,6 +9,7 @@ import AccountSwitcher from './AccountSwitcher';
 import TopPeopleCard from './TopPeopleCard';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 import { FeatureTip } from './FeatureTip';
+import { forInsights, selfNameWords, monthCoverage, spotlightFor } from '../lib/moneyMath';
 
 // Palette for category legend dots (categories carry no colour of their own).
 const PALETTE = ['#139DA0', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#84cc16', '#ec4899'];
@@ -63,7 +64,10 @@ const Card = ({ title, right, children }) => (
 export default function Insights({ transactions: allTransactions = [] }) {
   const { scope, inactiveKeys } = useAccountScope();
   // Scope every insight to the selected account (or All).
-  const transactions = useMemo(() => allTransactions.filter(t => scopeMatches(t, scope, inactiveKeys)), [allTransactions, scope, inactiveKeys]);
+  // Moves between the user's own accounts and savings pockets are left out, and money
+  // sent to people shows as "Sent to people" (lib/moneyMath).
+  const nameWords = useMemo(() => { try { return selfNameWords(JSON.parse(localStorage.getItem('user') || '{}')); } catch { return []; } }, []);
+  const transactions = useMemo(() => forInsights(allTransactions.filter(t => scopeMatches(t, scope, inactiveKeys)), nameWords), [allTransactions, scope, inactiveKeys, nameWords]);
   const [month, setMonth] = useState(currentMonth());
   const isCurrent = month === currentMonth();
   const [reportBusy, setReportBusy] = useState(false);
@@ -114,7 +118,12 @@ export default function Insights({ transactions: allTransactions = [] }) {
   const income = useMemo(() => inMonth.filter((t) => t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0), [inMonth]);
   const expense = useMemo(() => inMonth.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(t.amount), 0), [inMonth]);
   const net = income - expense;
-  const savingsRate = income > 0 ? Math.round((net / income) * 100) : 0;
+  // Is this month's data complete enough to compare spending with income?
+  const coverage = useMemo(() => monthCoverage(transactions, month), [transactions, month]);
+  const incomeKnown = coverage.complete && income > 0;
+  // A rate beyond ±100% (salary not in yet, say) says nothing useful, so it's hidden.
+  const rawRate = incomeKnown ? Math.round((net / income) * 100) : null;
+  const savingsRate = rawRate != null && Math.abs(rawRate) <= 100 ? rawRate : null;
 
   const cats = useMemo(() => {
     const map = new Map();
@@ -133,18 +142,19 @@ export default function Insights({ transactions: allTransactions = [] }) {
     return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
   }, [inMonth]);
 
+  // A share of income only when this month's income is complete, above zero and at
+  // least what was spent; otherwise say it in words.
   const spotlight = useMemo(() => {
-    if (income <= 0) return null;
     const m = merchants[0]; const c = cats.rows.filter((r) => r.label !== 'Other')[0];
-    const mPct = m ? m[1] / income : 0; const cPct = c ? c.value / income : 0;
-    if (Math.max(mPct, cPct) < 0.05) return null;
-    const useM = mPct >= cPct;
-    const name = useM ? m[0] : c.label; const value = useM ? m[1] : c.value; const pct = Math.round((useM ? mPct : cPct) * 100);
-    const line = pct >= 40 ? 'That is a serious chunk of your income.'
-      : pct >= 25 ? 'A big slice of what came in this month.'
-      : pct >= 15 ? 'Worth keeping an eye on.' : 'Your biggest single drain this month.';
-    return { name, value, pct, line };
-  }, [income, merchants, cats]);
+    const top = m && (!c || m[1] >= c.value) ? { name: m[0], value: m[1] } : c ? { name: c.label, value: c.value } : null;
+    const s = spotlightFor({ income, expense, top, coverage });
+    if (s?.kind === 'share') {
+      s.line = s.pct >= 40 ? 'That is a serious chunk of your income.'
+        : s.pct >= 25 ? 'A big slice of what came in this month.'
+        : s.pct >= 15 ? 'Worth keeping an eye on.' : 'Your biggest single drain this month.';
+    }
+    return s;
+  }, [income, expense, merchants, cats, coverage]);
 
   const projection = useMemo(() => {
     if (!isCurrent || expense <= 0) return null;
@@ -152,8 +162,8 @@ export default function Insights({ transactions: allTransactions = [] }) {
     const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     if (day < 3) return null;
     const projected = Math.round((expense / day) * dim);
-    return { projected, pctIncome: income > 0 ? Math.round((projected / income) * 100) : null };
-  }, [isCurrent, expense, income]);
+    return { projected, pctIncome: incomeKnown ? Math.round((projected / income) * 100) : null };
+  }, [isCurrent, expense, income, incomeKnown]);
 
   const months = useMemo(() => Array.from({ length: 6 }, (_, i) => shiftMonth(month, -(5 - i))), [month]);
   const trend = useMemo(() => months.map((mk) => {
@@ -276,9 +286,15 @@ export default function Insights({ transactions: allTransactions = [] }) {
         <div style={{ background: 'color-mix(in srgb, var(--accent-primary) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent)', borderRadius: 18, padding: 18 }}>
           <div style={{ color: 'var(--accent-primary)', fontSize: 12, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase' }}>Spotlight{isCurrent ? ' · this month' : ''}</div>
           <div style={{ color: 'var(--text-primary)', fontSize: 22, fontWeight: 700, lineHeight: 1.35, marginTop: 6 }}>
-            <span style={{ color: 'var(--accent-primary)', fontSize: 26, fontWeight: 900 }}>{spotlight.pct}%</span> of your income went to <span style={{ fontWeight: 900 }}>{spotlight.name}</span>
+            {spotlight.kind === 'share' && <><span style={{ color: 'var(--accent-primary)', fontSize: 26, fontWeight: 900 }}>{spotlight.pct}%</span> of your income went to <span style={{ fontWeight: 900 }}>{spotlight.name}</span></>}
+            {spotlight.kind === 'over' && <>You spent <span style={{ fontWeight: 900 }}>{fmtNaira(spotlight.spent)}</span> against <span style={{ fontWeight: 900 }}>{fmtNaira(spotlight.income)}</span> coming in {isCurrent ? 'so far this month' : 'that month'}</>}
+            {spotlight.kind === 'spent' && <>Spending {isCurrent ? 'this month' : 'that month'}: <span style={{ fontWeight: 900 }}>{fmtNaira(spotlight.spent)}</span></>}
           </div>
-          <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>{fmtNaira(spotlight.value)} · {spotlight.line}</div>
+          <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
+            {spotlight.kind === 'share' && <>{fmtNaira(spotlight.value)} · {spotlight.line}</>}
+            {spotlight.kind === 'over' && <>The biggest part went to {spotlight.name} ({fmtNaira(spotlight.value)}).</>}
+            {spotlight.kind === 'spent' && <>Most of it went to {spotlight.name} ({fmtNaira(spotlight.value)}).{!coverage.complete ? ' Some days this month have no transactions yet, so we are not comparing it with your income.' : ''}</>}
+          </div>
         </div>
       )}
 
@@ -337,12 +353,12 @@ export default function Insights({ transactions: allTransactions = [] }) {
         <Bar label="Expense" value={expense} max={Math.max(income, expense, 1)} color="var(--expense-color)" />
         <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', marginTop: 12, paddingTop: 12 }}>
           <div><div style={dim}>Net</div><div style={{ ...big, color: net >= 0 ? 'var(--income-color)' : 'var(--expense-color)' }}>{net >= 0 ? '+' : '−'}{fmtNaira(Math.abs(net))}</div></div>
-          <div style={{ textAlign: 'right' }}><div style={dim}>Savings rate</div><div style={{ ...big, color: savingsRate >= 0 ? 'var(--income-color)' : 'var(--expense-color)' }}>{savingsRate}%</div></div>
+          <div style={{ textAlign: 'right' }}><div style={dim}>Savings rate</div><div style={{ ...big, color: (savingsRate ?? 0) >= 0 ? 'var(--income-color)' : 'var(--expense-color)' }} title={savingsRate == null ? (rawRate != null ? 'You spent more than came in' : 'Shown once this month’s income looks complete') : undefined}>{savingsRate == null ? '–' : `${savingsRate}%`}</div></div>
         </div>
         {projection && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid var(--border-color)', marginTop: 12, paddingTop: 12, color: 'var(--text-secondary)', fontSize: 14 }}>
             <i className="fas fa-arrow-trend-up" style={{ fontSize: 18 }} aria-hidden="true"></i>
-            <span>On track for <strong style={{ color: 'var(--text-primary)' }}>{fmtNaira(projection.projected)}</strong> by month end{projection.pctIncome != null ? ` (${projection.pctIncome}% of income)` : ''}</span>
+            <span>On track for <strong style={{ color: 'var(--text-primary)' }}>{fmtNaira(projection.projected)}</strong> by month end{projection.pctIncome == null ? '' : projection.pctIncome > 100 ? ' (more than came in)' : ` (${projection.pctIncome}% of income)`}</span>
           </div>
         )}
       </Card>

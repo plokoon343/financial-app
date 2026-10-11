@@ -4,6 +4,8 @@
 // nothing leaves the browser, nothing to pay for. Icons are FontAwesome classes;
 // no emoji. Keep this in sync with the mobile libs.
 
+import { monthCoverage, sameDaysSpend } from './moneyMath';
+
 // ---------------------------------------------------------------------------
 // prettyMerchant - turn a raw (often bank-imported) description into a friendly
 // name. Ported from finpilot-mobile/src/lib/txnDisplay.ts.
@@ -35,7 +37,7 @@ export function prettyMerchant(raw) {
 // glyphs swapped for FontAwesome classes).
 // ---------------------------------------------------------------------------
 const LIFESTYLE = new Set(['Food', 'Shopping', 'Entertainment', 'Subscriptions']);
-const UNTRACEABLE = new Set(['Transfer', 'Other', 'ATM/POS']);
+const UNTRACEABLE = new Set(['Transfer', 'Sent to people', 'Other', 'ATM/POS']);
 
 export function computeArchetype(all, income, monthKey) {
   const month = all.filter((t) => (t.date || '').slice(0, 7) === monthKey);
@@ -162,7 +164,9 @@ export function buildVoiceLines(all, income, monthKey, fmt) {
     const share = pct(Math.abs(biggest.amount), totalExpense);
     if (share >= 25) add('big', `One transaction carried ${share}% of your month's spend. That one na statement.`, 'observe');
   }
-  if (savingsRate >= 20) add('save-good', `You kept ${savingsRate}% this month. Future you go thank you well well.`, 'praise');
+  const covered = monthCoverage(all, monthKey).complete && inc > 0;
+  if (!covered) { /* income for this month looks incomplete: no income-based lines */ }
+  else if (savingsRate >= 20) add('save-good', `You kept ${savingsRate}% this month. Future you go thank you well well.`, 'praise');
   else if (net < 0) add('overspend', `You spent pass wetin enter this month. Sapa dey plan attendance - lock something small away.`, 'nudge');
   else if (savingsRate > 0 && savingsRate < 10) add('save-low', `You saved ${savingsRate}%. Small progress still be progress - push am reach 20%.`, 'nudge');
 
@@ -171,19 +175,25 @@ export function buildVoiceLines(all, income, monthKey, fmt) {
   const [yy, mm] = monthKey.split('-').map(Number);
   const prevD = new Date(yy, mm - 2, 1);
   const prevKey = `${prevD.getFullYear()}-${String(prevD.getMonth() + 1).padStart(2, '0')}`;
-  const prevExp = all.filter((t) => t.type === 'expense' && (t.date || '').slice(0, 7) === prevKey).reduce((s, t) => s + Math.abs(t.amount), 0);
+  // Compare like for like: the same days of both months (1st to today for the
+  // current month), and only when both months' data covers those days.
+  const upto = isCurrent ? now.getDate() : new Date(yy, mm, 0).getDate();
+  const thisCov = monthCoverage(all, monthKey);
+  const prevCov = monthCoverage(all, prevKey);
+  const comparable = thisCov.firstDay > 0 && thisCov.firstDay <= 5 && thisCov.maxGap <= 12
+    && prevCov.firstDay > 0 && prevCov.firstDay <= 5 && prevCov.maxGap <= 12 && prevCov.lastDay >= Math.min(upto, prevCov.endDay) - 4;
+  const prevExp = comparable ? sameDaysSpend(all, prevKey, upto) : 0;
   if (prevExp > 0) {
-    const daysThis = isCurrent ? now.getDate() : new Date(yy, mm, 0).getDate();
-    const daysPrev = new Date(prevD.getFullYear(), prevD.getMonth() + 1, 0).getDate();
-    const thisPace = totalExpense / daysThis;
-    const prevPace = prevExp / daysPrev;
-    if (thisPace < prevPace * 0.9) add('better', `You're spending ${Math.round((1 - thisPace / prevPace) * 100)}% less per day than last month. This na growth - keep going.`, 'praise');
+    const thisExp = sameDaysSpend(all, monthKey, upto);
+    if (thisExp < prevExp * 0.9) add('better', `You're spending ${Math.round((1 - thisExp / prevExp) * 100)}% less than over the same days last month. This na growth - keep going.`, 'praise');
     let bestCut = { cat: '', drop: 0 };
-    byC.forEach((amt, c) => {
-      const prevCat = all.filter((t) => t.type === 'expense' && (t.category || 'Other') === c && (t.date || '').slice(0, 7) === prevKey).reduce((s, t) => s + Math.abs(t.amount), 0);
-      if (prevCat > 0 && amt < prevCat * 0.85) { const drop = Math.round((1 - amt / prevCat) * 100); if (drop > bestCut.drop) bestCut = { cat: c, drop }; }
+    byC.forEach((_, c) => {
+      const prevCat = sameDaysSpend(all, prevKey, upto, c);
+      const amt = sameDaysSpend(all, monthKey, upto, c);
+      // A category that was tiny last month can't produce a headline cut.
+      if (prevCat >= 1000 && amt < prevCat * 0.85) { const drop = Math.round((1 - amt / prevCat) * 100); if (drop > bestCut.drop) bestCut = { cat: c, drop }; }
     });
-    if (bestCut.cat) add('cat-better', `You cut ${bestCut.cat} spend by ${bestCut.drop}% vs last month. Discipline is showing.`, 'praise');
+    if (bestCut.cat) add('cat-better', `You cut ${bestCut.cat} spend by ${bestCut.drop}% vs the same days last month. Discipline is showing.`, 'praise');
   }
 
   return seededOrder(lines, monthKey).slice(0, 6);
@@ -290,6 +300,9 @@ export function betterThanLastMonth(all, now = new Date()) {
   const day = now.getDate();
   const thisKey = ym(now);
   const lastKey = ym(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  // Last month must actually have data across those days, or any "cut" is just a gap.
+  const lastCov = monthCoverage(all, lastKey, now);
+  if (!(lastCov.firstDay > 0 && lastCov.firstDay <= 5 && lastCov.maxGap <= 12 && lastCov.lastDay >= Math.min(day, lastCov.endDay) - 4)) return null;
   const thisCat = new Map(), lastCat = new Map();
   let thisTotal = 0, lastTotal = 0;
   for (const t of all) {

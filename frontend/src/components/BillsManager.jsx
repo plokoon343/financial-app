@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import BillPay from './BillPay';
+import Select from './Select';
 
 // Recurring bills the user wants to be reminded about. Nothing is paid from here:
 // on the due day Automonie sends a reminder and moves the bill to its next cycle.
@@ -130,10 +131,10 @@ const BillsManager = () => {
             <input type="number" min="1" max="31" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} placeholder="1 to 31" />
           </label>
           <label>How often
-            <select value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}>
+            <Select value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}>
               <option value="monthly">Monthly</option>
               <option value="yearly">Yearly</option>
-            </select>
+            </Select>
           </label>
         </div>
         <button type="submit" className="bm-submit" disabled={saving}>{saving ? 'Saving...' : 'Add bill'}</button>

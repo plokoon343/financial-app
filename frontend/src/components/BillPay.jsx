@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import Select from './Select';
 
 // Buy airtime or data, or pay for TV or electricity (shown only when the server has
 // the feature on). Card pass-through: you pay the exact amount by card on Paystack and
@@ -98,10 +99,10 @@ export default function BillPay() {
 
       <div className="bp-form">
         <label>Provider
-          <select value={form.serviceID} onChange={set('serviceID')}>
+          <Select value={form.serviceID} onChange={set('serviceID')}>
             <option value="">Choose…</option>
             {cfg.providers[type].map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </Select>
         </label>
         {needsCode && (
           <label>{type === 'tv' ? 'Smartcard number' : 'Meter number'}
@@ -114,15 +115,15 @@ export default function BillPay() {
         )}
         {type === 'electricity' && (
           <label>Meter type
-            <select value={form.meterType} onChange={set('meterType')}><option value="prepaid">Prepaid</option><option value="postpaid">Postpaid</option></select>
+            <Select value={form.meterType} onChange={set('meterType')}><option value="prepaid">Prepaid</option><option value="postpaid">Postpaid</option></Select>
           </label>
         )}
         {['data', 'tv'].includes(type) ? (
           <label>{type === 'tv' ? 'Bouquet' : 'Plan'}
-            <select value={form.variationCode} onChange={set('variationCode')} disabled={!plans.length}>
+            <Select value={form.variationCode} onChange={set('variationCode')} disabled={!plans.length}>
               <option value="">Choose…</option>
               {plans.map((p) => <option key={p.code} value={p.code}>{p.name} · {fmtNaira(p.amount)}</option>)}
-            </select>
+            </Select>
           </label>
         ) : (
           <label>Amount (₦)

@@ -35,5 +35,16 @@ check('no mask', extractAccountMask('no account here') === null);
 check('jw identical', jaroWinkler('PREMIUMTRST', 'PREMIUMTRST') === 1);
 check('jw close high', jaroWinkler('PREMIUMTRST', 'PREMIUMTRUST') >= 0.9);
 
+// Round 3, 2.1: microfinance banks and wallets, kept as data with a type.
+const reg = require('./bankRegistry');
+check('every bank has a known type', reg.BANKS.every((b) => reg.TYPES[b.type]));
+check('codes are unique', new Set(reg.BANKS.map((b) => b.code)).size === reg.BANKS.length);
+check('all three kinds are listed', ['bank', 'mfb', 'fintech'].every((t) => reg.BANKS.some((b) => b.type === t)));
+check('ALLWORKERS sender is Allworkers MFB', name('Credit NGN5,000', 'ALLWORKERS') === 'Allworkers MFB');
+check('LAPO MFB resolves', name('x', 'LAPOMFB') === 'LAPO MFB');
+check('guess pre-selects a near miss', reg.guessBank('ALLWORKRS')?.code === 'allworkers');
+check('guess stays empty for noise', reg.guessBank('XQZ') === null);
+check('a branch name in the text is not a bank', name('Cash withdrawal at Ikeja branch') === null);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

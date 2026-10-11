@@ -6,6 +6,7 @@ import { verifyPendingPro } from '../lib/pro';
 import { fmtNaira } from '../utils/format';
 import { undoable } from '../lib/undo';
 import { FeatureTip } from './FeatureTip';
+import Select from './Select';
 
 // Subscriptions: manage your own (manual add/delete) AND see recurring charges
 // auto-detected from your statements. Manual ones are saved on the backend;
@@ -180,10 +181,10 @@ const SubscriptionManager = () => {
             </div>
             <div className="af-field">
               <label>Billing</label>
-              <select value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}>
+              <Select value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}>
                 <option value="monthly">Monthly</option>
                 <option value="yearly">Yearly</option>
-              </select>
+              </Select>
             </div>
             <div className="af-field">
               <label>Category</label>

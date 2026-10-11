@@ -523,6 +523,60 @@ async function main() {
     fake.close();
   }
 
+  // ── Round 3, 2.1 and 2.3: banks as data (with MFBs), custom banks, channel is not a bank ──
+  {
+    const db = mongoose.connection.db;
+    const list = (await call('GET', '/api/banks')).body;
+    check('2.1 the bank list has banks, MFBs and fintechs', ['bank', 'mfb', 'fintech'].every((t) => list.banks.some((b) => b.type === t)) && list.banks.some((b) => b.name === 'Allworkers MFB'));
+    const known = await call('POST', '/api/banks/custom', { name: 'allworkers mfb', type: 'mfb' });
+    check('2.1 typing a bank we list gives back the listed one', known.body?.existing && known.body.bank.code === 'allworkers', JSON.stringify(known.body));
+    const zion = await call('POST', '/api/banks/custom', { name: 'Zion  MFB', type: 'mfb' });
+    check('2.1 "My bank isn\'t listed" saves a custom bank', zion.status === 201 && zion.body.bank.code === 'custom-zion-mfb' && zion.body.bank.name === 'Zion MFB', JSON.stringify(zion.body));
+    await call('POST', '/api/banks/custom', { name: 'Zion MFB', type: 'mfb' });
+    const reqs = await db.collection('bankrequests').find({}).toArray();
+    check('2.1 it is logged once per user, without who asked', reqs.length === 1 && reqs[0].count === 1 && !('userId' in reqs[0]));
+    check('2.1 the custom bank is in the user\'s list', (await call('GET', '/api/banks')).body.banks.some((b) => b.code === 'custom-zion-mfb' && b.custom));
+
+    await db.collection('transactions').insertMany([
+      { userId: insertedId, date: new Date('2026-09-02'), description: 'CR from ADA', amount: 5000, type: 'income', category: 'Transfer', source: 'sms', senderKey: 'ALLWORKRS', bank: '' },
+      { userId: insertedId, date: new Date('2026-09-03'), description: 'DR POS', amount: -700, type: 'expense', category: 'Other', source: 'sms', senderKey: 'ZIONMFBNG', bank: '' },
+    ]);
+    const ac = (await call('GET', '/api/action-center')).body.items.filter((i) => i.type === 'tag_sender');
+    check('2.1 the "Which bank" card pre-selects a likely bank', ac.find((i) => i.senderKey === 'ALLWORKRS')?.guess?.code === 'allworkers', JSON.stringify(ac));
+    const tag = await call('POST', '/api/senders/tag', { senderKey: 'ZIONMFBNG', bankCode: 'custom-zion-mfb' });
+    const zrow = await db.collection('transactions').findOne({ userId: insertedId, description: 'DR POS' });
+    check('2.1 a sender can be tagged with a custom bank', tag.status === 200 && zrow.bank === 'Zion MFB' && zrow.senderKey === '', JSON.stringify(zrow));
+
+    const imp = await call('POST', '/api/import-transactions', { bank: 'SMS', transactions: [
+      { date: '2026-09-10', amount: 1200, description: 'POS SHOPRITE', type: 'expense', category: 'Groceries', bankCode: 'gtbank', bank: '' },
+      { date: '2026-09-11', amount: 900, description: 'Zenith alert: DR 900 POS KFC', type: 'expense', category: 'Food', bank: 'SMS' },
+    ] });
+    const smsRows = await db.collection('transactions').find({ userId: insertedId, description: { $in: ['POS SHOPRITE', 'Zenith alert: DR 900 POS KFC'] } }).toArray();
+    check('2.3 an SMS import never stores "SMS" as the bank', imp.status === 200 && smsRows.length === 2 && smsRows.every((t) => t.bank !== 'SMS' && t.channel === 'sms'), JSON.stringify(smsRows.map((t) => [t.bank, t.channel])));
+    check('2.3 each row carries the bank that sent it', smsRows.find((t) => t.description === 'POS SHOPRITE').bank === 'GTBank' && smsRows.find((t) => /KFC/.test(t.description)).bank === 'Zenith');
+    const stmt = await call('POST', '/api/import-transactions', { bank: 'Access', channel: 'statement', transactions: [{ date: '2026-09-12', amount: 300, description: 'ACCESS FEE', type: 'expense', category: 'Bank Charges' }] });
+    const srow = await db.collection('transactions').findOne({ userId: insertedId, description: 'ACCESS FEE' });
+    check('2.3 a statement upload is channel statement with its bank', stmt.status === 200 && srow.channel === 'statement' && srow.bank === 'Access');
+
+    // Old rows saved with a channel as the bank are fixed by the migration.
+    await db.collection('transactions').insertMany([
+      { userId: insertedId, date: new Date('2026-08-01'), description: 'OLD GTB ROW', amount: -10, type: 'expense', category: 'Other', source: 'import', bank: 'SMS', bankCode: 'gtbank' },
+      { userId: insertedId, date: new Date('2026-08-02'), description: 'Acct credited NGN 5,000 Kuda', amount: 5000, type: 'income', category: 'Other', source: 'import', bank: 'sms', bankCode: '' },
+      { userId: insertedId, date: new Date('2026-08-03'), description: 'MYSTERY', amount: -20, type: 'expense', category: 'Other', source: 'import', bank: 'Email', bankCode: '' },
+    ]);
+    await db.collection('useraccounts').insertOne({ userId: insertedId, bankCode: 'gtbank', accountMask: '9999', bankName: 'SMS', label: '' });
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'superadmin' } });
+    const mig = await call('POST', '/api/admin/migrate/channel-banks');
+    await users.updateOne({ _id: insertedId }, { $set: { role: 'user' } });
+    const old = Object.fromEntries((await db.collection('transactions').find({ userId: insertedId, description: { $in: ['OLD GTB ROW', 'Acct credited NGN 5,000 Kuda', 'MYSTERY'] } }).toArray()).map((t) => [t.description, t]));
+    check('2.3 migration: bank from the bank code', old['OLD GTB ROW'].bank === 'GTBank' && old['OLD GTB ROW'].channel === 'sms', JSON.stringify(mig.body));
+    check('2.3 migration: bank from the text', old['Acct credited NGN 5,000 Kuda'].bank === 'Kuda');
+    check('2.3 migration: unplaceable rows go to the "Which bank" card', old.MYSTERY.bank === '' && old.MYSTERY.senderKey === 'UNKNOWNSENDER' && old.MYSTERY.channel === 'email');
+    check('2.3 migration: no bank or account is named SMS any more', !(await db.collection('transactions').findOne({ bank: /^(sms|email|share)$/i })) && (await db.collection('useraccounts').findOne({ accountMask: '9999' })).bankName === 'GTBank');
+    const card = (await call('GET', '/api/action-center')).body.items.find((i) => i.senderKey === 'UNKNOWNSENDER');
+    check('2.3 the card names them plainly', card?.label === 'Alerts with no sender name' && card.guess === null);
+  }
+
   // ── Round 3, 1.2: account deletion from the website (email link, then confirm) ──
   {
     const db = mongoose.connection.db;

@@ -5,6 +5,7 @@ import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { FeatureTip } from './FeatureTip';
 import { fmtNaira as fmtMoney } from '../utils/format';
+import Select from './Select';
 // Category slice colours, led by the brand teal.
 const SLICE_COLORS = ['#139DA0', '#1DD3A8', '#44BC7E', '#f59e0b', '#f97316', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#84cc16', '#ef4444', '#64748b'];
 
@@ -278,7 +279,7 @@ const Budget = () => {
                 </label>
                 <div className="input-with-icon">
                   <i className="fas fa-tag input-icon"></i>
-                  <select
+                  <Select
                     id="category"
                     value={formData.category}
                     onChange={(e) => { const v = resolveCategoryChoice('expense', e.target.value); if (v) setFormData({...formData, category: v}); }}
@@ -290,7 +291,7 @@ const Budget = () => {
                       <option key={c} value={c}>{c}</option>
                     ))}
                     <option value={ADD_NEW}>+ Add new category…</option>
-                  </select>
+                  </Select>
                 </div>
               </div>
               

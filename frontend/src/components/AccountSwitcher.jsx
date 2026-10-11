@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAccountScope, scopeKey } from '../contexts/AccountScope';
+import Select from './Select';
 
 const label = (a) => a.label || a.bankName || a.bankCode || 'Account';
 
@@ -13,7 +14,7 @@ export default function AccountSwitcher({ style }) {
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...style }}>
       <i className="fas fa-wallet" style={{ color: 'var(--accent-primary, #139DA0)' }} />
-      <select
+      <Select
         value={scope}
         onChange={(e) => setScope(e.target.value)}
         title="View one account at a time"
@@ -28,7 +29,7 @@ export default function AccountSwitcher({ style }) {
             {label(a)} ••{a.accountMask}
           </option>
         ))}
-      </select>
+      </Select>
     </label>
   );
 }

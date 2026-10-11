@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
+import Select from './Select';
 
 const GOAL_OPTIONS = ['Build an emergency fund', 'Save for rent', 'Pay off debt', 'Save for a big purchase', 'Track my spending', 'Grow my investments', 'Other'];
 const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
@@ -72,10 +73,10 @@ const Profile = () => {
           <div className="form-group"><label>Monthly Income (₦)</label>
             <input type="number" min="0" value={profile.monthlyIncome} onChange={e => setProfile({ ...profile, monthlyIncome: e.target.value })} placeholder="optional" /></div>
           <div className="form-group"><label>Primary Goal</label>
-            <select value={profile.primaryGoal} onChange={e => setProfile({ ...profile, primaryGoal: e.target.value })}>
+            <Select value={profile.primaryGoal} onChange={e => setProfile({ ...profile, primaryGoal: e.target.value })}>
               <option value="">Select a goal</option>
               {GOAL_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-            </select></div>
+            </Select></div>
         </div>
         <button className="btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save Details'}</button>
 

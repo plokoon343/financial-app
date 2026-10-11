@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
@@ -10,6 +10,8 @@ import { avatarFor } from '../utils/merchantAvatar';
 import { FeatureTip, InfoTip } from './FeatureTip';
 import { fmtNaira } from '../utils/format';
 import ChoiceDialog from './ChoiceDialog';
+import Select from './Select';
+import { groupImports, rangeLabel, CHANNEL_LABEL, UNKNOWN_BANK } from '../utils/imports';
 
 // A small round leading avatar for a transaction row (Addendum C): a bundled merchant
 // logo, a person's initial, or the category icon: never a fetched favicon.
@@ -128,18 +130,11 @@ const Transactions = () => {
     } finally { setCleaning(false); }
   };
 
-  // import batches (each upload = a deletable statement)
-  const batches = useMemo(() => {
-    const map = new Map();
-    for (const t of all) {
-      if (t.source !== 'import' || !t.importBatch) continue;
-      const g = map.get(t.importBatch) || { id: t.importBatch, bank: t.bank || 'Unknown', month: monthKey(t.date), count: 0, total: 0, importedAt: t.importedAt };
-      g.count += 1; g.total += Math.abs(t.amount);
-      if (monthKey(t.date) !== g.month) g.month = ''; // spans months
-      map.set(t.importBatch, g);
-    }
-    return [...map.values()].sort((a, b) => new Date(b.importedAt || 0) - new Date(a.importedAt || 0));
-  }, [all]);
+  // What was brought in, by the bank that sent it: uploaded statements (each one
+  // deletable) and alerts (SMS, email, shared), one group per bank.
+  const imports = useMemo(() => groupImports(all), [all]);
+  const batches = imports.statements;
+  const alertGroups = imports.alerts;
 
   // Close the statements popup once everything's been deleted.
   useEffect(() => { if (showAllStatements && batches.length === 0) setShowAllStatements(false); }, [batches.length, showAllStatements]);
@@ -315,7 +310,7 @@ const Transactions = () => {
       {batches.length > 0 && (
         <div className="tx-card">
           <div className="statements-head">
-            <h3>Imported statements<InfoTip text="Each bank statement you upload becomes one group. Deleting a statement removes only its transactions - the rest of the month stays." /></h3>
+            <h3>Statements<InfoTip text="Each bank statement you upload becomes one group, labelled with its bank and the dates it covers. Deleting a statement removes only its transactions - the rest of the month stays." /></h3>
             {batches.length > RECENT_STATEMENTS && (
               <button className="view-all-btn" onClick={() => setShowAllStatements(true)}>
                 View all ({batches.length})
@@ -327,9 +322,28 @@ const Transactions = () => {
               <div className="batch-chip" key={b.id}>
                 <div>
                   <strong>{b.bank}</strong>
-                  <span className="batch-meta">{b.month ? monthLabel(b.month) : 'multiple months'} · {b.count} txns · {money(b.total)}</span>
+                  <span className="batch-meta">{rangeLabel(b.from, b.to)} · {b.count} txns · {money(b.total)}</span>
                 </div>
                 <button className="btn-danger-sm" onClick={() => deleteBatch(b)}><i className="fas fa-trash"></i> Delete statement</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {alertGroups.length > 0 && (
+        <div className="tx-card">
+          <div className="statements-head">
+            <h3>Alerts<InfoTip text="Bank alerts you scanned, pasted, forwarded by email or shared, grouped by the bank that sent them, with the dates they cover." /></h3>
+          </div>
+          <div className="batch-list">
+            {alertGroups.map(g => (
+              <div className="batch-chip" key={g.bank}>
+                <div>
+                  <strong>{g.bank}</strong>
+                  <span className="batch-meta">{rangeLabel(g.from, g.to)} · {g.count} alert{g.count === 1 ? '' : 's'} · by {Object.keys(g.channels).map((c) => CHANNEL_LABEL[c] || c).join(', ')}</span>
+                </div>
+                {g.bank === UNKNOWN_BANK && <Link className="btn-secondary-sm" to="/actions">Tell us the bank</Link>}
               </div>
             ))}
           </div>
@@ -341,7 +355,7 @@ const Transactions = () => {
         <div className="stmt-modal-overlay" onClick={() => setShowAllStatements(false)}>
           <div className="stmt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="stmt-modal-head">
-              <h3>All imported statements ({batches.length})</h3>
+              <h3>All statements ({batches.length})</h3>
               <button className="stmt-modal-close" onClick={() => setShowAllStatements(false)} title="Close"><i className="fas fa-times"></i></button>
             </div>
             <div className="stmt-modal-list">
@@ -349,7 +363,7 @@ const Transactions = () => {
                 <div className="batch-chip" key={b.id}>
                   <div>
                     <strong>{b.bank}</strong>
-                    <span className="batch-meta">{b.month ? monthLabel(b.month) : 'multiple months'} · {b.count} txns · {money(b.total)}</span>
+                    <span className="batch-meta">{rangeLabel(b.from, b.to)} · {b.count} txns · {money(b.total)}</span>
                   </div>
                   <button className="btn-danger-sm" onClick={() => deleteBatch(b)}><i className="fas fa-trash"></i> Delete</button>
                 </div>
@@ -372,29 +386,29 @@ const Transactions = () => {
 
       {/* Filters */}
       <div className="tx-card filters">
-        <select value={fMonth} onChange={e => setFMonth(e.target.value)}>
+        <Select value={fMonth} onChange={e => setFMonth(e.target.value)}>
           <option value="all">All months</option>
           {months.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
-        </select>
-        <select value={fBank} onChange={e => setFBank(e.target.value)}>
+        </Select>
+        <Select value={fBank} onChange={e => setFBank(e.target.value)}>
           <option value="all">All banks</option>
           {bankOptions.map(b => <option key={b} value={b}>{b}</option>)}
           {bankOptions.length === 0 && <option value="" disabled>No bank tags yet</option>}
-        </select>
-        <select value={fCategory} onChange={e => setFCategory(e.target.value)}>
+        </Select>
+        <Select value={fCategory} onChange={e => setFCategory(e.target.value)}>
           <option value="all">All categories</option>
           {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={fType} onChange={e => setFType(e.target.value)}>
+        </Select>
+        <Select value={fType} onChange={e => setFType(e.target.value)}>
           <option value="all">All types</option>
           <option value="income">Income</option>
           <option value="expense">Expense</option>
-        </select>
+        </Select>
         {personOptions.length > 0 && (
-          <select value={fPerson} onChange={e => setFPerson(e.target.value)} aria-label="Person">
+          <Select value={fPerson} onChange={e => setFPerson(e.target.value)} aria-label="Person">
             <option value="all">All people</option>
             {personOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </Select>
         )}
         <input type="text" placeholder="Search description…" value={search} onChange={e => setSearch(e.target.value)} />
         <button className="btn-secondary" onClick={resetFilters}>Reset</button>
@@ -443,16 +457,16 @@ const Transactions = () => {
                 <td><input type="text" value={editForm.description} onChange={e => setEditForm({ ...editForm, description: e.target.value })} /></td>
                 <td><input type="number" step="0.01" value={editForm.amount} onChange={e => setEditForm({ ...editForm, amount: e.target.value })} style={{ width: '90px' }} /></td>
                 <td>
-                  <select value={editForm.type} onChange={e => setEditForm({ ...editForm, type: e.target.value })}>
+                  <Select className="compact" value={editForm.type} onChange={e => setEditForm({ ...editForm, type: e.target.value })}>
                     <option value="expense">Expense</option><option value="income">Income</option>
-                  </select>
+                  </Select>
                 </td>
                 <td>
-                  <select value={editForm.category} onChange={e => { const v = resolveCategoryChoice(editForm.type, e.target.value); if (v) setEditForm({ ...editForm, category: v }); }}>
+                  <Select className="compact" value={editForm.category} onChange={e => { const v = resolveCategoryChoice(editForm.type, e.target.value); if (v) setEditForm({ ...editForm, category: v }); }}>
                     {allCategoriesFor(editForm.type).map(c => <option key={c} value={c}>{c}</option>)}
                     {editForm.category && !allCategoriesFor(editForm.type).includes(editForm.category) && <option value={editForm.category}>{editForm.category}</option>}
                     <option value={ADD_NEW}>+ Add new…</option>
-                  </select>
+                  </Select>
                 </td>
                 <td>{t.bank || '-'}</td>
                 <td className="row-actions">
@@ -484,11 +498,11 @@ const Transactions = () => {
                   {km ? (
                     <span style={{ opacity: 0.7, fontSize: '0.82rem' }} title={km.label}>{km.label}</span>
                   ) : (
-                    <select className="cat-select" value={allCategoriesFor(t.type).includes(t.category) ? t.category : ''} onChange={e => { const v = resolveCategoryChoice(t.type, e.target.value); if (v) quickCategory(t, v); }}>
+                    <Select className="cat-select compact" value={allCategoriesFor(t.type).includes(t.category) ? t.category : ''} onChange={e => { const v = resolveCategoryChoice(t.type, e.target.value); if (v) quickCategory(t, v); }}>
                       {!allCategoriesFor(t.type).includes(t.category) && <option value="">{t.category}</option>}
                       {allCategoriesFor(t.type).map(c => <option key={c} value={c}>{c}</option>)}
                       <option value={ADD_NEW}>+ Add new…</option>
-                    </select>
+                    </Select>
                   )}
                 </td>
                 <td className="nowrap">{t.bank || '-'}</td>
@@ -516,9 +530,9 @@ const Transactions = () => {
         <div className="tx-pagination">
           <div className="page-size">
             Rows:
-            <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
+            <Select className="compact" value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
               {[25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
+            </Select>
           </div>
           <div className="page-range">
             {pageStart + 1}-{Math.min(pageStart + pageSize, filtered.length)} of {filtered.length}
@@ -593,6 +607,7 @@ const Transactions = () => {
         .icon-btn { background: var(--glass-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 8px; padding: 6px 8px; cursor: pointer; color: var(--text-primary); }
         .icon-btn.del:hover { color: #e53e3e; border-color: #e53e3e; }
         .icon-btn.save { color: #16a34a; }
+        .btn-secondary-sm { display: inline-flex; align-items: center; min-height: 36px; background: transparent; color: var(--accent-primary); border: 1px solid var(--accent-primary); border-radius: var(--radius-md); padding: 7px 12px; font-size: 0.8rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
         .btn-danger-sm { background: rgba(229,62,62,0.1); color: #e53e3e; border: 1px solid rgba(229,62,62,0.3); border-radius: var(--radius-md); padding: 7px 12px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
 
         td.empty { text-align: center; color: var(--text-primary); padding: 28px; }

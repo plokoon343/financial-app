@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor } from '../utils/categoryStore';
+import Select from './Select';
 
 // Cash tracking (spec C4): web parity with the mobile /cash screen. A cash withdrawal
 // leaves the bank as one opaque "cash_withdrawal" (excluded from spend). Here the user
@@ -96,10 +97,10 @@ export default function CashTracking() {
 
                 {(rows[w._id] || []).map((row, idx) => (
                   <div key={idx} className="cash-row">
-                    <select className="cash-cat" value={row.category} onChange={(e) => setRow(w._id, idx, { category: e.target.value })}>
+                    <Select className="cash-cat" value={row.category} onChange={(e) => setRow(w._id, idx, { category: e.target.value })}>
                       <option value="">Category…</option>
                       {cats.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                    </Select>
                     <input className="cash-num" type="number" inputMode="decimal" placeholder="Amount" value={row.amount} onChange={(e) => setRow(w._id, idx, { amount: e.target.value })} />
                     <input className="cash-desc" placeholder="Note (optional)" value={row.description} onChange={(e) => setRow(w._id, idx, { description: e.target.value })} />
                     {(rows[w._id].length > 1) && (

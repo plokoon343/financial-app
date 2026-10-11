@@ -4,6 +4,8 @@ import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import { undoable } from '../lib/undo';
 import { FeatureTip } from './FeatureTip';
+import Select from './Select';
+import BankPicker from './BankPicker';
 
 // Action Center: everything that needs the user's decision, in one place. Each card
 // resolves itself through the existing endpoints, then the list reloads. Removals and
@@ -47,10 +49,10 @@ function ReviewCard({ item, act, later }) {
         <div className="acx-edit">
           <input id={`d-${t.id}`} aria-label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           <input id={`a-${t.id}`} aria-label="Amount" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-          <select id={`t-${t.id}`} aria-label="Money in or out" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+          <Select id={`t-${t.id}`} aria-label="Money in or out" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
             <option value="expense">Money out</option>
             <option value="income">Money in</option>
-          </select>
+          </Select>
         </div>
       ) : <TxnLine t={t} />}
       <div className="acx-actions">
@@ -145,21 +147,20 @@ function AccountCard({ item, act, later }) {
   );
 }
 
-function SenderCard({ item, act, later, banks }) {
-  const [code, setCode] = useState('');
+function SenderCard({ item, act, later, banks, setBanks }) {
+  // Pre-select our best guess from the sender ID ("ALLWORKERS" -> Allworkers MFB).
+  const [code, setCode] = useState(item.guess?.code || '');
   return (
     <div className="acx-card">
       <div className="acx-txn">
         <div className="acx-txn-main">
-          <span className="acx-txn-desc">{item.senderKey}</span>
+          <span className="acx-txn-desc">{item.label || item.senderKey}</span>
           <span className="acx-meta">{item.count} alert{item.count === 1 ? '' : 's'} · e.g. “{item.sample}”</span>
+          {item.guess && code === item.guess.code && <span className="acx-meta">Looks like {item.guess.name}. Change it if that’s wrong.</span>}
         </div>
       </div>
       <div className="acx-actions">
-        <select id={`b-${item.id}`} aria-label="Bank" value={code} onChange={(e) => setCode(e.target.value)}>
-          <option value="">Choose the bank</option>
-          {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
-        </select>
+        <BankPicker id={`b-${item.id}`} banks={banks} setBanks={setBanks} value={code} onChange={setCode} />
         <button type="button" className="btn-primary" disabled={!code} onClick={() => act(() => axios.post(`${API_URL}/api/senders/tag`, { senderKey: item.senderKey, bankCode: code }, auth()))}>Save</button>
         <button type="button" className="btn-secondary" onClick={() => later('We won’t ask about it again', () => axios.post(`${API_URL}/api/senders/dismiss`, { senderKey: item.senderKey }, auth()))}>Not a bank</button>
       </div>
@@ -233,7 +234,7 @@ export default function ActionCenter() {
           <section key={sec.type} className="acx-section">
             <h3>{sec.title} <span className="acx-count">{items.length}</span></h3>
             <p className="acx-hint">{sec.hint}</p>
-            {items.map((it) => <Card key={it.id} item={it} act={(fn) => act(fn, it.id)} later={(message, fn) => later(it.id, message, fn)} banks={banks} />)}
+            {items.map((it) => <Card key={it.id} item={it} act={(fn) => act(fn, it.id)} later={(message, fn) => later(it.id, message, fn)} banks={banks} setBanks={setBanks} />)}
           </section>
         );
       })}

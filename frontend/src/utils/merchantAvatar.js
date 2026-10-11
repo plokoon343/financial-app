@@ -104,7 +104,7 @@ function hueFor(name) {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-const P2P_CATEGORIES = new Set(['Family & Friends', 'Transfer']);
+const P2P_CATEGORIES = new Set(['Family & Friends', 'Transfer', 'Sent to people']);
 const looksLikePerson = (name) => /^[A-Za-z][A-Za-z .'-]+$/.test(name) && name.trim().split(/\s+/).length >= 2;
 
 // Priority: bundled merchant logo -> initial avatar for a named person -> category icon.

@@ -14,6 +14,7 @@ import AccountSwitcher from './AccountSwitcher';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 import { FeatureTip } from './FeatureTip';
 import BankSetupCard from './BankSetupCard';
+import Select from './Select';
 
 const API = `${API_URL}`;
 
@@ -237,7 +238,8 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
       const token = localStorage.getItem('token');
       const res = await axios.post(
         `${API}/api/import-transactions`,
-        { transactions: toImport, bank },
+        // Pasted alerts are a channel, not a bank: each row keeps the bank that sent it.
+        { transactions: toImport, bank, channel: importMode === 'paste' ? 'sms' : 'statement' },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       onImportComplete(toImport);
@@ -575,14 +577,14 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                       />
                     </td>
                     <td style={{ padding: '0.5rem 0.7rem', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                      <select value={tx.type} onChange={(e) => updateTxType(idx, e.target.value)}
+                      <Select className="compact" value={tx.type} onChange={(e) => updateTxType(idx, e.target.value)}
                         style={{ background: darkMode ? '#4a5568' : '#edf2f7', color: tx.type === 'income' ? '#16a34a' : '#e53e3e', border: `1px solid ${theme.inputBorder}`, borderRadius: '6px', padding: '3px 4px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
                         <option value="expense">↓ expense</option>
                         <option value="income">↑ income</option>
-                      </select>
+                      </Select>
                     </td>
                     <td style={{ padding: '0.5rem 0.7rem' }} onClick={(e) => e.stopPropagation()}>
-                      <select
+                      <Select className="compact"
                         value={tx.category || 'Other'}
                         onChange={(e) => { const v = resolveCategoryChoice(tx.type, e.target.value); if (v) updateTxCategory(idx, v); }}
                         title={tx.learned ? 'Category you taught the app' : 'Auto-categorized - change to teach the app'}
@@ -600,7 +602,7 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                           <option value={tx.category}>{tx.category}</option>
                         )}
                         <option value={ADD_NEW}>+ Add new category…</option>
-                      </select>
+                      </Select>
                     </td>
                   </tr>
                   );
@@ -1015,7 +1017,7 @@ const Dashboard = ({ initialImport } = {}) => {
                       <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: theme.labelColor, fontSize: '0.9rem' }}>
                         <i className="fas fa-rectangle-list" style={{ marginRight: '0.4rem' }} aria-hidden="true"></i> Category
                       </label>
-                      <select
+                      <Select
                         value={formData.category}
                         onChange={(e) => { const v = resolveCategoryChoice(formData.type, e.target.value); if (v) setFormData({ ...formData, category: v }); }}
                         onFocus={onFocus}
@@ -1028,7 +1030,7 @@ const Dashboard = ({ initialImport } = {}) => {
                           <option key={c} value={c}>{c}</option>
                         ))}
                         <option value={ADD_NEW}>+ Add new category…</option>
-                      </select>
+                      </Select>
                     </div>
                     <div>
                       <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: theme.labelColor, fontSize: '0.9rem' }}>

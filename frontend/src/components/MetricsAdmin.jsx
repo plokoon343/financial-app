@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import Select from './Select';
 
 // Admin: core metrics. Acquisition, activation, engagement, retention, money and
 // import health from GET /api/admin/metrics (aggregates only, no personal data).
@@ -57,9 +58,9 @@ export default function MetricsAdmin() {
     <div className="ma">
       <div className="ma-row">
         <label className="ma-muted">Weeks shown{' '}
-          <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
+          <Select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
             {[4, 8, 12, 26].map((w) => <option key={w} value={w}>{w}</option>)}
-          </select>
+          </Select>
         </label>
         <span className="ma-muted">Lagos time · updated {new Date(m.generatedAt).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}</span>
       </div>

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor } from '../utils/categoryStore';
+import Select from './Select';
 
 // People & Family ledger: everyone you send to or receive from, built from your
 // transfer counterparties. Tag a contact as family/friend/business (or set a category)
@@ -128,12 +129,12 @@ export default function People() {
                       <i className={`fas ${r.icon}`} /> {r.label}
                     </button>
                   ))}
-                  <select value={c.category} disabled={busy === c.id}
+                  <Select value={c.category} disabled={busy === c.id}
                     onChange={(e) => patch(c, { category: e.target.value }, e.target.value ? `Category → ${e.target.value}` : 'Category cleared')}
                     title="Auto-category for this person's transfers">
                     <option value="">Auto-category…</option>
                     {cats.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-                  </select>
+                  </Select>
                 </div>
               </div>
             ))}

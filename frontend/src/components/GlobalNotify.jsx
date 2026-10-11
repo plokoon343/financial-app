@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import Select from './Select';
 
 // Admin: global notification controls, (1) broadcast a one-off message to every
 // user's notification bell, and (2) set/clear a site-wide dismissible banner.
@@ -70,9 +71,9 @@ export default function GlobalNotify() {
       <input style={inp} placeholder="Title (e.g. New: Money Wrapped is live 🎉)" value={bTitle} onChange={(e) => setBTitle(e.target.value)} />
       <textarea style={{ ...inp, minHeight: 70, fontFamily: 'inherit' }} placeholder="Message (optional)" value={bMessage} onChange={(e) => setBMessage(e.target.value)} />
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-        <select style={{ ...inp, width: 'auto', marginBottom: 0 }} value={bType} onChange={(e) => setBType(e.target.value)}>
+        <Select style={{ ...inp, width: 'auto', marginBottom: 0 }} value={bType} onChange={(e) => setBType(e.target.value)}>
           <option value="info">Info</option><option value="success">Success</option><option value="warning">Warning</option>
-        </select>
+        </Select>
         <input style={{ ...inp, flex: 1, marginBottom: 0 }} placeholder="Link (optional, e.g. /wrapped)" value={bLink} onChange={(e) => setBLink(e.target.value)} />
       </div>
       <button onClick={broadcast} disabled={!!busy} style={{ padding: '0.6rem 1.4rem', border: 'none', borderRadius: 8, background: 'var(--gradient-primary, var(--accent-primary))', color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
@@ -90,9 +91,9 @@ export default function GlobalNotify() {
       )}
       <input style={inp} placeholder="Banner message" value={nMessage} onChange={(e) => setNMessage(e.target.value)} />
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-        <select style={{ ...inp, width: 'auto', marginBottom: 0 }} value={nType} onChange={(e) => setNType(e.target.value)}>
+        <Select style={{ ...inp, width: 'auto', marginBottom: 0 }} value={nType} onChange={(e) => setNType(e.target.value)}>
           <option value="info">Info (teal)</option><option value="success">Success (green)</option><option value="warning">Warning (amber)</option>
-        </select>
+        </Select>
         <input style={{ ...inp, flex: 1, marginBottom: 0 }} placeholder="Link (optional)" value={nLink} onChange={(e) => setNLink(e.target.value)} />
         <input style={{ ...inp, width: 160, marginBottom: 0 }} placeholder="Link text" value={nLinkText} onChange={(e) => setNLinkText(e.target.value)} />
       </div>

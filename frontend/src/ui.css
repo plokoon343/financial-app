@@ -141,3 +141,63 @@
   .form-buttons .btn-submit,
   .form-buttons .btn-cancel { flex: 1; }
 }
+
+/* ── Select: the app's dropdown (components/Select.jsx) ── */
+.ui-select { position: relative; display: inline-block; min-width: 140px; max-width: 100%; vertical-align: middle; font-size: 0.95rem; }
+/* Class names carried over from old <select>s keep their layout (width, flex, margin)
+   but the look comes from the trigger, so the wrapper never draws a second box. */
+.ui-select.ui-select { background: none !important; border: 0 !important; padding: 0 !important; box-shadow: none !important; appearance: none; }
+.form-group .ui-select, .ui-select.block { display: block; width: 100%; }
+.ui-select-trigger {
+  width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 12px; background: var(--bg-input); color: var(--text-primary);
+  border: 1px solid var(--border-color); border-radius: var(--radius-md);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.ui-select.compact { min-width: 96px; }
+.ui-select.compact .ui-select-trigger { min-height: 34px; padding: 4px 8px; border-radius: 8px; font-weight: 600; }
+.ui-select.compact .ui-select-chev { width: 15px; height: 15px; }
+.ui-select-trigger:hover:not(:disabled) { border-color: var(--accent-primary); }
+.ui-select-trigger:focus-visible, .ui-select.open .ui-select-trigger { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(19, 157, 160, 0.28); }
+.ui-select-trigger:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(0.6); }
+.ui-select-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-select-value.placeholder { color: var(--text-faint); }
+.ui-select-chev { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--text-secondary); transition: transform var(--transition-fast); }
+.ui-select.open .ui-select-chev { transform: rotate(180deg); }
+.ui-select-pop {
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; min-width: 100%; width: max-content; max-width: min(420px, 92vw);
+  background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg); overflow: hidden; display: flex; flex-direction: column;
+}
+.ui-select-pop.up { top: auto; bottom: calc(100% + 6px); }
+.ui-select-search {
+  margin: 8px; min-height: 44px; padding: 9px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 0.95rem;
+}
+/* Page styles for inputs/buttons (e.g. `.acx-actions input { flex: 1 1 160px }`) must
+   not reach inside the dropdown. */
+.ui-select .ui-select-pop > * { flex: none; }
+.ui-select .ui-select-pop .ui-select-search { width: auto; height: auto; min-width: 0; max-width: none; }
+.ui-select-search:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(19, 157, 160, 0.28); }
+.ui-select-list { list-style: none; margin: 0; padding: 4px; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
+.ui-select-group { padding: 10px 12px 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+.ui-select-opt {
+  min-height: 48px; display: flex; align-items: center; padding: 0 12px; border-radius: var(--radius-sm);
+  color: var(--text-primary); cursor: pointer; font-size: 0.95rem;
+}
+.ui-select-opt.active { background: rgba(19, 157, 160, 0.14); }
+.ui-select-opt.selected { color: var(--accent-primary); font-weight: 600; }
+.ui-select-opt[aria-disabled] { opacity: 0.45; cursor: not-allowed; }
+.ui-select-empty { padding: 14px 12px; color: var(--text-faint); font-size: 0.9rem; }
+.ui-select-footer {
+  min-height: 48px; border: 0; border-top: 1px solid var(--border-color); background: transparent; color: var(--accent-primary);
+  font: inherit; font-weight: 600; text-align: left; padding: 0 16px; cursor: pointer;
+}
+.ui-select-footer:hover, .ui-select-footer:focus-visible { background: rgba(19, 157, 160, 0.10); outline: none; }
+
+/* Disabled buttons look clearly off, not just slightly faded. */
+.btn-primary:disabled, .btn-submit:disabled {
+  background: var(--bg-secondary) !important; color: var(--text-faint) !important;
+  box-shadow: inset 0 0 0 1px var(--border-color) !important; opacity: 1; filter: none; transform: none;
+}
+.btn-secondary:disabled, .btn-cancel:disabled, .btn-danger:disabled { opacity: 0.45; filter: grayscale(0.8); }

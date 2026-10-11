@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import { FeatureTip } from './FeatureTip';
+import Select from './Select';
 const GoalTracker = () => {
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -355,14 +356,14 @@ const getGoalProgress = (goal) => {
               <label><i className="fas fa-tag"></i> Category</label>
               <div className="input-with-icon">
                 <i className="fas fa-tag input-icon"></i>
-                <select value={newGoal.category} onChange={(e) => setNewGoal({...newGoal, category: e.target.value})}>
+                <Select value={newGoal.category} onChange={(e) => setNewGoal({...newGoal, category: e.target.value})}>
                   <option value="General">General</option><option value="Housing">Housing</option>
                   <option value="Travel">Travel</option><option value="Electronics">Electronics</option>
                   <option value="Education">Education</option><option value="Vehicle">Vehicle</option>
                   <option value="Emergency Fund">Emergency Fund</option>
                   <option value="Retirement">Retirement</option><option value="Savings">Savings</option>
                   <option value="Debt">Debt Repayment</option>
-                </select>
+                </Select>
               </div>
             </div>
           </div>

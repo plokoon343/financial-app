@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import Select from './Select';
 
 // Admin: the push nudge copy, with sends, opens and open rate per line over the
 // chosen window (the weekly report). Lines can be edited, switched off or added
@@ -39,9 +40,9 @@ export default function NudgeAdmin() {
           <p className="na-muted">{data.totals.sent} sent, {data.totals.opened} opened{rate != null ? ` (${rate}%)` : ''} in the last {data.days} days. Retire lines that people don’t open.</p>
         </div>
         <label className="na-days">Window
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <Select value={days} onChange={(e) => setDays(Number(e.target.value))}>
             <option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option>
-          </select>
+          </Select>
         </label>
       </div>
 

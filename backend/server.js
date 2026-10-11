@@ -27,7 +27,8 @@ const inboundEmail = require('./lib/inboundEmail');
 const shareIngest = require('./lib/shareIngest');
 const { buildSummary: buildIncomeSummary, renderReportHTML: renderIncomeReportHTML } = require('./lib/incomeReport');
 const { guideFor: cancelGuideFor, verifyCancellation } = require('./lib/cancelGuides');
-const { resolveBank: resolveBankRegistry, extractAccountMask, BANKS: BANK_REGISTRY } = require('./lib/bankRegistry');
+const { channelFor, isChannelName, cleanBank } = require('./lib/channel');
+const { resolveBank: resolveBankRegistry, guessBank, extractAccountMask, BANKS: BANK_REGISTRY, TYPES: BANK_TYPES } = require('./lib/bankRegistry');
 const { detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason } = require('./lib/alertParse');
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
@@ -307,6 +308,8 @@ const userSchema = new mongoose.Schema({
   // any typed under 'Other'. Drives the 'banks to connect' checklist on Home.
   banksUsed:   { type: [String], default: [] },
   otherBanks:  { type: [String], default: [] },
+  // Banks the user added because they were not in our list ("My bank isn't listed").
+  customBanks: { type: [{ _id: false, code: String, name: String, type: { type: String, enum: ['bank', 'mfb', 'fintech'] } }], default: [] },
   // First-time tips already shown, so they never repeat on any device.
   seenTips:    { type: [String], default: [] },
   lastActiveAt: { type: Date },
@@ -459,6 +462,9 @@ const transactionSchema = new mongoose.Schema({
   // tag it later and we can retro-stamp their matching rows (Addendum A slice 3).
   senderKey: { type: String, default: '' },
   importBatch: { type: String, default: '' },     // one id per uploaded statement
+  // How it reached us: statement, sms, email, share, notification, receipt, manual
+  // (lib/channel). Metadata only; the bank is always the bank that sent it.
+  channel: { type: String, default: '' },
   importedAt: { type: Date },
   transferPairId: { type: String, default: '' },  // links the two sides of an internal transfer
   reversalPairId: { type: String, default: '' },  // links a reversal credit to the debit it cancels
@@ -486,6 +492,11 @@ const TransferRoute = mongoose.model('TransferRoute', transferRouteSchema);
 // Indexes for the common per-user queries (date listing & statement grouping).
 transactionSchema.index({ userId: 1, date: -1 });
 transactionSchema.index({ userId: 1, importBatch: 1 });
+// Never store a channel ("SMS", "Email", "Share") as the bank; record it as the channel.
+transactionSchema.pre('validate', function setChannel() {
+  if (!this.channel) this.channel = channelFor({ source: this.source, bank: this.bank });
+  if (isChannelName(this.bank)) this.bank = (BANK_REGISTRY.find((b) => b.code === this.bankCode) || {}).name || '';
+});
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
 // A distinct bank account the user has been seen transacting on (spec Addendum A,
@@ -509,6 +520,9 @@ const userAccountSchema = new mongoose.Schema({
   deleted:     { type: Boolean, default: false },    // user deleted it; kept so later alerts and imports don't bring it back
 }, { timestamps: true });
 userAccountSchema.index({ userId: 1, bankCode: 1, accountMask: 1 }, { unique: true });
+userAccountSchema.pre('validate', function noChannelBank() {
+  if (isChannelName(this.bankName)) this.bankName = (BANK_REGISTRY.find((b) => b.code === this.bankCode) || {}).name || '';
+});
 const UserAccount = mongoose.model('UserAccount', userAccountSchema);
 
 // People & Family ledger. Every person/business the user sends to or receives from,
@@ -1996,7 +2010,7 @@ async function touchUserAccount(userId, { bankCode, bankName, accountMask }, whe
       { userId, bankCode, accountMask },
       {
         $setOnInsert: { userId, bankCode, accountMask, label: '', hidden: false, firstSeen: at },
-        $set: { bankName: bankName || '', lastSeen: at },
+        $set: { bankName: cleanBank(bankName) || (BANK_REGISTRY.find((b) => b.code === bankCode) || {}).name || '', lastSeen: at },
         $inc: { txnCount: 1 },
       },
       { upsert: true },
@@ -4464,7 +4478,7 @@ async function actionCenterItems(userId) {
     ...unnamedSubs.map((s) => ({ type: 'name_subscription', id: String(s._id), key: s.sourceKey || subscriptionKey(s.name), name: s.name, cost: s.cost, lastCharge: s.lastCharge || null })),
     ...detected.map((d) => ({ type: 'track_subscription', id: `detect:${d.key}`, key: d.key, name: d.name, cost: d.cost, occurrences: d.occurrences, lastSeen: d.lastSeen })),
     ...accounts.map((a) => ({ type: 'name_account', id: String(a._id), bankName: a.bankName || '', bankCode: a.bankCode, accountMask: a.accountMask, txnCount: a.txnCount || 0 })),
-    ...senders.map((s) => ({ type: 'tag_sender', id: `sender:${s._id}`, senderKey: s._id, sample: (s.sample || '').slice(0, 80), count: s.count })),
+    ...senders.map((s) => ({ type: 'tag_sender', id: `sender:${s._id}`, senderKey: s._id, label: s._id === UNKNOWN_SENDER ? 'Alerts with no sender name' : s._id, sample: (s.sample || '').slice(0, 80), count: s.count, guess: s._id === UNKNOWN_SENDER ? null : guessBank(s._id) })),
   ];
   return items;
 }
@@ -4643,12 +4657,15 @@ app.post('/api/import-transactions', auth, async (req, res) => {
   try {
     const { transactions, bank } = req.body;
     if (!Array.isArray(transactions) || transactions.length === 0) return res.status(400).json({ message: 'No transactions to import' });
+    // The channel (statement upload, or alerts scanned / pasted) is metadata; older
+    // apps send it as the bank ("SMS"), which must never become a bank name.
+    const channel = channelFor({ channel: req.body.channel, source: 'import', bank });
     const valid = transactions.filter(t => t.date && t.amount && t.description && t.type);
     if (valid.length === 0) return res.status(400).json({ message: 'All transactions are missing required fields' });
     // Each upload becomes one deletable group (importBatch), tagged with its bank.
     const importBatch = new mongoose.Types.ObjectId().toString();
     const importedAt = new Date();
-    const bankLabel = (bank || '').toString().trim();
+    const bankLabel = cleanBank(bank);
 
     // De-duplicate in two layers:
     //  1) intra-batch exact (day + |amount| + description): repeated rows in a
@@ -4717,6 +4734,18 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       }
     }
 
+    // Each row carries the bank that sent it: the parser's bank, else the registry name
+    // for its bank code, else whatever the text or sender resolves to. A row we still
+    // can't place keeps its sender ID for the "Which bank sent these?" card.
+    for (const t of fresh) {
+      t.bank = cleanBank(t.bank);
+      if (!t.bank && t.bankCode) t.bank = (BANK_REGISTRY.find((b) => b.code === String(t.bankCode).toLowerCase()) || {}).name || '';
+      if (!t.bank && !bankLabel) {
+        const hit = resolveBankRegistry(t.raw || t.description || '', t.senderKey || '');
+        if (hit && hit.confidence === 'high') { t.bank = hit.name; if (!t.bankCode) t.bankCode = hit.code; }
+      }
+    }
+
     const docs = fresh.map(t => {
       // Sign stays tied to the real direction (income +, expense −); the KIND
       // (cash-out / loan / repayment / reversal / failed) only overrides the type,
@@ -4733,7 +4762,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
         amount, category: contactCat || t.category || 'Other', type: finalType,
         // Prefer a per-transaction bank (an SMS scan can span several banks),
         // falling back to the batch-level label.
-        source: 'import', bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
+        source: 'import', channel, bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
         // Account fingerprint (Addendum A slice 2): carried through from the parse.
         bankCode: (t.bankCode || '').toString().toLowerCase().slice(0, 24),
         accountMask: (t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4),
@@ -4857,7 +4886,7 @@ app.patch('/api/accounts/:id', auth, async (req, res) => {
 app.post('/api/accounts', auth, async (req, res) => {
   try {
     const b = req.body || {};
-    const known = BANK_REGISTRY.find((x) => x.code === String(b.bankCode || ''));
+    const known = BANK_REGISTRY.find((x) => x.code === String(b.bankCode || '')) || (req.user.customBanks || []).find((x) => x.code === String(b.bankCode || ''));
     const customName = (b.bankName || '').toString().trim().slice(0, 40);
     if (!known && !customName) return res.status(400).json({ message: 'Pick a bank, or type its name.' });
     const bankCode = known ? known.code : `custom-${customName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 16) || 'bank'}`;
@@ -5104,8 +5133,56 @@ app.put('/api/me/banks', auth, async (req, res) => {
   } catch (e) { console.error('[me/banks]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// The bank list for pickers: banks, microfinance banks and fintechs (data/banks.json),
+// then the user's own additions. Grouped by type, alphabetical within a group.
+const TYPE_ORDER = ['bank', 'mfb', 'fintech'];
+const bankListFor = (user) => [
+  ...[...BANK_REGISTRY].sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type) || a.name.localeCompare(b.name))
+    .map((b) => ({ code: b.code, name: b.name, type: b.type })),
+  ...(user.customBanks || []).map((b) => ({ code: b.code, name: b.name, type: b.type || 'bank', custom: true })),
+];
 app.get('/api/banks', auth, (req, res) => {
-  res.json({ banks: BANK_REGISTRY.map((b) => ({ code: b.code, name: b.name })) });
+  res.json({ banks: bankListFor(req.user), types: BANK_TYPES });
+});
+
+// Anonymous tally of banks people had to type in, so common ones join the list.
+const bankRequestSchema = new mongoose.Schema({
+  key:   { type: String, required: true, unique: true },
+  name:  { type: String, required: true },
+  type:  { type: String, default: 'bank' },
+  count: { type: Number, default: 0 },
+  lastAt: { type: Date },
+}, { timestamps: true });
+const BankRequest = mongoose.model('BankRequest', bankRequestSchema);
+
+// "My bank isn't listed": save a bank for this user. If the name is one we already
+// list, hand back that one instead of making a copy.
+app.post('/api/banks/custom', auth, async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const type = ['bank', 'mfb', 'fintech'].includes(req.body?.type) ? req.body.type : 'bank';
+    if (name.length < 2) return res.status(400).json({ message: 'Type the name of the bank.' });
+    const listed = resolveBankRegistry(name, name);
+    if (listed && listed.confidence === 'high') {
+      const b = BANK_REGISTRY.find((x) => x.code === listed.code);
+      return res.json({ bank: { code: b.code, name: b.name, type: b.type }, existing: true });
+    }
+    const key = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'bank';
+    const code = `custom-${key}`;
+    const mine = (req.user.customBanks || []).find((b) => b.code === code);
+    if (!mine) {
+      await User.updateOne({ _id: req.user._id }, { $push: { customBanks: { $each: [{ code, name, type }], $slice: -30 } } });
+      await BankRequest.updateOne({ key }, { $setOnInsert: { key, name, type }, $inc: { count: 1 }, $set: { lastAt: new Date() } }, { upsert: true });
+    }
+    res.status(mine ? 200 : 201).json({ bank: { code, name: mine ? mine.name : name, type: mine ? mine.type : type, custom: true } });
+  } catch (e) { console.error('[banks/custom]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.get('/api/admin/bank-requests', auth, superAdminAuth, async (req, res) => {
+  try {
+    const rows = await BankRequest.find({}).sort({ count: -1, lastAt: -1 }).limit(100).lean();
+    res.json({ requests: rows.map((r) => ({ name: r.name, type: r.type, users: r.count, lastAt: r.lastAt })) });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // Senders on the user's own transactions we couldn't map to a bank: they can tag
@@ -5134,11 +5211,13 @@ app.get('/api/senders/unknown', auth, async (req, res) => {
     res.json({
       senders: rows.map((r) => ({
         senderKey: r._id,
+        label: r._id === UNKNOWN_SENDER ? 'Alerts with no sender name' : r._id,
         count: r.count,
         sample: (r.sample || '').slice(0, 80),
         lastSeen: r.lastSeen || null,
         // A community-promoted guess, offered as a one-tap suggestion.
-        suggestion: pMap.has(r._id) ? { bankCode: pMap.get(r._id).promotedBankCode, bankName: pMap.get(r._id).promotedBankName } : null,
+        suggestion: pMap.has(r._id) ? { bankCode: pMap.get(r._id).promotedBankCode, bankName: pMap.get(r._id).promotedBankName, source: 'community' }
+          : (() => { const g = guessBank(r._id); return g ? { bankCode: g.code, bankName: g.name, source: 'guess' } : null; })(),
       })),
     });
   } catch (e) { console.error('[senders/unknown]', e.message); res.status(500).json({ message: 'Server error' }); }
@@ -5173,7 +5252,7 @@ app.post('/api/senders/tag', auth, async (req, res) => {
     const senderKey = normalizeSenderKey(req.body?.senderKey || '');
     const bankCode = (req.body?.bankCode || '').toString().toLowerCase().trim();
     if (!senderKey) return res.status(400).json({ message: 'Missing sender.' });
-    const bank = BANK_REGISTRY.find((b) => b.code === bankCode);
+    const bank = BANK_REGISTRY.find((b) => b.code === bankCode) || (req.user.customBanks || []).find((b) => b.code === bankCode);
     if (!bank) return res.status(400).json({ message: 'Pick a bank from the list.' });
 
     await SenderTag.updateOne(
@@ -5207,7 +5286,8 @@ app.post('/api/senders/tag', auth, async (req, res) => {
         { upsert: true },
       );
     }
-    await maybePromoteSender(senderKey);
+    // A bank only this user typed in is never promoted to everyone.
+    if (!bank.code.startsWith('custom-') && senderKey !== UNKNOWN_SENDER) await maybePromoteSender(senderKey);
     res.json({ ok: true, updated: affected.length });
   } catch (e) { console.error('[senders/tag]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -8014,6 +8094,16 @@ app.post('/api/admin/backfill-global-categories', auth, superAdminAuth, async (r
   } catch (e) { console.error('[backfill-global]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// Re-run the channel-bank migration on demand (it only relabels banks and sets
+// channels; nothing is deleted). migrateChannelBanks is defined further down.
+app.post('/api/admin/migrate/channel-banks', auth, superAdminAuth, async (req, res) => {
+  try {
+    await mongoose.connection.collection('migrations').deleteOne({ _id: 'channel-banks-2026-10' });
+    await migrateChannelBanks();
+    res.json(await mongoose.connection.collection('migrations').findOne({ _id: 'channel-banks-2026-10' }));
+  } catch (e) { console.error('[migrate/channel-banks]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Unknown routes → 404 (must stay after every real route).
 app.use('*', (req, res) => res.status(404).json({ message: 'Route not found' }));
 
@@ -8022,6 +8112,55 @@ app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
   res.status(500).json({ message: 'Internal server error', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
 });
+
+// One-time fix (Round 3, 2.3): rows saved with a channel as their bank ("SMS",
+// "Email", "Share") get the bank that actually sent them, from the bank code, the
+// user's sender tag or the registry. Rows nobody can place keep a sender ID so they
+// show up in the Action Center's "Which bank sent these?" card. Every row also gets
+// its channel. Runs once; the marker lives in the migrations collection.
+const UNKNOWN_SENDER = 'UNKNOWNSENDER';
+async function migrateChannelBanks() {
+  const marks = mongoose.connection.collection('migrations');
+  const ID = 'channel-banks-2026-10';
+  if (await marks.findOne({ _id: ID })) return;
+  const CH = /^\s*(sms|e-?mails?|mail|shared?|texts?|text messages?|(bank )?alerts?|notifications?|push|paste[d]?)\s*$/i;
+  const learned = new Map();
+  let fixed = 0, unplaced = 0, ops = [];
+  const flush = async () => { if (ops.length) { await Transaction.bulkWrite(ops, { ordered: false }); ops = []; } };
+  for await (const t of Transaction.find({ bank: CH }).select('_id userId bank bankCode senderKey description source').lean().cursor()) {
+    let bankCode = t.bankCode || '';
+    let senderKey = t.senderKey || '';
+    let bank = (BANK_REGISTRY.find((b) => b.code === bankCode) || {}).name || '';
+    if (!bank && senderKey) {
+      const k = `${t.userId}|${senderKey}`;
+      if (!learned.has(k)) learned.set(k, await learnedBankFor(t.userId, senderKey));
+      const l = learned.get(k);
+      if (l) { bank = l.name; bankCode = l.code; senderKey = ''; }
+    }
+    if (!bank) {
+      const hit = resolveBankRegistry(t.description || '', senderKey || undefined);
+      if (hit && hit.confidence === 'high') { bank = hit.name; bankCode = hit.code; senderKey = ''; }
+    }
+    if (!bank) { unplaced++; if (!senderKey) senderKey = UNKNOWN_SENDER; }
+    ops.push({ updateOne: { filter: { _id: t._id }, update: { $set: { bank, bankCode, senderKey, channel: channelFor({ source: t.source, bank: t.bank }) } } } });
+    fixed++;
+    if (ops.length >= 500) await flush();
+  }
+  await flush();
+  // Channel for everything else (no bank change).
+  await Transaction.updateMany({ source: 'import', channel: { $in: ['', null] } }, { $set: { channel: 'statement' } });
+  for (const src of ['sms', 'email', 'share', 'notification', 'receipt', 'manual']) {
+    await Transaction.updateMany({ source: src, channel: { $in: ['', null] } }, { $set: { channel: src } });
+  }
+  let accounts = 0;
+  for await (const a of UserAccount.find({ bankName: CH }).select('_id bankCode').lean().cursor()) {
+    await UserAccount.updateOne({ _id: a._id }, { $set: { bankName: (BANK_REGISTRY.find((b) => b.code === a.bankCode) || {}).name || '' } });
+    accounts++;
+  }
+  await marks.insertOne({ _id: ID, at: new Date(), fixed, unplaced, accounts });
+  console.log(`[migrate] channel banks: ${fixed} rows re-attributed (${unplaced} left for the user to place), ${accounts} accounts renamed`);
+}
+mongoose.connection.once('open', () => { migrateChannelBanks().catch((e) => console.error('[migrate] channel banks failed:', e.message)); });
 
 // --------------------------
 // Start server

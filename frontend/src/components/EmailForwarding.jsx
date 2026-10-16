@@ -123,7 +123,7 @@ export default function EmailForwarding() {
             <p className="ef-guides"><Link to="/help#email-gmail">Full Gmail guide</Link> · <Link to="/help#email-outlook">Using Outlook or Hotmail?</Link></p>
           </div>
 
-          <p className="ef-privacy">We only accept mail from known banks: anything else is ignored. Your address is private to you.</p>
+          <p className="ef-privacy"><i className="fas fa-lock" style={{ color: '#139DA0' }}></i> No password needed: we never ask for your email password. You forward bank emails yourself and can stop any time. We only accept mail from known banks, and your address is private to you.</p>
         </>
       )}
 

@@ -88,6 +88,7 @@ export default function Plans() {
               ? <p className="plan-small">Your money in one place: imports, budgets, goals, insights.</p>
               : <ul>{(p.perks || s.features).map((f) => <li key={f}>{f}</li>)}</ul>}
             {p.code === 'pro' && s.tier !== 'pro' && <button className="btn-primary" onClick={() => buy('pro')} disabled={busy === 'buy:pro'}>Get Plus</button>}
+            {p.code === 'pro' && s.tier !== 'pro' && <p className="pay-secure"><i className="fas fa-lock" style={{ color: '#139DA0' }}></i> Payment handled by Paystack. Automonie never sees your card.</p>}
             {p.code === 'pro' && s.source === 'trial' && <button className="btn-primary" onClick={() => buy('pro')} disabled={busy === 'buy:pro'}>Keep Plus after the trial</button>}
             {p.code === 'student' && (verified
               ? (s.tier !== 'student' && <button className="btn-primary" onClick={startStudent} disabled={busy === 'start'}>{st.freeUsed ? 'Continue on Student' : 'Start 3 free months'}</button>)
@@ -153,6 +154,7 @@ export default function Plans() {
         .plans-now { color: var(--text-secondary); }
         .plans-now strong { color: var(--text-primary); }
         .plans-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+        .pay-secure { font-size: 0.78rem; color: var(--text-secondary); margin: 6px 0 0; }
         .plan-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 16px; display: grid; gap: 10px; align-content: start; }
         .plan-card.on { border-color: var(--accent-primary); box-shadow: 0 0 0 1px var(--accent-primary); }
         .plan-card h3 { margin: 0; color: var(--text-primary); }

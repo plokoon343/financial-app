@@ -9,9 +9,9 @@ const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('
 // Read-only trust specifics (slide 2). Honest wording: Automonie can SEE the data,
 // never MOVE money. Web parity with mobile onboarding.tsx.
 const TRUST = [
-  { title: 'We never hold your bank login', sub: 'Bank connections run through licensed partners' },
-  { title: 'Read-only, always', sub: 'Automonie can see it, it can’t move your money' },
-  { title: 'Locked to your device', sub: 'PIN, fingerprint and screen privacy built in' },
+  { title: 'Uses your bank alerts, nothing else', sub: 'Sorts every naira and shows where your money goes' },
+  { title: 'Can’t move money out of your bank', sub: 'Read-only. Your bank login never comes to us' },
+  { title: 'Can’t see your PIN, password or BVN', sub: 'We never ask for them' },
 ];
 
 // The "What brings you here?" options → stored as primaryGoal, which shapes the first

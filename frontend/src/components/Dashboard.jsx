@@ -424,6 +424,10 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
               </p>
             )}
           </div>
+          <p style={{ fontSize: '0.78rem', color: darkMode ? '#a0aec0' : '#718096', margin: '-0.5rem 0 1rem', textAlign: 'center' }}>
+            <i className="fas fa-lock" style={{ color: '#139DA0', marginRight: '0.35rem' }} aria-hidden="true"></i>
+            Your file is read, then deleted. Only the transactions you save are kept.
+          </p>
 
           {/* Show password field only for PDFs */}
           {isPdf && (
@@ -465,6 +469,9 @@ const ImportTab = ({ onImportComplete, darkMode, theme, initialMode }) => {
                   e.target.style.boxShadow = 'none';
                 }}
               />
+              <p style={{ fontSize: '0.78rem', color: darkMode ? '#a0aec0' : '#718096', margin: '0.4rem 0 0' }}>
+                Used once to open the file. We don&apos;t save it.
+              </p>
             </div>
           )}
 

@@ -50,6 +50,7 @@ const { extractAlertLLM, validateExtract } = require('./lib/llmExtract');
 const receipt = require('./lib/receipt');
 const googlePlay = require('./lib/googlePlay');
 const aiProviders = require('./lib/aiProviders');
+const { stripText } = require('./lib/aiStrip');
 const merchantSuggest = require('./lib/merchantSuggest');
 const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
@@ -7098,8 +7099,17 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
 // Runs on Gemini (the shared llmConfig). Off until AI_ASSISTANT_ENABLED=true is set
 // on the host, so turning on the key for parsing doesn't also launch the assistant.
 // While off, the endpoint returns a friendly "coming soon" reply.
-const aiConfigured = () => process.env.AI_ASSISTANT_ENABLED === 'true' && !!llmConfig();
-const aiModel = () => process.env.AI_ASSISTANT_MODEL || (llmConfig() || {}).model || null;
+// The chat assistant: paid Gemini when GEMINI_PAID_API_KEY is set; otherwise the free
+// services in order (Gemini free, Grok, Cloudflare, OpenRouter, NVIDIA), the owner's
+// choice (Oct 2026). On a free service the snapshot leaves out the user's name and
+// strips names and numbers from transaction descriptions (lib/aiStrip).
+const assistantChain = () => {
+  const paid = llmConfig();
+  return paid ? [paid] : aiProviders.strippedChain();
+};
+const assistantOnFreeTier = () => !llmConfig() && assistantChain().length > 0;
+const aiConfigured = () => process.env.AI_ASSISTANT_ENABLED === 'true' && assistantChain().length > 0;
+const aiModel = (cfg) => (llmConfig() && process.env.AI_ASSISTANT_MODEL) || (cfg || assistantChain()[0] || {}).model || null;
 
 const naira = (n) => '₦' + Math.round(Number(n) || 0).toLocaleString('en-NG');
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -7107,8 +7117,9 @@ const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
 // Build a compact, structured snapshot of the user's finances for the model.
 // We summarise rather than dump every row - keeps token cost down and avoids
 // leaking more raw data than needed. NGN throughout.
-const buildFinancialContext = async (user) => {
+const buildFinancialContext = async (user, { free = false } = {}) => {
   const userId = user._id;
+  const desc = (t) => (free ? stripText(t || '') : (t || '')).slice(0, 50);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const since90 = new Date(today); since90.setDate(since90.getDate() - 90);
   const thisMonth = monthKey(today);
@@ -7143,7 +7154,7 @@ const buildFinancialContext = async (user) => {
   });
 
   const lines = [];
-  lines.push(`User: ${user.name?.split(' ')[0] || 'there'}`);
+  lines.push(`User: ${free ? 'there' : (user.name?.split(' ')[0] || 'there')}`);
   lines.push(`Currency: NGN (Nigerian Naira). Today: ${today.toISOString().slice(0, 10)}.`);
   if (user.monthlyIncome) lines.push(`Stated monthly income: ${naira(user.monthlyIncome)}`);
   if (user.primaryGoal) lines.push(`Primary goal: ${user.primaryGoal}`);
@@ -7173,7 +7184,7 @@ const buildFinancialContext = async (user) => {
   lines.push('');
   lines.push('Most recent transactions (newest first):');
   txns.slice(0, 40).forEach((t) => lines.push(
-    `  ${new Date(t.date).toISOString().slice(0, 10)}  ${t.type === 'income' ? '+' : '-'}${naira(Math.abs(t.amount))}  ${t.category}  ${(t.description || '').slice(0, 50)}`,
+    `  ${new Date(t.date).toISOString().slice(0, 10)}  ${t.type === 'income' ? '+' : '-'}${naira(Math.abs(t.amount))}  ${t.category}  ${desc(t.description)}`,
   ));
 
   return lines.join('\n');
@@ -7364,7 +7375,7 @@ app.get('/api/features', auth, (req, res) => {
 });
 
 app.get('/api/ai/status', auth, async (req, res) => {
-  res.json({ configured: aiConfigured(), model: aiConfigured() ? aiModel() : null, plan: req.user.plan || 'free' });
+  res.json({ configured: aiConfigured(), model: aiConfigured() ? aiModel() : null, freeTier: aiConfigured() && assistantOnFreeTier(), plan: req.user.plan || 'free' });
 });
 
 app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
@@ -7389,9 +7400,12 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
       .map((m) => ({ role: m.role, content: m.content.toString().slice(0, 4000) }));
 
-    const context = await buildFinancialContext(req.user);
+    const free = assistantOnFreeTier();
+    const context = await buildFinancialContext(req.user, { free });
 
-    const cfg = llmConfig();
+    // Try each service until one answers; then keep using it for the rest of this turn.
+    const chain = assistantChain();
+    let cfg = null;
     const messages = [
       { role: 'system', content: AI_SYSTEM_PROMPT },
       ...priorTurns,
@@ -7406,14 +7420,26 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     // turn can't loop forever.
     const actions = [];
     let reply = '';
+    const callModel = async (c) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
+      try {
+        const r = await fetch(`${c.baseURL}/chat/completions`, {
+          method: 'POST', signal: ctrl.signal,
+          headers: { Authorization: `Bearer ${c.apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: aiModel(c), max_tokens: 1024, temperature: 0.3, messages, tools: AI_FUNCTIONS }),
+        });
+        if (!r.ok) { const err = new Error(`assistant ${c.name} HTTP ${r.status}`); err.status = r.status; throw err; }
+        return (await r.json())?.choices?.[0]?.message || {};
+      } finally { clearTimeout(timer); }
+    };
     for (let step = 0; step < 6; step++) {
-      const r = await fetch(`${cfg.baseURL}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: aiModel(), max_tokens: 1024, temperature: 0.3, messages, tools: AI_FUNCTIONS }),
-      });
-      if (!r.ok) { const err = new Error(`assistant HTTP ${r.status}`); err.status = r.status; throw err; }
-      const msg = (await r.json())?.choices?.[0]?.message || {};
+      let msg = null, lastErr = null;
+      for (const c of (cfg ? [cfg] : chain)) {
+        try { msg = await callModel(c); cfg = c; break; }
+        catch (e) { lastErr = e; console.error('[ai/chat]', e.message); }
+      }
+      if (!msg) throw lastErr || new Error('no assistant provider');
       if (typeof msg.content === 'string' && msg.content.trim()) reply = msg.content.trim();
 
       const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
@@ -7432,6 +7458,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
 
     res.json({
       configured: true,
+      freeTier: free,
       reply: reply || "Sorry, I couldn't generate a response. Please try rephrasing.",
       actions,
       // True if anything was created - the UI uses this to refresh data views.

@@ -16,6 +16,7 @@ const AiAssistant = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [configured, setConfigured] = useState(true);
+  const [freeTier, setFreeTier] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -23,7 +24,7 @@ const AiAssistant = () => {
     const token = localStorage.getItem('token');
     axios
       .get(`${API_URL}/api/ai/status`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => setConfigured(res.data.configured))
+      .then((res) => { setConfigured(res.data.configured); setFreeTier(!!res.data.freeTier); })
       .catch(() => {});
   }, []);
 
@@ -89,6 +90,13 @@ const AiAssistant = () => {
           <i className="fas fa-clock" aria-hidden="true"></i>
           Ask Automonie is being switched on for your account. It will answer using your
           own financial data once switched on.
+        </div>
+      )}
+
+      {configured && freeTier && (
+        <div className="ai-banner">
+          <i className="fas fa-circle-info" aria-hidden="true"></i>
+          Answers come from a free AI service. It sees your totals and categories, not your name or account numbers. Don’t type passwords or card details here.
         </div>
       )}
 

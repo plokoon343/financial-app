@@ -17,6 +17,7 @@ const AiAssistant = () => {
   const [loading, setLoading] = useState(false);
   const [configured, setConfigured] = useState(true);
   const [freeTier, setFreeTier] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -109,20 +110,13 @@ const AiAssistant = () => {
         </div>
       )}
 
-      {configured && freeTier && (
-        <div className="ai-banner">
-          <i className="fas fa-circle-info" aria-hidden="true"></i>
-          For your safety, never type passwords, PINs or card numbers here.
-        </div>
-      )}
-
       <div className="ai-chat" ref={scrollRef}>
         {messages.length === 0 && (
           <div className="ai-empty">
             <div className="ai-empty-icon">
               <i className="fas fa-comments" aria-hidden="true"></i>
             </div>
-            <p>Your data stays private - I only see your own accounts.</p>
+            <p>I answer from your own Automonie data, and only yours.</p>
             <div className="ai-suggestions">
               {SUGGESTIONS.map((s) => (
                 <button key={s} className="ai-chip" onClick={() => send(s)} disabled={loading}>
@@ -184,9 +178,37 @@ const AiAssistant = () => {
           <i className="fas fa-paper-plane" aria-hidden="true"></i>
         </button>
       </div>
-      <p className="ai-disclaimer">
-        General guidance only - not regulated investment, tax, or legal advice.
+      <p className="ai-safety">
+        <i className="fas fa-lock" aria-hidden="true"></i>
+        For your safety, never type passwords, PINs or card numbers here.
+        <button type="button" className="ai-how-link" onClick={() => setHowOpen(true)}>How this works</button>
       </p>
+      <p className="ai-disclaimer">
+        General guidance only, not regulated investment, tax, or legal advice.
+      </p>
+
+      {howOpen && (
+        <div className="ai-how-backdrop" onClick={() => setHowOpen(false)}>
+          <div className="ai-how-sheet" role="dialog" aria-modal="true" aria-labelledby="ai-how-title" onClick={(e) => e.stopPropagation()}>
+            <h2 id="ai-how-title"><i className="fas fa-lock" aria-hidden="true"></i> How Ask works</h2>
+            <ul>
+              {freeTier ? (
+                <>
+                  <li>Your question and a summary of your money (totals, categories, budgets and goals) go to our AI provider to write the answer.</li>
+                  <li>Before anything is sent, we leave out your name and remove names and numbers from transaction descriptions.</li>
+                </>
+              ) : (
+                <li>Your question and a summary of your money go to Google&apos;s Gemini on its paid tier, which doesn&apos;t use it to improve Google&apos;s products.</li>
+              )}
+              <li>What you type is sent as you wrote it, so keep passwords, PINs, card and account numbers out of it.</li>
+              <li>Ask can add transactions, budgets, goals, bills and subscriptions when you tell it to. It can&apos;t move money, pay anything or delete anything.</li>
+              <li>Your last 60 messages are saved so you can pick up where you left off. New chat clears them, and deleting your account deletes them.</li>
+            </ul>
+            <p className="ai-how-more">More detail in our <a href="https://www.automonie.com/privacy#ai" target="_blank" rel="noreferrer">privacy policy</a>.</p>
+            <button type="button" className="btn-primary ai-how-close" onClick={() => setHowOpen(false)}>Got it</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -125,7 +125,7 @@ const ConnectBank = () => {
             <button className="cb-btn primary lg" onClick={openConnect} disabled={busy}>
               <i className="fas fa-building-columns"></i> {cfg.banks?.length ? 'Connect another bank' : 'Connect bank account'}
             </button>
-            <p className="cb-secure"><i className="fas fa-lock"></i> Bank-grade, read-only access</p>
+            <p className="cb-secure"><i className="fas fa-lock"></i> Read-only. Automonie can't move money out of your bank.</p>
           </div>
         </>
       )}

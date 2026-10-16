@@ -30,7 +30,7 @@ export function isInternal(t, nameWords) {
   if (t.type === 'internal_transfer' || t.transferPairId) return true;
   if (t.type !== 'expense' && t.type !== 'income') return false;
   const cat = t.category || 'Other';
-  if (POCKET.test(t.description || '') && ['Transfer', 'Savings', 'Other', 'Investment', 'Investments'].includes(cat)) return true;
+  if (POCKET.test(t.description || '') && !/\binterest\b/i.test(t.description || '') && ['Transfer', 'Savings', 'Other', 'Investment', 'Investments'].includes(cat)) return true;
   return ['Transfer', 'Other', 'Savings'].includes(cat) && toSelf(t, nameWords);
 }
 

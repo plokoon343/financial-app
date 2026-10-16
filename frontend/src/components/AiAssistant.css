@@ -226,16 +226,14 @@
 
 /* Safety line under the input: calm grey with the teal lock, detail one tap away. */
 .ai-safety {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+  text-align: center;
+  line-height: 1.5;
   font-size: 0.78rem;
   color: var(--text-secondary);
   margin: 0.6rem 0 0;
 }
-.ai-safety .fa-lock { color: #139DA0; }
+.ai-safety .fa-lock { color: #139DA0; margin-right: 0.35rem; }
+.ai-safety .ai-how-link { margin-left: 0.4rem; }
 .ai-how-link {
   background: none;
   border: none;
@@ -270,3 +268,54 @@
 .ai-how-sheet ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.5rem; font-size: 0.88rem; line-height: 1.45; }
 .ai-how-more { font-size: 0.8rem; color: var(--text-secondary); margin: 0.9rem 0 0.75rem; }
 .ai-how-close { width: 100%; }
+
+/* Upload button beside the input. */
+.ai-attach {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.ai-attach:hover:not(:disabled) { color: var(--accent-primary); border-color: var(--accent-primary); }
+.ai-attach:disabled { opacity: 0.45; cursor: default; }
+
+/* Cards inside messages: uploads and proposed changes, each ending in a button. */
+.ai-card {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-card, var(--card-bg));
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.ai-card:first-child { margin-top: 0; }
+.ai-card-done { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; }
+.ai-card-done .fa-circle-check { color: #139DA0; }
+.ai-card-title { font-weight: 600; display: flex; align-items: center; gap: 0.5rem; overflow-wrap: anywhere; }
+.ai-card-title .fas { color: #139DA0; }
+.ai-card-line { margin: 0; font-size: 0.88rem; overflow-wrap: anywhere; }
+.ai-card-note { margin: 0; font-size: 0.78rem; color: var(--text-secondary); }
+.ai-card-err { margin: 0; font-size: 0.8rem; color: var(--error-color); }
+.ai-card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.ai-card-actions > * { flex: 1 1 auto; text-align: center; }
+.ai-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem; }
+.ai-card-grid label { display: grid; gap: 0.25rem; font-size: 0.75rem; color: var(--text-secondary); }
+.ai-card-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.88rem;
+}

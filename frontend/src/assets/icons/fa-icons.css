@@ -616,6 +616,7 @@ readers do not read off random characters that represent icons */
 .fa-circle-minus::before { content: "\f056"; }
 .fa-circle-play::before { content: "\f144"; }
 .fa-circle-question::before { content: "\f059"; }
+.fa-circle-xmark::before { content: "\f057"; }
 .fa-clapperboard::before { content: "\e131"; }
 .fa-clock::before { content: "\f017"; }
 .fa-cloud-arrow-up::before { content: "\f0ee"; }
@@ -624,7 +625,6 @@ readers do not read off random characters that represent icons */
 .fa-comments::before { content: "\f086"; }
 .fa-copy::before { content: "\f0c5"; }
 .fa-credit-card::before { content: "\f09d"; }
-.fa-database::before { content: "\f1c0"; }
 .fa-download::before { content: "\f019"; }
 .fa-drumstick-bite::before { content: "\f6d7"; }
 .fa-dumbbell::before { content: "\f44b"; }

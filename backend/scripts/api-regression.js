@@ -424,6 +424,16 @@ async function main() {
         const user = j.messages?.find((m) => m.role === 'user')?.content || '';
         seen.push({ sys, user });
         let reply = '{}';
+        // The chat: "delete/change the newest" makes the stand-in propose it, then claim
+        // it's done (which the guard must correct).
+        const ask = (user.match(/My question\/request: (.*)$/m) || [])[1] || '';
+        const answered = j.messages?.some((m) => m.role === 'tool');
+        const propose = { 'delete the newest': ['propose_delete_transaction', { ref: 1 }], 'change the newest': ['propose_edit_transaction', { ref: 1, category: 'Groceries' }], 'delete number 99': ['propose_delete_transaction', { ref: 99 }] }[ask];
+        if (propose && !answered) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ choices: [{ message: { content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: propose[0], arguments: JSON.stringify(propose[1]) } }] } }] }));
+        }
+        if (propose) reply = 'I deleted it for you.';
         if (/shop and merchant names/.test(sys)) {
           const items = [...user.matchAll(/^- (.+)$/gm)].map((m) => ({ merchant: m[1], category: /SHOPRITE/i.test(m[1]) ? 'Groceries' : 'Other' }));
           reply = JSON.stringify({ items });
@@ -450,6 +460,22 @@ async function main() {
       check('11 chat: the conversation is saved for next time', c1.status === 200 && h1.length === 2 && h1[0].content === 'Where did my money go?' && h1[1].role === 'assistant', JSON.stringify(h1));
       await call('DELETE', '/api/ai/history');
       check('11 chat: "New chat" clears it', ((await call('GET', '/api/ai/history')).body.messages || []).length === 0);
+      // Edits and deletes are only proposed: nothing is written until the user confirms.
+      const before = (await txns()).length;
+      const d1 = await call('POST', '/api/ai/chat', { message: 'delete the newest' });
+      const pd = d1.body.actions?.[0];
+      const target = pd?.proposal && (await txns()).find((t) => String(t._id) === pd.proposal.id);
+      check('11 chat: a delete is proposed, not done', d1.status === 200 && pd?.pending && pd.proposal.kind === 'delete' && !!target && (await txns()).length === before && d1.body.changed === false, JSON.stringify(d1.body));
+      check('11 chat: a false "I deleted it" becomes "tap Confirm"', /tap Confirm/.test(d1.body.reply || '') && !/I deleted/.test(d1.body.reply || ''), d1.body.reply);
+      check('11 chat: the snapshot numbers the recent transactions', seen.some((x) => /^ {2}#1 {2}\d{4}-\d{2}-\d{2}/m.test(x.user)));
+      const e1 = await call('POST', '/api/ai/chat', { message: 'change the newest' });
+      const pe = e1.body.actions?.[0];
+      const unchanged = pe?.proposal && (await txns()).find((t) => String(t._id) === pe.proposal.id);
+      check('11 chat: an edit is proposed with its change, not applied', pe?.pending && pe.proposal.kind === 'edit' && pe.proposal.changes?.category === 'Groceries' && unchanged && unchanged.category !== 'Groceries', JSON.stringify(e1.body));
+      const x1 = await call('POST', '/api/ai/chat', { message: 'delete number 99' });
+      check('11 chat: a number outside the list is refused', x1.body.actions?.[0]?.ok === false && !x1.body.actions[0].pending, JSON.stringify(x1.body.actions));
+      check('11 chat: confirming deletes through the normal route', (await call('DELETE', `/api/transactions/${pd.proposal.id}`)).status === 200 && (await txns()).length === before - 1);
+      await call('DELETE', '/api/ai/history');
     }
     check('11 merchants: no digits reach the free tier', !/\d/.test(asked[0]?.user || 'x'), asked[0]?.user);
     check('11 merchants: person transfers never reach the free tier', !/ADEBAYO|OKONKWO/.test(asked[0]?.user || ''));

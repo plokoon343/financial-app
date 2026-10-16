@@ -1,7 +1,7 @@
 // Keeps the chat assistant honest. Free models sometimes print a tool call as text
 // ("[create_budget(category=Food, amount=0)]") and then claim they did something,
 // like "I deleted your Food budget", when nothing happened. The assistant can only
-// CREATE things, so:
+// CREATE things (and propose edits and deletes for the user to confirm), so:
 //   - text that looks like a tool call is removed from the reply;
 //   - a reply that claims an action no tool actually completed is replaced with the
 //     truth and where in the app to do it.
@@ -26,15 +26,25 @@ function whereToChange(message) {
   return null;
 }
 
-// The reply to show. `actions` are the tool results ({ ok }) from this turn.
+// The reply to show. `actions` are the tool results ({ ok, pending }) from this turn.
+// A pending action is a proposed edit or delete waiting for the user's Confirm, so it
+// is never "done": a reply that says it is gets the truth instead.
 function guardReply(reply, message, actions = []) {
-  const done = actions.some((a) => a && a.ok);
+  const done = actions.some((a) => a && a.ok && !a.pending);
+  const pending = actions.filter((a) => a && a.ok && a.pending);
   let text = stripFakeCalls(reply);
   const asksChange = CHANGE.test(message || '');
-  if (!done && (CLAIM.test(text) || (asksChange && /\b(deleted|removed|updated|changed)\b/i.test(text)))) {
+  const claimsChange = /\b(deleted|removed|updated|changed|edited)\b/i.test(text) && !/\b(confirm|tap|once you|when you|will be)\b/i.test(text);
+  if (pending.length && !done && (CLAIM.test(text) || claimsChange || !text)) {
+    return pending.length === 1
+      ? 'It\'s ready: check the change below and tap Confirm. Nothing changes until you do.'
+      : `I've lined up ${pending.length} changes below. Check each one and tap Confirm. Nothing changes until you do.`;
+  }
+  if (pending.length) return text;
+  if (!done &&(CLAIM.test(text) || (asksChange && /\b(deleted|removed|updated|changed)\b/i.test(text)))) {
     const w = whereToChange(message || '');
     text = asksChange
-      ? `I can't delete or change things for you yet, only set new things up. ${w ? `To change your ${w.what}, open ${w.screen} and edit it there.` : 'You can edit or delete anything from its own screen.'}`
+      ? `I couldn't line that change up, so nothing was changed. ${w ? `To change your ${w.what}, open ${w.screen} and edit it there.` : 'You can edit or delete anything from its own screen.'}`
       : "I wasn't able to do that just now, so nothing was changed. Try again, or set it up from its own screen.";
   }
   return text || "Sorry, I couldn't generate a response. Please try rephrasing.";

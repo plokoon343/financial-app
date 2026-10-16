@@ -7127,7 +7127,9 @@ const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
 // Build a compact, structured snapshot of the user's finances for the model.
 // We summarise rather than dump every row - keeps token cost down and avoids
 // leaking more raw data than needed. NGN throughout.
-const buildFinancialContext = async (user, { free = false } = {}) => {
+// `refs` (optional) collects the ids of the numbered recent transactions, so the
+// assistant can point at one (#3) when it proposes an edit or a delete.
+const buildFinancialContext = async (user, { free = false, refs = null } = {}) => {
   const userId = user._id;
   const desc = (t) => (free ? stripText(t || '') : (t || '')).slice(0, 50);
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -7192,10 +7194,11 @@ const buildFinancialContext = async (user, { free = false } = {}) => {
   }
   // A modest tail of recent transactions for "what did I spend on X" questions.
   lines.push('');
-  lines.push('Most recent transactions (newest first):');
-  txns.slice(0, 40).forEach((t) => lines.push(
-    `  ${new Date(t.date).toISOString().slice(0, 10)}  ${t.type === 'income' ? '+' : '-'}${naira(Math.abs(t.amount))}  ${t.category}  ${desc(t.description)}`,
-  ));
+  lines.push('Most recent transactions (newest first, #number to point at one):');
+  txns.slice(0, 40).forEach((t, i) => {
+    if (refs) refs.push(String(t._id));
+    lines.push(`  #${i + 1}  ${new Date(t.date).toISOString().slice(0, 10)}  ${t.type === 'income' ? '+' : '-'}${naira(Math.abs(t.amount))}  ${t.category}  ${desc(t.description)}`);
+  });
 
   return lines.join('\n');
 };
@@ -7211,13 +7214,41 @@ Rules:
 - For insights/reports, use ONLY the snapshot data. Never invent transactions, balances, or numbers. If the data doesn't cover the question, say so and suggest what to track.
 - For actions, use the matching tool. If a required detail is missing or ambiguous (e.g. the amount, the goal's target, or a deadline), ASK a short clarifying question instead of guessing. Never fabricate values for an action.
 - After performing an action, confirm briefly what you did (the tool result tells you if it succeeded).
-- You can only CREATE records. You cannot move money, pay bills, contribute to goals, delete, or edit existing items - if asked, explain they can do that from the relevant screen.
+- To delete or change one of the user's transactions, find it in the numbered list and call propose_delete_transaction or propose_edit_transaction with its #number. This only PROPOSES the change: the user must tap Confirm in the chat. Never say it is deleted or changed; say it is ready for them to confirm. If you can't tell which transaction they mean, ask.
+- You cannot move money, pay bills, contribute to goals, or delete or edit budgets, goals, bills or subscriptions - if asked, explain they can do that from the relevant screen.
 - Format for a small chat panel: open with one short sentence that answers the question, then at most 4 short bullet points if more detail helps. Use **bold** only for key figures or names. No headings, tables, emoji or long paragraphs. Never list your own capabilities unless the user asks what you can do; for a greeting, reply in one friendly sentence and suggest one thing to ask.
 - Give general budgeting/savings guidance, but no regulated investment, tax, or legal advice; suggest a professional for those. Be encouraging and non-judgmental.`;
 
-// Tools the assistant can call. All are CREATE-only and scoped to the requesting
-// user. Nothing here moves money, so actions are low-risk and reversible from the UI.
+// Tools the assistant can call, scoped to the requesting user. The create_* tools
+// write; the propose_* tools write nothing: they return a change for the user to
+// confirm in the chat, and the confirm goes through the normal transaction routes.
+// Nothing here moves money.
 const AI_TOOLS = [
+  {
+    name: 'propose_delete_transaction',
+    description: 'Propose deleting one transaction from the numbered recent list. Nothing is deleted until the user taps Confirm.',
+    parameters: {
+      type: 'object',
+      properties: { ref: { type: 'number', description: 'The #number of the transaction in the snapshot list' } },
+      required: ['ref'],
+    },
+  },
+  {
+    name: 'propose_edit_transaction',
+    description: 'Propose changing one transaction from the numbered recent list (category, amount, description, date or type). Nothing changes until the user taps Confirm. Include only the fields that should change.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ref: { type: 'number', description: 'The #number of the transaction in the snapshot list' },
+        category: { type: 'string' },
+        amount: { type: 'number', description: 'New positive amount in NGN' },
+        description: { type: 'string' },
+        date: { type: 'string', description: 'New date, YYYY-MM-DD' },
+        type: { type: 'string', enum: ['income', 'expense'] },
+      },
+      required: ['ref'],
+    },
+  },
   {
     name: 'create_transaction',
     description: 'Log a new income or expense transaction for the user. Use when the user says they earned, received, spent, paid, or bought something.',
@@ -7295,9 +7326,32 @@ const AI_FUNCTIONS = AI_TOOLS.map((t) => ({ type: 'function', function: t }));
 
 // Execute one assistant tool call against the DB, scoped to `user`. Returns a
 // { ok, summary } result that is fed back to the model and surfaced to the UI.
-const executeAiTool = async (name, input, user) => {
+const txnLabel = (t) => `${t.type === 'income' ? '+' : '-'}${naira(Math.abs(t.amount))} ${t.category}, ${String(t.description || '').slice(0, 40)}, ${new Date(t.date).toISOString().slice(0, 10)}`;
+
+const executeAiTool = async (name, input, user, { refs = [] } = {}) => {
   const userId = user._id;
   try {
+    // Proposals: check the transaction is the user's and the change is valid, then
+    // hand it to the chat to confirm. Nothing is written here.
+    if (name === 'propose_delete_transaction' || name === 'propose_edit_transaction') {
+      const id = refs[(parseInt(input.ref, 10) || 0) - 1];
+      const txn = id && await Transaction.findOne({ _id: id, userId }).lean();
+      if (!txn) return { ok: false, summary: 'That transaction number is not in the list. Ask the user which one they mean.' };
+      const label = txnLabel(txn);
+      if (name === 'propose_delete_transaction') {
+        return { ok: true, pending: true, kind: 'proposal', summary: `Not done yet: waiting for the user to tap Confirm to delete ${label}.`, proposal: { kind: 'delete', id, label } };
+      }
+      const changes = {};
+      if (typeof input.category === 'string' && input.category.trim()) changes.category = input.category.trim().slice(0, 40);
+      if (Number(input.amount) > 0) changes.amount = Math.abs(Number(input.amount));
+      if (typeof input.description === 'string' && input.description.trim()) changes.description = input.description.trim().slice(0, 120);
+      if (input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) && !isNaN(Date.parse(input.date))) changes.date = input.date;
+      if (['income', 'expense'].includes(input.type)) changes.type = input.type;
+      if (!Object.keys(changes).length) return { ok: false, summary: 'No valid change was given. Ask the user what should change.' };
+      const what = Object.entries(changes).map(([k, v]) => `${k} to ${k === 'amount' ? naira(v) : v}`).join(', ');
+      return { ok: true, pending: true, kind: 'proposal', summary: `Not done yet: waiting for the user to tap Confirm to change ${what} on ${label}.`, proposal: { kind: 'edit', id, label, changes } };
+    }
+
     if (name === 'create_transaction') {
       const { type, category, description } = input;
       const amount = Math.abs(Number(input.amount));
@@ -7422,7 +7476,8 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       .map((m) => ({ role: m.role, content: m.content.toString().slice(0, 4000) }));
 
     const free = assistantOnFreeTier();
-    const context = await buildFinancialContext(req.user, { free });
+    const refs = [];
+    const context = await buildFinancialContext(req.user, { free, refs });
 
     // Try each service until one answers; then keep using it for the rest of this turn.
     const chain = assistantChain();
@@ -7471,8 +7526,8 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       for (const call of calls) {
         let input = {};
         try { input = JSON.parse(call.function?.arguments || '{}'); } catch { /* empty args */ }
-        const result = await executeAiTool(call.function?.name, input, req.user);
-        actions.push({ tool: call.function?.name, ok: result.ok, kind: result.kind, summary: result.summary });
+        const result = await executeAiTool(call.function?.name, input, req.user, { refs });
+        actions.push({ tool: call.function?.name, ok: result.ok, kind: result.kind, summary: result.summary, ...(result.pending ? { pending: true, proposal: result.proposal } : {}) });
         messages.push({ role: 'tool', tool_call_id: call.id, content: result.summary });
       }
     }
@@ -7490,7 +7545,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       reply: finalReply,
       actions,
       // True if anything was created - the UI uses this to refresh data views.
-      changed: actions.some((a) => a.ok),
+      changed: actions.some((a) => a.ok && !a.pending),
     });
   } catch (e) {
     console.error('[ai/chat]', e.status || '', e.message);

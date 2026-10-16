@@ -26,7 +26,18 @@ const AiAssistant = () => {
       .get(`${API_URL}/api/ai/status`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => { setConfigured(res.data.configured); setFreeTier(!!res.data.freeTier); })
       .catch(() => {});
+    // Pick up the conversation where the user left it.
+    axios
+      .get(`${API_URL}/api/ai/history`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => setMessages((m) => (m.length ? m : (res.data.messages || []).map(({ role, content, actions }) => ({ role, content, actions })))))
+      .catch(() => {});
   }, []);
+
+  const newChat = async () => {
+    setMessages([]);
+    try { await axios.delete(`${API_URL}/api/ai/history`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }); } catch { /* the next message still works */ }
+    inputRef.current?.focus();
+  };
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -83,6 +94,11 @@ const AiAssistant = () => {
           <h1>Ask Automonie</h1>
           <p>Get insights and reports, or tell me to set up goals, budgets, and bills.</p>
         </div>
+        {messages.length > 0 && (
+          <button type="button" className="btn-secondary ai-new" onClick={newChat} disabled={loading}>
+            <i className="fas fa-plus" aria-hidden="true"></i> New chat
+          </button>
+        )}
       </div>
 
       {!configured && (

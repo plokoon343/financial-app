@@ -2479,7 +2479,7 @@ async function deleteUserData(userId, email) {
   await Promise.all([
     Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
-    Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview, PendingAlert, CorrectionEvent,
+    Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview, PendingAlert, CorrectionEvent, AiChat,
   ].map((M) => M.deleteMany({ userId: uid })));
   await ActivityDay.deleteMany({ userId: uid });
   // 'billpayments' also holds the current bill purchases (they carry a VTpass
@@ -7099,6 +7099,15 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
 // Runs on Gemini (the shared llmConfig). Off until AI_ASSISTANT_ENABLED=true is set
 // on the host, so turning on the key for parsing doesn't also launch the assistant.
 // While off, the endpoint returns a friendly "coming soon" reply.
+// Saved chat with the assistant, so it is still there when the user comes back. The
+// last CHAT_KEEP messages only; deleted with the account or by "New chat".
+const CHAT_KEEP = 60;
+const aiChatSchema = new mongoose.Schema({
+  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  messages: { type: [{ _id: false, role: { type: String, enum: ['user', 'assistant'] }, content: String, actions: { type: mongoose.Schema.Types.Mixed, default: undefined }, at: Date }], default: [] },
+}, { timestamps: true });
+const AiChat = mongoose.model('AiChat', aiChatSchema);
+
 // The chat assistant: paid Gemini when GEMINI_PAID_API_KEY is set; otherwise the free
 // services in order (Gemini free, Grok, Cloudflare, OpenRouter, NVIDIA), the owner's
 // choice (Oct 2026). On a free service the snapshot leaves out the user's name and
@@ -7378,6 +7387,17 @@ app.get('/api/ai/status', auth, async (req, res) => {
   res.json({ configured: aiConfigured(), model: aiConfigured() ? aiModel() : null, freeTier: aiConfigured() && assistantOnFreeTier(), plan: req.user.plan || 'free' });
 });
 
+app.get('/api/ai/history', auth, async (req, res) => {
+  try {
+    const chat = await AiChat.findOne({ userId: req.user._id }).lean();
+    res.json({ messages: (chat?.messages || []).map((m) => ({ role: m.role, content: m.content, actions: m.actions || [], at: m.at })) });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+app.delete('/api/ai/history', auth, async (req, res) => {
+  try { await AiChat.deleteOne({ userId: req.user._id }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
 app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
   try {
     const message = (req.body?.message || '').toString().trim();
@@ -7456,10 +7476,16 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       }
     }
 
+    const finalReply = reply || "Sorry, I couldn't generate a response. Please try rephrasing.";
+    const now = new Date();
+    await AiChat.updateOne({ userId: req.user._id }, { $push: { messages: { $each: [
+      { role: 'user', content: message.slice(0, 4000), at: now },
+      { role: 'assistant', content: finalReply.slice(0, 8000), actions: actions.length ? actions : undefined, at: now },
+    ], $slice: -CHAT_KEEP } } }, { upsert: true }).catch((e) => console.error('[ai/chat] save', e.message));
     res.json({
       configured: true,
       freeTier: free,
-      reply: reply || "Sorry, I couldn't generate a response. Please try rephrasing.",
+      reply: finalReply,
       actions,
       // True if anything was created - the UI uses this to refresh data views.
       changed: actions.some((a) => a.ok),

@@ -442,6 +442,15 @@ async function main() {
     check('11 merchants: "Other" spending gets an AI category to confirm', s1.status === 200 && shop?.category === 'Groceries' && shop.count === 2, JSON.stringify(s1.body));
     const asked = seen.filter((x) => /shop and merchant names/.test(x.sys));
     check('11 merchants: one request for all merchants', asked.length === 1);
+    // The assistant keeps the conversation (run the API with AI_ASSISTANT_ENABLED=true).
+    if (process.env.AI_ASSISTANT_ENABLED === 'true') {
+      await call('DELETE', '/api/ai/history');
+      const c1 = await call('POST', '/api/ai/chat', { message: 'Where did my money go?' });
+      const h1 = (await call('GET', '/api/ai/history')).body.messages || [];
+      check('11 chat: the conversation is saved for next time', c1.status === 200 && h1.length === 2 && h1[0].content === 'Where did my money go?' && h1[1].role === 'assistant', JSON.stringify(h1));
+      await call('DELETE', '/api/ai/history');
+      check('11 chat: "New chat" clears it', ((await call('GET', '/api/ai/history')).body.messages || []).length === 0);
+    }
     check('11 merchants: no digits reach the free tier', !/\d/.test(asked[0]?.user || 'x'), asked[0]?.user);
     check('11 merchants: person transfers never reach the free tier', !/ADEBAYO|OKONKWO/.test(asked[0]?.user || ''));
     await call('GET', '/api/ai/merchants/suggest');

@@ -260,18 +260,22 @@ const Settings = () => {
 
       {/* Data & privacy */}
       <div className="settings-card">
-        <h3><i className="fas fa-database"></i> Data &amp; Privacy</h3>
+        <h3><i className="fas fa-lock" style={{ color: '#139DA0' }}></i> Privacy &amp; data</h3>
+        <p className="hint" style={{ margin: '0 0 6px' }}>Automonie is read-only: it can&apos;t move money out of your bank, and it never asks for your bank login, PIN or BVN.</p>
+        <div className="row-between"><div><strong>Bank alerts by email</strong><span className="hint">Your private forwarding address. Stop any time by removing the forward.</span></div><Link className="btn-secondary" to="/email-forwarding">Manage</Link></div>
         <div className="row-between"><div><strong>Help improve Automonie</strong><span className="hint">Use my corrections (categories, amounts) to make import more accurate. Never shared outside Automonie.</span></div><Toggle on={!trainingOptOut} onClick={() => saveTrainingOptOut(!trainingOptOut)} /></div>
         <div className="divider" />
         <div className="row-between"><div><strong>Export my data</strong><span className="hint">Download everything as a PDF report.</span></div><button className="btn-secondary" onClick={exportData}><i className="fas fa-download"></i> Export</button></div>
+        <div className="divider" />
+        <div className="row-between"><div><strong>How we protect your data</strong><span className="hint">What we collect, what our AI sees, who helps run Automonie.</span></div><a className="btn-secondary" href="https://www.automonie.com/security" target="_blank" rel="noopener noreferrer">Read</a></div>
         <div className="divider" />
         <button className="btn-secondary" onClick={() => { logout(); navigate('/login'); }}><i className="fas fa-right-from-bracket"></i> Log out</button>
       </div>
 
       {/* Danger zone */}
       <div className="settings-card danger">
-        <h3><i className="fas fa-triangle-exclamation"></i> Danger Zone</h3>
-        <p className="hint">Permanently delete your account and all data. This cannot be undone. Signed up with Google and have no password? Use <a href="https://www.automonie.com/delete-account" target="_blank" rel="noopener">automonie.com/delete-account</a>.</p>
+        <h3><i className="fas fa-trash"></i> Delete account</h3>
+        <p className="hint">Deletes your account and all your data straight away, including your Ask chat. We email you to confirm. This can&apos;t be undone. Signed up with Google and have no password? Use <a href="https://www.automonie.com/delete-account" target="_blank" rel="noopener">automonie.com/delete-account</a>.</p>
         <div className="form-group"><label>Confirm with your password</label>
           <input type="password" value={delPw} onChange={e => setDelPw(e.target.value)} placeholder="Your password" /></div>
         <button className="btn-danger" onClick={deleteAccount} disabled={deleting || !delPw}>{deleting ? 'Deleting…' : 'Delete my account'}</button>

@@ -37,6 +37,7 @@ const { parseAlert } = require('./lib/alertParser');
 const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
+const { homeSummary } = require('./lib/homeSummary');
 const plans = require('./lib/plans');
 const studentLib = require('./lib/student');
 const welcomeEmails = require('./lib/welcomeEmails');
@@ -7116,6 +7117,34 @@ const AiChat = mongoose.model('AiChat', aiChatSchema);
 const assistantChain = () => {
   const paid = llmConfig();
   return paid ? [paid] : aiProviders.strippedChain();
+// --------------------------
+// Home summary: the few numbers the mobile Home hero needs in one call. Safe to
+// spend is for the rest of this calendar month, after bills and subscriptions
+// still to come (see lib/homeSummary.js). Read-only; nothing here moves money.
+// --------------------------
+app.get('/api/home/summary', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const [monthTxns, bills, subs, last] = await Promise.all([
+      Transaction.find({ userId, date: { $gte: monthStart }, type: { $in: ['income', 'expense'] } }).select('amount type').lean(),
+      RecurringBill.find({ userId, status: { $ne: 'paused' } }).lean(),
+      Subscription.find({ userId, status: 'active' }).lean(),
+      Transaction.findOne({ userId }).sort({ createdAt: -1 }).select('createdAt').lean(),
+    ]);
+    const sum = (t) => monthTxns.filter((x) => x.type === t).reduce((s, x) => s + Math.abs(x.amount), 0);
+    res.json(homeSummary({
+      now, monthlyIncome: req.user.monthlyIncome || 0,
+      monthIncome: sum('income'), monthExpense: sum('expense'),
+      bills, subs, monthTxnCount: monthTxns.length, lastSyncAt: last?.createdAt || null,
+    }));
+  } catch (e) {
+    console.error('[home/summary]', e.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 };
 const assistantOnFreeTier = () => !llmConfig() && assistantChain().length > 0;
 const aiConfigured = () => process.env.AI_ASSISTANT_ENABLED === 'true' && assistantChain().length > 0;

@@ -112,7 +112,7 @@ const AiAssistant = () => {
       {configured && freeTier && (
         <div className="ai-banner">
           <i className="fas fa-circle-info" aria-hidden="true"></i>
-          Answers come from a free AI service. It sees your totals and categories, not your name or account numbers. Don’t type passwords or card details here.
+          For your safety, never type passwords, PINs or card numbers here.
         </div>
       )}
 

@@ -51,6 +51,7 @@ const receipt = require('./lib/receipt');
 const googlePlay = require('./lib/googlePlay');
 const aiProviders = require('./lib/aiProviders');
 const { stripText } = require('./lib/aiStrip');
+const { guardReply } = require('./lib/assistantGuard');
 const merchantSuggest = require('./lib/merchantSuggest');
 const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
@@ -7476,7 +7477,8 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       }
     }
 
-    const finalReply = reply || "Sorry, I couldn't generate a response. Please try rephrasing.";
+    // Never let the reply claim an action that didn't happen (lib/assistantGuard).
+    const finalReply = guardReply(reply, message, actions);
     const now = new Date();
     await AiChat.updateOne({ userId: req.user._id }, { $push: { messages: { $each: [
       { role: 'user', content: message.slice(0, 4000), at: now },

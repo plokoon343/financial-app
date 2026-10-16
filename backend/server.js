@@ -8247,7 +8247,7 @@ const SETUP_KEYS = [
   { group: 'Email (Brevo)', keys: [['BREVO_API_KEY', 'all email'], ['BREVO_TEMPLATE_WAITLIST_WELCOME', 'waitlist welcome'], ['BREVO_TEMPLATE_NEWSLETTER_WELCOME', 'newsletter welcome'], ['WELCOME_HEADER_URL', 'header image in welcome emails']] },
   { group: 'Scheduled jobs', keys: [['CRON_SECRET', 'hourly /api/cron/nudges (header x-cron-secret): reminders, nudges, bill re-checks, weekly report']] },
   { group: 'AI, personal data (paid only)', keys: [['GEMINI_PAID_API_KEY', 'unknown alerts and statements, ask about my money; must be on a billing-enabled Google project']] },
-  { group: 'AI, stripped shop names (free tiers)', keys: [['GEMINI_API_KEY', 'Gemini free'], ['CF_ACCOUNT_ID', 'Cloudflare Workers AI'], ['CF_AI_TOKEN', 'Cloudflare Workers AI'], ['OPENROUTER_API_KEY', 'OpenRouter free models'], ['NVIDIA_API_KEY', 'NVIDIA NIM']] },
+  { group: 'AI, stripped shop names (free tiers)', keys: [['GEMINI_API_KEY', 'Gemini free'], ['XAI_API_KEY', 'Grok (xAI)'], ['CF_ACCOUNT_ID', 'Cloudflare Workers AI'], ['CF_AI_TOKEN', 'Cloudflare Workers AI'], ['OPENROUTER_API_KEY', 'OpenRouter free models'], ['NVIDIA_API_KEY', 'NVIDIA NIM']] },
   { group: 'Email forwarding (inbound)', keys: [['INBOUND_EMAIL_SECRET', 'webhook key the inbound provider sends'], ['INBOUND_EMAIL_DOMAIN', 'the forwarding domain']], note: 'The server only needs the webhook key; a Postmark server token is not used by the code.' },
   { group: 'Sign in with Google', keys: [['GOOGLE_CLIENT_IDS', 'web and Android client IDs (or GOOGLE_CLIENT_ID)']] },
   { group: 'Bank linking (Mono)', keys: [['MONO_SECRET_KEY', 'bank sync'], ['MONO_PUBLIC_KEY', 'bank sync'], ['MONO_WEBHOOK_SEC', 'bank sync webhook']] },

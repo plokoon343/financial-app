@@ -13,6 +13,8 @@ check('personal: never uses the free key', ai.personalConfig({ GEMINI_API_KEY: '
 check('personal: AI_PERSONAL_PROVIDER=none switches it off', ai.personalConfig({ GEMINI_PAID_API_KEY: 'p', AI_PERSONAL_PROVIDER: 'none' }) === null);
 check('stripped: Gemini free, Cloudflare, OpenRouter, NVIDIA NIM in that order', ai.strippedChain(ALL).map((c) => c.name).join() === 'gemini-free,cloudflare,openrouter,nvidia');
 check('stripped: Groq is never used, even with a key or in the order', !ai.strippedChain({ GROQ_API_KEY: 'g', AI_STRIPPED_ORDER: 'groq' }).length && !ai.strippedChain(ALL).some((c) => c.name === 'groq'));
+check('stripped: Grok comes second when its key is set', ai.strippedChain({ ...ALL, XAI_API_KEY: 'x' }).map((c) => c.name).join() === 'gemini-free,grok,cloudflare,openrouter,nvidia');
+check('stripped: Grok uses the xAI endpoint and an overridable model', ai.strippedChain({ XAI_API_KEY: 'x', XAI_MODEL: 'grok-x' })[0]?.baseURL === 'https://api.x.ai/v1' && ai.strippedChain({ XAI_API_KEY: 'x', XAI_MODEL: 'grok-x' })[0].model === 'grok-x');
 check('stripped: NVIDIA NIM uses its OpenAI-style endpoint', ai.strippedChain({ NVIDIA_API_KEY: 'nv' })[0]?.baseURL === 'https://integrate.api.nvidia.com/v1');
 check('stripped: only providers with keys', ai.strippedChain({ OPENROUTER_API_KEY: 'x' }).map((c) => c.name).join() === 'openrouter');
 check('stripped: Cloudflare needs both account and token', !ai.strippedChain({ CF_ACCOUNT_ID: 'a' }).length);

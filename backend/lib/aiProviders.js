@@ -11,7 +11,8 @@
 //   STRIPPED  merchant names with every name, number, phone, email and amount
 //             removed first (lib/aiStrip): merchant categorisation and a receipt's
 //             shop and category. Free tiers, tried in order, falling through on any
-//             failure: Gemini free → Cloudflare Workers AI → OpenRouter free → NVIDIA NIM.
+//             failure: Gemini free → Grok (xAI) → Cloudflare Workers AI → OpenRouter free
+//             → NVIDIA NIM.
 //             Groq is not used (Round 3, 3.5), even if a GROQ_API_KEY is set.
 //
 // All providers speak the OpenAI chat-completions format, so one call function
@@ -36,9 +37,10 @@ function strippedChain(env = process.env) {
     gemini: env.GEMINI_API_KEY && { name: 'gemini-free', baseURL: GEMINI_BASE, apiKey: env.GEMINI_API_KEY, model: env.GEMINI_FREE_MODEL || 'gemini-3.6-flash', json: true },
     cloudflare: env.CF_ACCOUNT_ID && env.CF_AI_TOKEN && { name: 'cloudflare', baseURL: `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/v1`, apiKey: env.CF_AI_TOKEN, model: env.CF_AI_MODEL || '@cf/meta/llama-4-scout-17b-16e-instruct', json: false },
     openrouter: env.OPENROUTER_API_KEY && { name: 'openrouter', baseURL: 'https://openrouter.ai/api/v1', apiKey: env.OPENROUTER_API_KEY, model: env.OPENROUTER_MODEL || 'openrouter/free', json: false },
+    grok: env.XAI_API_KEY && { name: 'grok', baseURL: env.XAI_BASE_URL || 'https://api.x.ai/v1', apiKey: env.XAI_API_KEY, model: env.XAI_MODEL || 'grok-3-mini', json: false },
     nvidia: env.NVIDIA_API_KEY && { name: 'nvidia', baseURL: env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1', apiKey: env.NVIDIA_API_KEY, model: env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct', json: false },
   };
-  const order = (env.AI_STRIPPED_ORDER || 'gemini,cloudflare,openrouter,nvidia').split(',').map((s) => s.trim().toLowerCase());
+  const order = (env.AI_STRIPPED_ORDER || 'gemini,grok,cloudflare,openrouter,nvidia').split(',').map((s) => s.trim().toLowerCase());
   return order.map((k) => all[k]).filter(Boolean);
 }
 

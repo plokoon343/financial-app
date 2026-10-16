@@ -2917,6 +2917,28 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
+// "Always put [merchant] in [category]": saves the personal rule for this merchant and
+// also moves the user's past matching spending/income rows into that category.
+// Returns how many OTHER rows changed (the app shows "Updated N past transactions").
+app.post('/api/transactions/:id/apply-rule', auth, async (req, res) => {
+  try {
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+    if (!['income', 'expense'].includes(txn.type)) return res.status(400).json({ message: 'Only income and spending can have a rule.' });
+    const category = String((req.body && req.body.category) || txn.category || '').trim();
+    if (!category || category === 'Transfer') return res.status(400).json({ message: 'Pick a category first.' });
+    const key = deriveCategoryKey(txn.description);
+    if (!key) return res.status(400).json({ message: 'This one has no name we can match on.' });
+    if (txn.category !== category) { txn.category = category; await txn.save(); }
+    await learnCategories(req.user._id, [{ description: txn.description, category }]);
+    const rows = await Transaction.find({ userId: req.user._id, type: txn.type, _id: { $ne: txn._id }, category: { $ne: category } })
+      .select('_id description').lean();
+    const ids = rows.filter((r) => deriveCategoryKey(r.description) === key).map((r) => r._id);
+    if (ids.length) await Transaction.updateMany({ _id: { $in: ids }, userId: req.user._id }, { $set: { category } });
+    res.json({ updated: ids.length, key, category });
+  } catch (e) { console.error('[apply-rule]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Batch delete by id list.
 app.post('/api/transactions/batch-delete', auth, async (req, res) => {
   try {
@@ -7096,28 +7118,6 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
 });
 
 // --------------------------
-// AI Assistant - natural-language Q&A over the user's own finances
-// --------------------------
-// Runs on Gemini (the shared llmConfig). Off until AI_ASSISTANT_ENABLED=true is set
-// on the host, so turning on the key for parsing doesn't also launch the assistant.
-// While off, the endpoint returns a friendly "coming soon" reply.
-// Saved chat with the assistant, so it is still there when the user comes back. The
-// last CHAT_KEEP messages only; deleted with the account or by "New chat".
-const CHAT_KEEP = 60;
-const aiChatSchema = new mongoose.Schema({
-  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
-  messages: { type: [{ _id: false, role: { type: String, enum: ['user', 'assistant'] }, content: String, actions: { type: mongoose.Schema.Types.Mixed, default: undefined }, at: Date }], default: [] },
-}, { timestamps: true });
-const AiChat = mongoose.model('AiChat', aiChatSchema);
-
-// The chat assistant: paid Gemini when GEMINI_PAID_API_KEY is set; otherwise the free
-// services in order (Gemini free, Grok, Cloudflare, OpenRouter, NVIDIA), the owner's
-// choice (Oct 2026). On a free service the snapshot leaves out the user's name and
-// strips names and numbers from transaction descriptions (lib/aiStrip).
-const assistantChain = () => {
-  const paid = llmConfig();
-  return paid ? [paid] : aiProviders.strippedChain();
-// --------------------------
 // Home summary: the few numbers the mobile Home hero needs in one call. Safe to
 // spend is for the rest of this calendar month, after bills and subscriptions
 // still to come (see lib/homeSummary.js). Read-only; nothing here moves money.
@@ -7145,6 +7145,28 @@ app.get('/api/home/summary', auth, async (req, res) => {
   }
 });
 
+// --------------------------
+// AI Assistant - natural-language Q&A over the user's own finances
+// --------------------------
+// Runs on Gemini (the shared llmConfig). Off until AI_ASSISTANT_ENABLED=true is set
+// on the host, so turning on the key for parsing doesn't also launch the assistant.
+// While off, the endpoint returns a friendly "coming soon" reply.
+// Saved chat with the assistant, so it is still there when the user comes back. The
+// last CHAT_KEEP messages only; deleted with the account or by "New chat".
+const CHAT_KEEP = 60;
+const aiChatSchema = new mongoose.Schema({
+  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  messages: { type: [{ _id: false, role: { type: String, enum: ['user', 'assistant'] }, content: String, actions: { type: mongoose.Schema.Types.Mixed, default: undefined }, at: Date }], default: [] },
+}, { timestamps: true });
+const AiChat = mongoose.model('AiChat', aiChatSchema);
+
+// The chat assistant: paid Gemini when GEMINI_PAID_API_KEY is set; otherwise the free
+// services in order (Gemini free, Grok, Cloudflare, OpenRouter, NVIDIA), the owner's
+// choice (Oct 2026). On a free service the snapshot leaves out the user's name and
+// strips names and numbers from transaction descriptions (lib/aiStrip).
+const assistantChain = () => {
+  const paid = llmConfig();
+  return paid ? [paid] : aiProviders.strippedChain();
 };
 const assistantOnFreeTier = () => !llmConfig() && assistantChain().length > 0;
 const aiConfigured = () => process.env.AI_ASSISTANT_ENABLED === 'true' && assistantChain().length > 0;

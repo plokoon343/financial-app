@@ -700,6 +700,20 @@ async function main() {
     check('delete-account: a made-up link is refused', (await call('POST', '/api/account-deletion/confirm', { token: 'made-up' }, { 'Content-Type': 'application/json' })).status === 404);
   }
 
+  // ── Mobile overhaul phase 2: "Always put X in Y" recategorises past matches ──
+  {
+    const mk = (description, amount, type, category) => call('POST', '/api/transactions', { date: '2026-10-05', description, amount, type, category });
+    const a = await mk('Chowdeck order 111', 3000, 'expense', 'Other');
+    await mk('Chowdeck order 222', 4000, 'expense', 'Shopping');
+    await mk('Chowdeck refund', 1000, 'income', 'Other Income');
+    const id = a.body?._id || a.body?.id;
+    const rule = await call('POST', `/api/transactions/${id}/apply-rule`, { category: 'Food' });
+    check('apply-rule: reports how many past rows moved', rule.status === 200 && rule.body?.updated === 1, JSON.stringify(rule.body));
+    const all = await txns();
+    check('apply-rule: past spending rows with the same merchant move, income does not', all.filter((t) => /chowdeck/i.test(t.description) && t.type === 'expense').every((t) => t.category === 'Food') && all.find((t) => /refund/i.test(t.description))?.category === 'Other Income');
+    check('apply-rule: a nameless row is refused', (await call('POST', `/api/transactions/${id}/apply-rule`, { category: 'Transfer' })).status === 400);
+  }
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

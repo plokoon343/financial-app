@@ -38,6 +38,7 @@ const capture = require('./lib/capture');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
 const { homeSummary } = require('./lib/homeSummary');
+const trackingSummary = require('./lib/trackingSummary');
 const plans = require('./lib/plans');
 const studentLib = require('./lib/student');
 const welcomeEmails = require('./lib/welcomeEmails');
@@ -338,6 +339,7 @@ const userSchema = new mongoose.Schema({
   captureKeyHash: { type: String, index: true, sparse: true },
   captureLastAt: { type: Date },
   captureCount: { type: Number, default: 0 },
+  captureAppLog: { type: [{ _id: false, app: String, at: Date }], default: [], select: false },  // newest 300 captured alerts by app, for per-app counts
   inboundEmailLastAt: { type: Date },
   inboundEmailCount:  { type: Number, default: 0 },
   // Gmail forwarding confirmation captured from Google's noreply mail (spec 3.4), so
@@ -4543,6 +4545,36 @@ app.get('/api/capture/status', auth, async (req, res) => {
   res.json({ connected: !!req.user.captureKeyHash, lastAt: req.user.captureLastAt || null, count: req.user.captureCount || 0 });
 });
 
+// Automatic tracking screen: when each source last delivered, banks seen on texts,
+// per-app alert counts for the last 30 days, and how many statements are imported.
+app.get('/api/tracking/summary', auth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const u = await User.findById(userId).select('+captureAppLog captureLastAt captureKeyHash inboundEmailLastAt inboundEmailCount');
+    const [lastSms, smsBanks, statements] = await Promise.all([
+      Transaction.findOne({ userId, source: 'sms' }).sort({ importedAt: -1, createdAt: -1 }).select('importedAt createdAt').lean(),
+      Transaction.distinct('bank', { userId, source: 'sms', bank: { $ne: '' } }),
+      Transaction.distinct('importBatch', { userId, source: 'import', importBatch: { $ne: '' } }),
+    ]);
+    res.json({
+      sms: { lastAt: lastSms ? (lastSms.importedAt || lastSms.createdAt) : null, banks: smsBanks.slice(0, 4) },
+      notifications: { connected: !!u.captureKeyHash, lastAt: u.captureLastAt || null, apps: trackingSummary.appCounts(u.captureAppLog || []) },
+      email: { receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0 },
+      statements: { count: statements.length },
+    });
+  } catch (e) { console.error('[tracking/summary]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Turning a source off can also remove what it already added (the user's choice).
+app.delete('/api/tracking/source/:source', auth, async (req, res) => {
+  try {
+    const source = req.params.source;
+    if (!['notification', 'sms', 'email'].includes(source)) return res.status(400).json({ message: 'Unknown source' });
+    const r = await Transaction.deleteMany({ userId: req.user._id, source });
+    res.json({ deleted: r.deletedCount || 0 });
+  } catch (e) { console.error('[tracking/source]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 app.delete('/api/capture/key', auth, async (req, res) => {
   try {
     req.user.captureKeyHash = undefined;
@@ -4588,6 +4620,11 @@ app.post('/api/ingest/capture', captureLimiter, async (req, res) => {
     const result = await ingestCapturedText(user, { text, sender, source, day: capture.captureDay(b.postedAt) });
     user.captureLastAt = new Date();
     await user.save();
+    // Remember which app a real money alert came from (per-app counts on Automatic tracking).
+    if (b.app && !result.ignored) {
+      const row = await User.findById(user._id).select('+captureAppLog');
+      if (row) { row.captureAppLog = trackingSummary.pushAlert(row.captureAppLog || [], b.app); await row.save(); }
+    }
     res.json({ ok: true, ...result });
   } catch (e) { console.error('[ingest/capture]', e.message); res.status(500).json({ message: 'Server error' }); }
 });

@@ -54,6 +54,7 @@ const googlePlay = require('./lib/googlePlay');
 const aiProviders = require('./lib/aiProviders');
 const { stripText } = require('./lib/aiStrip');
 const { guardReply } = require('./lib/assistantGuard');
+const { cleanAiText } = require('./lib/aiOutput');
 const merchantSuggest = require('./lib/merchantSuggest');
 const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
@@ -7533,7 +7534,7 @@ app.get('/api/ai/status', auth, async (req, res) => {
 app.get('/api/ai/history', auth, async (req, res) => {
   try {
     const chat = await AiChat.findOne({ userId: req.user._id }).lean();
-    res.json({ messages: (chat?.messages || []).map((m) => ({ role: m.role, content: m.content, actions: m.actions || [], at: m.at })) });
+    res.json({ messages: (chat?.messages || []).map((m) => ({ role: m.role, content: m.role === 'assistant' ? cleanAiText(m.content) : m.content, actions: m.actions || [], at: m.at })) });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 app.delete('/api/ai/history', auth, async (req, res) => {
@@ -7621,7 +7622,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     }
 
     // Never let the reply claim an action that didn't happen (lib/assistantGuard).
-    const finalReply = guardReply(reply, message, actions);
+    const finalReply = cleanAiText(guardReply(reply, message, actions));
     const now = new Date();
     await AiChat.updateOne({ userId: req.user._id }, { $push: { messages: { $each: [
       { role: 'user', content: message.slice(0, 4000), at: now },

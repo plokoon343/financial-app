@@ -70,7 +70,7 @@ const pu = [
   { createdAt: new Date(now - 200 * D), plan: 'student', planExpiry: new Date(+now + 20 * D), planEverPaid: true, student: { status: 'verified', expiresAt: new Date(+now + 100 * D) } },
   { createdAt: new Date(now - 90 * D), plan: 'free' },
 ];
-const mo = m.money(pu, plans, now, plans.config({}));
+const mo = m.money(pu, plans, now, plans.config({ PAYWALL_ENABLED: 'true' }));
 check('money: trial users', mo.onTrial === 1, mo);
 check('money: paid by plan', mo.paid.pro === 1 && mo.paid.student === 2 && mo.paidTotal === 3, mo);
 check('money: MRR leaves out free Student months', mo.mrr === 1500 + 700, mo.mrr);

@@ -93,7 +93,9 @@ function activation(users, firstTxns, today, weeks = 8) {
 }
 
 // users: full user docs (plan fields); plans: lib/plans
-function money(users, plans, now = new Date(), cfg = plans.config()) {
+// The business numbers (trials, paid, MRR) always count as if the paywall were on, so they
+// stay meaningful while everything is free in beta.
+function money(users, plans, now = new Date(), cfg = { ...plans.config(), paywall: true }) {
   const prices = Object.fromEntries(plans.catalog(cfg).map((p) => [p.code, p.priceNaira]));
   const paid = {}; let onTrial = 0, mrr = 0, trialEnded = 0, converted = 0;
   for (const u of users) {

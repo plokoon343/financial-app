@@ -13,6 +13,10 @@
 // Prices and lengths come from config (env), so they change without a release:
 // PLUS_PRICE_NAIRA (falls back to PRO_PRICE_NAIRA), STUDENT_PRICE_NAIRA,
 // SYNC_PRICE_NAIRA (Pro), POWER_PRICE_NAIRA, STUDENT_FREE_DAYS, TRIAL_DAYS.
+//
+// PAYWALL_ENABLED (default off): while it is not 'true', every account has every Plus
+// feature (source 'free_beta'). Purchases, plans and gates stay in place for later;
+// setting it to 'true' brings the paywall back with no other change.
 'use strict';
 
 const DAY = 86400000;
@@ -40,6 +44,7 @@ function config(env = process.env) {
     bankSync: env.BANK_SYNC_ENABLED === 'true',
     studentFreeDays: num(env.STUDENT_FREE_DAYS, 90),
     trialDays: num(env.TRIAL_DAYS, 14),
+    paywall: env.PAYWALL_ENABLED === 'true',
   };
 }
 
@@ -74,6 +79,8 @@ function entitlement(user, now = new Date(), cfg = config()) {
   if (live && (plan.code !== 'student' || studentVerified(user, now))) {
     return { tier: plan.code, name: plan.name, source: 'paid', features: plan.features, until: user.planExpiry || null, trialEndsAt };
   }
+  // Paywall off (beta): everyone gets the Plus features, free.
+  if (!cfg.paywall) return { tier: 'pro', name: 'Plus', source: 'free_beta', features: PLUS_FEATURES, until: null, trialEndsAt };
   // The trial: new accounts that have never had a paid plan.
   if (trialEndsAt && trialEndsAt > now && !user.planEverPaid) {
     return { tier: 'pro', name: 'Plus', source: 'trial', features: PLUS_FEATURES, until: trialEndsAt, trialEndsAt };

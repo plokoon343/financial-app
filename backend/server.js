@@ -2385,6 +2385,7 @@ app.get('/api/billing/status', auth, async (req, res) => {
     tier: ent.tier, tierName: ent.name, source: ent.source,
     ...trialOut(req.user, ent),
     isPro: isPro(req.user),
+    paywall: cfg.paywall,
     priceNaira: cfg.plusPrice,
     features: plans.PLUS_FEATURES.map((f) => plans.FEATURE_LABELS[f]),
     plans: plans.catalog(cfg),
@@ -4404,7 +4405,8 @@ async function actionCenterItems(userId) {
   const keptRows = await KeptPair.find({ userId }, { pairKey: 1 }).lean();
   const kept = new Set(keptRows.map((k) => k.pairKey));
   const notSenders = await dismissedSenderKeys(userId);
-  const [pending, lowConf, dupes, unnamedSubs, detected, accounts, senders] = await Promise.all([
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const [pending, lowConf, dupes, unnamedSubs, detected, accounts, senders, sortCount, cashRows, overdueBills, overdueSubs] = await Promise.all([
     PendingAlert.find({ userId }).sort({ createdAt: -1 }).limit(30).lean(),
     // Anything saved without the user seeing it that the rules weren't sure about.
     Transaction.find({ userId, reviewedAt: { $exists: false }, $or: [{ parseConfidence: 'low' }, { parseConfidence: 'medium', source: { $in: ['email', 'notification', 'sms'] } }] }).sort({ date: -1 }).limit(30).lean(),
@@ -4417,7 +4419,17 @@ async function actionCenterItems(userId) {
       { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' } } },
       { $sort: { count: -1 } }, { $limit: 10 },
     ]),
+    // The three things Home used to count on the phone. They are listed here too, so the
+    // Home line and this list can never disagree: Home reads its count from this function.
+    Transaction.countDocuments({ userId, type: { $in: ['income', 'expense'] }, category: { $in: ['', 'Other', 'Other Income'] } }),
+    Transaction.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(userId), type: 'cash_withdrawal', cashAllocated: { $ne: true } } },
+      { $group: { _id: null, count: { $sum: 1 }, total: { $sum: { $abs: '$amount' } } } },
+    ]),
+    RecurringBill.countDocuments({ userId, status: { $ne: 'paused' }, nextDue: { $lt: todayStart } }),
+    Subscription.countDocuments({ userId, status: 'active', nextPayment: { $lt: todayStart } }),
   ]);
+  const cash = cashRows[0];
   const items = [
     ...pending.map((p) => ({ type: 'review_alert', id: String(p._id), source: p.source, raw: (p.raw || '').slice(0, 400), parsed: p.parsed || {}, createdAt: p.createdAt })),
     ...lowConf.map((t) => ({ type: 'review_transaction', id: String(t._id), transaction: slimTxn(t) })),
@@ -4425,6 +4437,9 @@ async function actionCenterItems(userId) {
     ...unnamedSubs.map((s) => ({ type: 'name_subscription', id: String(s._id), key: s.sourceKey || subscriptionKey(s.name), name: s.name, cost: s.cost, lastCharge: s.lastCharge || null })),
     ...detected.map((d) => ({ type: 'track_subscription', id: `detect:${d.key}`, key: d.key, name: d.name, cost: d.cost, occurrences: d.occurrences, lastSeen: d.lastSeen })),
     ...accounts.map((a) => ({ type: 'name_account', id: String(a._id), bankName: a.bankName || '', bankCode: a.bankCode, accountMask: a.accountMask, txnCount: a.txnCount || 0 })),
+    ...(sortCount > 0 ? [{ type: 'sort_categories', id: 'sort', count: sortCount }] : []),
+    ...(cash && cash.total > 0 ? [{ type: 'log_cash', id: 'cash', count: cash.count, total: Math.round(cash.total) }] : []),
+    ...(overdueBills + overdueSubs > 0 ? [{ type: 'overdue_payments', id: 'overdue', count: overdueBills + overdueSubs }] : []),
     ...senders.map((s) => ({ type: 'tag_sender', id: `sender:${s._id}`, senderKey: s._id, label: s._id === UNKNOWN_SENDER ? 'Alerts with no sender name' : s._id, sample: (s.sample || '').slice(0, 80), count: s.count, guess: s._id === UNKNOWN_SENDER ? null : guessBank(s._id) })),
   ];
   return items;
@@ -4613,7 +4628,8 @@ app.post('/api/ingest/capture', captureLimiter, async (req, res) => {
     const user = await captureUser(req);
     if (!user) return res.status(401).json({ message: 'Unknown capture key. Reconnect from the app.' });
     const b = req.body || {};
-    const source = b.source === 'notification' ? 'notification' : 'sms';
+    // 'share' is a screenshot the phone read itself (text only; the picture never leaves the phone).
+    const source = b.source === 'notification' ? 'notification' : b.source === 'share' ? 'share' : 'sms';
     const text = capture.captureText({ title: b.title, text: b.text, bigText: b.bigText });
     if (!text.trim()) return res.status(400).json({ message: 'Nothing to read.' });
     // The bank app's name helps resolve the bank when the alert text doesn't say it.
@@ -4676,7 +4692,7 @@ app.post('/api/ingest/capture-file', captureLimiter, (req, res, next) => {
       catch (e) { if (isPdfPasswordError(e)) return res.status(422).json({ message: 'That PDF is password protected. Upload it from the app instead.' }); throw e; }
     } else {
       text = await transcribeImage(req.file.buffer, req.file.mimetype);
-      if (!text) return res.status(503).json({ message: 'Reading screenshots is not switched on yet.' });
+      if (!text) return res.status(422).json({ message: 'Screenshots are read on your phone. Update Automonie to the latest version and share it again, or paste the alert text.' });
     }
     // A long PDF is a statement, not a receipt: point the user at statement upload.
     if (text.length > capture.MAX_CAPTURE_CHARS) return res.status(422).json({ message: 'This looks like a full statement. Upload it from Import instead.' });
@@ -7172,11 +7188,25 @@ app.get('/api/home/summary', auth, async (req, res) => {
       Transaction.findOne({ userId }).sort({ createdAt: -1 }).select('createdAt').lean(),
     ]);
     const sum = (t) => monthTxns.filter((x) => x.type === t).reduce((s, x) => s + Math.abs(x.amount), 0);
-    res.json(homeSummary({
-      now, monthlyIncome: req.user.monthlyIncome || 0,
-      monthIncome: sum('income'), monthExpense: sum('expense'),
-      bills, subs, monthTxnCount: monthTxns.length, lastSyncAt: last?.createdAt || null,
-    }));
+    // The "N things need a quick look" line comes from the same function the Action
+    // Center list uses, so the count and the rows always match.
+    const items = await actionCenterItems(userId);
+    const counts = items.reduce((m, it) => { m[it.type] = (m[it.type] || 0) + 1; return m; }, {});
+    const pick = (t) => items.find((i) => i.type === t) || null;
+    const actions = {
+      total: items.length, counts,
+      sort: pick('sort_categories')?.count || 0,
+      cashTotal: pick('log_cash')?.total || 0,
+      overdue: pick('overdue_payments')?.count || 0,
+    };
+    res.json({
+      ...homeSummary({
+        now, monthlyIncome: req.user.monthlyIncome || 0,
+        monthIncome: sum('income'), monthExpense: sum('expense'),
+        bills, subs, monthTxnCount: monthTxns.length, lastSyncAt: last?.createdAt || null,
+      }),
+      actions,
+    });
   } catch (e) {
     console.error('[home/summary]', e.message);
     res.status(500).json({ message: 'Server error' });

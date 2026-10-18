@@ -6,7 +6,7 @@ let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`, extra); } };
 const DAY = 86400000;
 const now = new Date('2026-10-10T12:00:00Z');
-const cfg = config({});
+const cfg = config({ PAYWALL_ENABLED: 'true' });   // the paywall rules below are checked with it on
 const ago = (d) => new Date(now.getTime() - d * DAY);
 const ahead = (d) => new Date(now.getTime() + d * DAY);
 
@@ -24,7 +24,7 @@ check('a new account is on the Plus trial', e1.tier === 'pro' && e1.source === '
 check('trial shows days left', daysLeft(e1.until, now) === 11);
 const expired = { createdAt: ago(15), plan: 'free' };
 check('after 14 days the trial ends and features lock', entitlement(expired, now, cfg).tier === 'free' && !hasFeature(expired, 'report', now, cfg));
-check('trial length is config', entitlement(expired, now, config({ TRIAL_DAYS: '30' })).source === 'trial');
+check('trial length is config', entitlement(expired, now, config({ TRIAL_DAYS: '30', PAYWALL_ENABLED: 'true' })).source === 'trial');
 check('someone who has paid before gets no second trial', entitlement({ createdAt: ago(2), plan: 'free', planEverPaid: true }, now, cfg).tier === 'free');
 
 const plus = { createdAt: ago(100), plan: 'pro', planExpiry: ahead(20) };
@@ -40,6 +40,15 @@ check('superadmin is never blocked', hasFeature({ role: 'superadmin', createdAt:
 check('Power includes Plus features and bank sync', (() => { const f = entitlement({ createdAt: ago(100), plan: 'power', planExpiry: ahead(5) }, now, cfg).features; return f.includes('report') && f.includes('bank-link'); })());
 check('Plus does not include bank sync', !hasFeature(plus, 'bank-link', now, cfg));
 check('no user is Free', entitlement(null).tier === 'free');
+
+// Paywall off (the default while Automonie is in beta): everything is free.
+const open = config({});
+const lapsed = { createdAt: ago(300), plan: 'free', planEverPaid: false };
+check('paywall is off unless PAYWALL_ENABLED=true', open.paywall === false && cfg.paywall === true);
+check('paywall off: a Free account has every Plus feature', ['report', 'cancel', 'ai-purpose', 'receipts', 'ask-money'].every((f) => hasFeature(lapsed, f, now, open)));
+check('paywall off: no trial countdown, source says free beta', entitlement(lapsed, now, open).source === 'free_beta' && entitlement(lapsed, now, open).until === null);
+check('paywall off: bank sync is still not included', !hasFeature(lapsed, 'bank-link', now, open));
+check('paywall on: the same account is Free again', !hasFeature(lapsed, 'report', now, cfg));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

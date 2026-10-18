@@ -1,5 +1,7 @@
 // API regression checks (bugs found in the Oct 2026 brief, workstream 2), run against
 // a local API on a throwaway database that the script creates and drops.
+// Start the API with PAYWALL_ENABLED=true: several checks below are about the Plus paywall
+// (402 for Free), which is off by default while Automonie is in beta.
 //
 //   MONGODB_URI=mongodb://localhost:27017/automonie_test PORT=5099 node server.js
 //   API_URL=http://localhost:5099 TEST_DB=mongodb://localhost:27017/automonie_test node scripts/api-regression.js
@@ -698,6 +700,23 @@ async function main() {
     check('delete-account: the reason is kept without the email', !!(await db.collection('deletionreasons').findOne({ reason: 'Testing', hadAccount: true })) && !(await db.collection('deletionreasons').findOne({ email: { $exists: true } })));
     check('delete-account: the link works once', (await call('POST', '/api/account-deletion/confirm', { token: raw }, { 'Content-Type': 'application/json' })).status === 404);
     check('delete-account: a made-up link is refused', (await call('POST', '/api/account-deletion/confirm', { token: 'made-up' }, { 'Content-Type': 'application/json' })).status === 404);
+  }
+
+  // ── Round 4 A1: the Home "N things need a quick look" count equals the Action Center rows ──
+  {
+    const db = mongoose.connection.db;
+    const day = (d) => new Date(Date.now() - d * 86400000);
+    await db.collection('transactions').insertMany([
+      { userId: insertedId, date: day(1), description: 'Mystery shop', amount: -1200, category: 'Other', type: 'expense', source: 'manual' },
+      { userId: insertedId, date: day(2), description: 'ATM withdrawal', amount: -20000, category: 'Cash', type: 'cash_withdrawal', source: 'sms' },
+    ]);
+    await db.collection('recurringbills').insertOne({ userId: insertedId, name: 'Old rent', amount: 5000, dueDate: 1, frequency: 'monthly', category: 'Housing', nextDue: day(5), status: 'active' });
+    const home = (await call('GET', '/api/home/summary')).body;
+    const ac = (await call('GET', '/api/action-center')).body;
+    const types = new Set((ac.items || []).map((i) => i.type));
+    check('A1 home count equals action center rows', home?.actions?.total === (ac.items || []).length && ac.total === (ac.items || []).length, JSON.stringify({ h: home?.actions, n: (ac.items || []).length }));
+    check('A1 to-sort, cash and overdue each have a row', types.has('sort_categories') && types.has('log_cash') && types.has('overdue_payments'), [...types].join());
+    check('A1 home detail matches the rows', home?.actions?.sort >= 1 && home.actions.cashTotal === 20000 && home.actions.overdue === 1, JSON.stringify(home?.actions));
   }
 
   // ── Mobile overhaul phase 2: "Always put X in Y" recategorises past matches ──

@@ -59,50 +59,62 @@ ${header({ headerImageUrl, headerAlt, template })}
 </body></html>`;
 }
 
-// Waitlist: thanks, what happens next, and something to do while they wait (Launch
-// Ops Pack, Part 3.1).
+// Waitlist: the founder's welcome letter (owner copy, 19 Oct 2026).
 function waitlistWelcome({ name, whatsappUrl, headerImageUrl, template = false } = {}) {
   if (template) whatsappUrl = '{{ params.whatsappUrl }}';
-  const headerAlt = 'You’re on the Automonie list';
+  const headerAlt = 'Welcome to Automonie';
+  const preheader = 'You’re here early, so you’re helping us build it.';
+  const hey = template
+    ? '{% if params.firstName %}Hey {{ params.firstName }},{% else %}Hey there,{% endif %}'
+    : (firstName(name) ? `Hey ${esc(firstName(name))},` : 'Hey there,');
+  const P = (t, extra = '') => `<p style="margin:0 0 14px${extra}">${t}</p>`;
   const html = shell({
-    preheader: 'Here’s what happens next, and something to do while you wait.',
-    headerImageUrl, headerAlt, template,
-    bodyHtml: `<p style="margin:0 0 14px">${greeting(name, template)}</p>
-<p style="margin:0 0 14px">You’re in. Thanks for joining the Automonie waitlist.</p>
-<p style="margin:0 0 14px">Automonie reads your bank alerts and statements and shows you where your money actually goes, across every bank, in naira. No more “where did my money go?” at the end of the month.</p>
-<p style="margin:0 0 6px;font-weight:600">What happens next</p>
+    preheader, headerImageUrl, headerAlt, template,
+    bodyHtml: `${P(hey)}
+${P('Welcome to Automonie.')}
+${P('You’ve officially joined a growing group of people who are tired of checking their bank balance and thinking: “Wait... where did all my money go?”')}
+${P('Yeah. Us too.')}
+${P('Automonie is being built to help you understand your money without turning budgeting into a boring spreadsheet exercise. We want to help you:')}
 <ul style="margin:0 0 16px;padding-left:20px">
-<li style="margin-bottom:6px">We’ll email you the moment Automonie is live on the Play Store.</li>
-<li>Early members get first access to new features.</li>
+<li style="margin-bottom:6px">Know where your money actually goes</li>
+<li>Make better decisions with what you have</li>
 </ul>
-<p style="margin:0 0 6px;font-weight:600">While you wait</p>
-<p style="margin:0 0 12px">Find your money personality in 2 minutes.</p>
-<p style="margin:0 0 18px">${button(`${SITE}/quiz`, 'Take the quiz')}</p>
-${whatsappUrl ? `<p style="margin:0 0 12px">Join our WhatsApp community for money tips and early updates.</p>
+${P('Because budgeting shouldn’t feel like punishment. It should feel like finally being in control.')}
+${P('And we’re just getting started. Since you’re here early, you’re not just another user: you’re helping us build Automonie. As we roll out new features, we’d love to hear what works, what doesn’t, and what you wish your money app could do.')}
+${whatsappUrl ? `${P('Tell us in our WhatsApp community, and get early updates there first.', ';margin-bottom:12px')}
 <p style="margin:0 0 20px">${button(whatsappUrl, 'Join the community')}</p>` : ''}
-<p style="margin:0">Talk soon,<br>The Automonie team</p>`,
+${P('No complicated finance talk. No guilt trips. No “stop buying coffee” lectures. Just your money, your habits, and a clearer picture of where it all goes.')}
+${P('Welcome to Automonie. Let’s make budgeting make sense.')}
+<p style="margin:0">Tobe<br>Automonie</p>`,
     footerHtml: `You’re receiving this because you joined the Automonie waitlist at automonie.com.<br>${POSTAL}`,
   });
-  const hiText = template ? greeting(null, true) : (firstName(name) ? `Hi ${firstName(name)},` : 'Hi there,');
-  const text = `${hiText}
+  const heyText = template ? hey : (firstName(name) ? `Hey ${firstName(name)},` : 'Hey there,');
+  const text = `${heyText}
 
-You're in. Thanks for joining the Automonie waitlist.
+Welcome to Automonie.
 
-Automonie reads your bank alerts and statements and shows you where your money actually goes, across every bank, in naira. No more "where did my money go?" at the end of the month.
+You've officially joined a growing group of people who are tired of checking their bank balance and thinking: "Wait... where did all my money go?"
 
-What happens next
-- We'll email you the moment Automonie is live on the Play Store.
-- Early members get first access to new features.
+Yeah. Us too.
 
-While you wait
-- Find your money personality in 2 minutes: ${SITE}/quiz
-${whatsappUrl ? `- Join our WhatsApp community for money tips and early updates: ${whatsappUrl}\n` : ''}
-Talk soon,
-The Automonie team
+Automonie is being built to help you understand your money without turning budgeting into a boring spreadsheet exercise. We want to help you:
+- Know where your money actually goes
+- Make better decisions with what you have
+
+Because budgeting shouldn't feel like punishment. It should feel like finally being in control.
+
+And we're just getting started. Since you're here early, you're not just another user: you're helping us build Automonie. As we roll out new features, we'd love to hear what works, what doesn't, and what you wish your money app could do.
+${whatsappUrl ? `\nTell us in our WhatsApp community, and get early updates there first: ${whatsappUrl}\n` : ''}
+No complicated finance talk. No guilt trips. No "stop buying coffee" lectures. Just your money, your habits, and a clearer picture of where it all goes.
+
+Welcome to Automonie. Let's make budgeting make sense.
+
+Tobe
+Automonie
 
 You're receiving this because you joined the Automonie waitlist at automonie.com.
 ${POSTAL}`;
-  return { subject: 'You’re on the Automonie list', preheader: 'Here’s what happens next, and something to do while you wait.', text, html };
+  return { subject: 'Welcome to Automonie', preheader, text, html };
 }
 
 // Newsletter: what they'll get, a first tip, and a one-click way out (Launch Ops

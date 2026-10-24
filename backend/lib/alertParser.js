@@ -9,7 +9,7 @@
 // 3. The amount is never the balance: balance figures are blanked before we look.
 const { normalizeAmount } = require('./amount');
 const { normalizeAnyDate } = require('./dates');
-const { detectDirection, parseLabeledAlert, alertDescription } = require('./alertParse');
+const { detectDirection, parseLabeledAlert, parseTransferReceipt, alertDescription } = require('./alertParse');
 const { classifyAlert, isFeeText, bankRule, withoutBalance } = require('./alertClassify');
 const { fingerprintAccount, detectBank } = require('./bankDetect');
 const { categorizeTransaction } = require('./categorize');
@@ -45,7 +45,10 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {
   const first = classifyAlert(raw);
   if (first.kind === 'ignore') return null;
 
-  const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(raw, sender);
+  // A transfer receipt names the OTHER side's bank (Receiving bank, and again in the remark); the user's own bank is not that one.
+  const receipt = parseTransferReceipt(raw);
+  const ownText = receipt && receipt.receivingBank ? raw.split(receipt.receivingBank).join(' ') : raw;
+  const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(ownText, sender);
   const rule = bankRule(bankCode);
   const labeled = parseLabeledAlert(raw);
   const noBal = withoutBalance(raw);
@@ -76,7 +79,7 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {
   // Narration: the bank's pattern, a labelled field, the counterparty phrase, else the
   // body with money, dates and references stripped.
   const rn = rule?.narrationRe && raw.match(rule.narrationRe);
-  const description = ((rn && rn[1].trim()) || (labeled && labeled.description) || alertDescription(raw) || raw
+  const description = ((rn && rn[1].trim()) || (labeled && labeled.description) || (!labeled && receipt && receipt.description) || alertDescription(raw) || raw
     .replace(SMS_MONEY_RE, ' ')
     .replace(SMS_DATE_RE, ' ')
     .replace(/\b(?:ref|txn|transaction id|receipt)[:#\s]*[A-Za-z0-9]+/gi, ' ')
@@ -92,7 +95,7 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {
   const kind = first.kind === 'unsure' ? 'unsure' : (isFeeText(description) ? 'fee' : 'transaction');
   const type = kind === 'fee' ? 'expense' : dir.type;
   const category = kind === 'fee' ? 'Bank Charges' : categorizeTransaction(description, type);
-  const bank = bankName || detectBank(raw);
+  const bank = bankName || detectBank(ownText);
   const confidence = kind !== 'unsure' && amount != null && dir.conf === 'high' && amtConf !== 'low' ? 'high' : (amount != null && kind !== 'unsure' ? 'medium' : 'low');
   const amt = amount != null ? +Number(amount).toFixed(2) : 0;
   return {

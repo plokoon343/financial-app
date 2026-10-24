@@ -24,7 +24,7 @@ const categorizeTransaction = (description, typeOrAmount) => {
     { for: 'income',  keywords: ['salary', 'wage', 'payroll', 'monthly pay', 'stipend'], category: 'Salary' },
     { for: 'income',  keywords: ['freelance', 'consulting', 'contract pay', 'upwork', 'fiverr'], category: 'Freelance' },
     { for: 'income',  keywords: ['sales', 'invoice', 'business income', 'customer payment'], category: 'Business' },
-    { for: 'income',  keywords: ['dividend', 'interest credit', 'investment return', 'maturity', 'roi'], category: 'Investment' },
+    { for: 'income',  keywords: ['dividend', 'interest credit', 'interest earned', 'owealth interest', 'investment return', 'maturity', 'roi'], category: 'Investment' },
     { for: 'income',  keywords: ['gift', 'present'], category: 'Gift' },
     { for: 'income',  keywords: ['refund', 'reversal', 'returned', 'chargeback'], category: 'Refund' },
 

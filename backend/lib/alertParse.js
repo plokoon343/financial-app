@@ -119,6 +119,31 @@ function alertDescription(raw) {
   return /[A-Za-z]{3,}/.test(body) ? body.slice(0, 140) : '';
 }
 
+// ── Transfer receipts (GTWorld, Access and others export a receipt PDF) ──
+// A receipt lists Sender / Receiver / Receiving bank / Remark on their own lines. The
+// narration is "Transfer to <Receiver>", never the date line or the amount in words, and
+// the Receiving bank is the OTHER side's bank, not the user's. Returns null when the text
+// is not laid out like that.
+const titleCase = (s) => s.toLowerCase().replace(/\b[a-z']/g, (c) => c.toUpperCase());
+function parseTransferReceipt(raw) {
+  const lines = String(raw || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const valueAfter = (label) => {
+    const i = lines.findIndex((l) => l.toLowerCase() === label);
+    if (i >= 0 && lines[i + 1]) return lines[i + 1];
+    // Same fields run together on one line (some PDF readers drop the line breaks):
+    // "Receiver Ada Obi Account number 123 Receiving bank Moniepoint Mfb Reference ...".
+    const STOP = '(?:sender|receiver|beneficiary|account number|account name|receiving bank|reference number|reference|remark|narration|status|success|transaction)';
+    const inline = String(raw).match(new RegExp('\\b' + label + '\\s*[:-]?\\s+(.+?)(?=\\s+' + STOP + '\\b|\\n|$)', 'i'));
+    return inline ? inline[1].trim() : '';
+  };
+  const clean = (n) => titleCase(n.replace(/[^A-Za-z .,'-]/g, ' ').replace(/\s{2,}/g, ' ').trim());
+  const receiver = valueAfter('receiver') || valueAfter('beneficiary');
+  const sender = valueAfter('sender');
+  if (!receiver || !sender || !/[A-Za-z]{2,}/.test(receiver)) return null;
+  const name = clean(receiver);
+  return { receiver: name, sender, receivingBank: valueAfter('receiving bank'), description: ('Transfer to ' + name).slice(0, 140) };
+}
+
 // ── Is this even a transaction? ──
 // Banks and wallet apps push OTPs, loan offers, promos and balance notices through the
 // same channel as real alerts, often with an amount and the word "account" in them.
@@ -152,6 +177,6 @@ function alertIgnoreReason(raw) {
 }
 
 module.exports = {
-  detectDirection, parseLabeledAlert, alertDescription, alertIgnoreReason, alertLooksTransactional,
+  detectDirection, parseLabeledAlert, parseTransferReceipt, alertDescription, alertIgnoreReason, alertLooksTransactional,
   CREDIT_STRONG, DEBIT_STRONG, CREDIT_WEAK, DEBIT_WEAK,
 };

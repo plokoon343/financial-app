@@ -39,11 +39,13 @@ const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
 const { homeSummary } = require('./lib/homeSummary');
 const trackingSummary = require('./lib/trackingSummary');
+const promo = require('./lib/promo');
 const plans = require('./lib/plans');
 const studentLib = require('./lib/student');
 const welcomeEmails = require('./lib/welcomeEmails');
 const { bankMethods } = require('./lib/bankMethods');
 const { deriveCategoryKey, subscriptionKey } = require('./lib/merchantKey');
+const cashflowMath = require('./lib/cashflowMath');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
@@ -2326,7 +2328,7 @@ app.patch('/api/me/beta', auth, async (req, res) => {
   try {
     const on = !!req.body.enabled;
     await User.updateOne({ _id: req.user._id }, { $set: { betaTester: on } });
-    res.json({ ok: true, betaTester: on, groupUrl: on ? BETA_WHATSAPP_URL : '' });
+    res.json({ ok: true, betaTester: on, groupUrl: on ? WHATSAPP_CHANNEL_URL : '' });
   } catch (e) { console.error('[me/beta]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -2828,6 +2830,21 @@ app.get('/api/transactions', auth, async (req, res) => {
     res.json(transactions);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
+// Where a manual entry was last paid from / received into for a category: the default
+// the "Paid from" chips start on. Cash entries carry paymentMethod 'cash' and no bank.
+async function lastManualSource(userId, category) {
+  const q = { userId, source: 'manual', $or: [{ bank: { $ne: '' } }, { paymentMethod: 'cash' }] };
+  if (category) q.category = String(category).trim();
+  let t = await Transaction.findOne(q).sort({ date: -1, _id: -1 }).select('bank bankCode accountMask paymentMethod').lean();
+  if (!t && category) { delete q.category; t = await Transaction.findOne(q).sort({ date: -1, _id: -1 }).select('bank bankCode accountMask paymentMethod').lean(); }
+  if (!t) return null;
+  if (t.bank) return { kind: 'bank', bank: t.bank, bankCode: t.bankCode || '', accountMask: t.accountMask || '' };
+  return { kind: 'cash' };
+}
+app.get('/api/transactions/manual-default', auth, async (req, res) => {
+  try { res.json({ source: await lastManualSource(req.user._id, req.query.category) }); }
+  catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
 app.post('/api/transactions', auth, async (req, res) => {
   const { date, description, amount, category, type, source, bank, bankCode, accountMask, parseConfidence, parseId, dedupeGroupId, paymentMethod } = req.body;
   if (!date || !description || !amount || !category || !type) return res.status(400).json({ message: 'All fields required' });
@@ -2898,6 +2915,14 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
     if (description !== undefined) txn.description = description.trim();
     if (type !== undefined) txn.type = type;
     if (category !== undefined) txn.category = category.trim();
+    // "Paid from / Received into": the account, a bank by name, or cash.
+    if (req.body.paymentMethod === 'cash') { txn.paymentMethod = 'cash'; txn.bank = ''; txn.bankCode = ''; txn.accountMask = ''; }
+    else if (req.body.bank !== undefined) {
+      const st = await resolveAccountStamp(req.user._id, String(req.body.bankCode || '').toLowerCase().slice(0, 24), String(req.body.accountMask || '').replace(/\D/g, '').slice(0, 4));
+      txn.bank = String(req.body.bank || '').slice(0, 40);
+      txn.bankCode = st.bankCode || ''; txn.accountMask = st.accountMask || '';
+      if (txn.paymentMethod === 'cash') txn.paymentMethod = '';
+    }
     const newType = type !== undefined ? type : txn.type;
     if (amount !== undefined) {
       const a = Math.abs(parseFloat(amount));
@@ -3027,14 +3052,17 @@ app.post('/api/presets/corper', auth, async (req, res) => {
   } catch (e) { console.error('[presets/corper]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// Invite link to the Automonie WhatsApp community - sent to every new signup.
-const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/GwGSrl76CbaLA7xQqmmLrU?s=cl&p=a&ilr=4';
-// Separate beta testers community. Set BETA_WHATSAPP_URL on Render once the beta
-// group exists; until then it falls back to the general community link.
-const BETA_WHATSAPP_URL = process.env.BETA_WHATSAPP_URL || WHATSAPP_GROUP_URL;
-// Only two WhatsApp destinations: the general community (channel/group) for every
-// public signup incl. corpers, and the beta testers GC for beta opt-ins.
-const groupUrlFor = (source) => (String(source || '').toLowerCase() === 'beta' ? BETA_WHATSAPP_URL : WHATSAPP_GROUP_URL);
+// The Automonie WhatsApp channel: one link for every signup (waitlist, corper, beta),
+// the app, the website and the emails. Change it with WHATSAPP_CHANNEL_URL on the host
+// (default in lib/promo.js). The old community and beta group links are retired.
+const WHATSAPP_CHANNEL_URL = promo.channelUrl();
+const groupUrlFor = () => WHATSAPP_CHANNEL_URL;
+
+// Public notices for the website and the app (no sign-in): the PIXLCO vote banner.
+app.get('/api/public/promo', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({ pixlco: promo.pixlcoVote(), whatsappChannel: WHATSAPP_CHANNEL_URL });
+});
 
 // Waitlist - public signup from the marketing site (rate-limited, deduped).
 app.post('/api/waitlist', authLimiter, async (req, res) => {
@@ -4208,6 +4236,15 @@ async function ingestAlert(user, parsed, source = 'email') {
 // transient: parsed, then never persisted or logged (it holds full account details).
 const shareIdemp = new Map(); // clientIdempotencyKey -> { at, body }  (double-submit guard)
 function shareDedupeCheck(existing, parsed) {
+  // A hand-added entry that this alert is probably the same money as: same amount and
+  // direction, within 2 days, same bank. The app asks instead of silently merging.
+  const pd = new Date(parsed.date).getTime();
+  const pb = String(parsed.bank || '').toLowerCase().trim();
+  for (const e of existing) {
+    if (e.source !== 'manual' || !pb || String(e.bank || '').toLowerCase().trim() !== pb) continue;
+    if (e.type !== parsed.type || Math.abs(Math.abs(e.amount) - Math.abs(parsed.amount)) >= 0.01) continue;
+    if (Math.abs(new Date(e.date).getTime() - pd) <= 2 * 86400000) return { verdict: 'duplicate_suspected', existingTransactionId: String(e._id), matchesManual: true };
+  }
   const fp = fingerprint({ amount: parsed.amount, type: parsed.type, date: parsed.date, bank: parsed.bank, description: parsed.description });
   for (const e of existing) {
     const s = matchScore(fp, fingerprint({ amount: e.amount, type: e.type, date: new Date(e.date).toISOString().slice(0, 10), bank: e.bank, description: e.description }));
@@ -4241,9 +4278,9 @@ app.post('/api/ingest/share', auth, async (req, res) => {
     // catches an auto-forwarded twin so we never double-count).
     const times = rows.map((r) => new Date(r.date).getTime()).filter((t) => !isNaN(t));
     const base = times.length ? times : [now];
-    const gte = new Date(Math.min(...base) - 86400000), lte = new Date(Math.max(...base) + 86400000);
+    const gte = new Date(Math.min(...base) - 2 * 86400000), lte = new Date(Math.max(...base) + 2 * 86400000);
     const existing = await Transaction.find({ userId: req.user._id, date: { $gte: gte, $lte: lte } })
-      .select('amount type date bank description').lean();
+      .select('amount type date bank description source').lean();
 
     const parseId = crypto.randomUUID();
     const candidates = rows.map((r) => ({
@@ -7096,9 +7133,12 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const sumOf = (rows) => rows.reduce((s, t) => s + Math.abs(t.amount), 0);
 
-    // Average daily spend over the last 90 days of expenses.
+    // Typical daily spend over the last 90 days. A plain average let one big one-off
+    // (school fees, a deposit on a flat) set the daily rate for the whole forecast and
+    // made the chart nosedive, so spending is totalled by week and the heaviest weeks
+    // are left out before averaging (lib/cashflowMath).
     const winStart = new Date(today); winStart.setDate(winStart.getDate() - 90);
-    const dailyBurn = sumOf(txns.filter((t) => t.type === 'expense' && new Date(t.date) >= winStart)) / 90;
+    const dailyBurn = cashflowMath.typicalDailySpend(txns.filter((t) => t.type === 'expense' && new Date(t.date) >= winStart), today, 90);
 
     // Monthly income: the stated figure, else the last 90 days' average. Pay day is
     // the most common day-of-month among income rows.
@@ -7114,7 +7154,9 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
 
     const entered = Number(req.query.balance);
     const hasEntered = req.query.balance !== undefined && req.query.balance !== '' && Number.isFinite(entered);
-    const thisMonth = txns.filter((t) => new Date(t.date) >= monthStart);
+    // This month so far: nothing dated in the future (a mis-dated import would otherwise count), and
+    // only income and spending, the same rows the Money screen totals.
+    const thisMonth = txns.filter((t) => new Date(t.date) >= monthStart && new Date(t.date) <= new Date(today.getTime() + 86400000 - 1));
     const leftThisMonth = sumOf(thisMonth.filter((t) => t.type === 'income')) - sumOf(thisMonth.filter((t) => t.type === 'expense'));
     const start = hasEntered ? entered : leftThisMonth;
 
@@ -7158,7 +7200,7 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
       currentBalance: Math.round(start),
       startingFrom: hasEntered ? 'entered' : 'this_month',
       dailyBurn: Math.round(dailyBurn),
-      monthlyIncome, payDay,
+      monthlyIncome, payDay, incomeModeled: !!monthlyIncome,
       safeToSpend: Math.max(0, Math.round(start - committed)),
       projectedEnd: series[series.length - 1].balance,
       lowest, shortfallDate,
@@ -7483,9 +7525,13 @@ const executeAiTool = async (name, input, user, { refs = [] } = {}) => {
         amount: type === 'expense' ? -amount : amount,
         category: String(category).trim(), type, source: 'manual',
       });
+      // Ask can't show chips: use where this category was last paid from, else cash.
+      const src = await lastManualSource(userId, txn.category).catch(() => null);
+      if (src && src.kind === 'bank') { txn.bank = src.bank; txn.bankCode = src.bankCode; txn.accountMask = src.accountMask; }
+      else txn.paymentMethod = 'cash';
       await txn.save();
       if (type === 'expense') checkBudgetAlert(userId, txn.category, date.toISOString().slice(0, 7));
-      return { ok: true, summary: `Logged ${type} of ${naira(amount)} - ${category} (${txn.description}).`, kind: 'transaction' };
+      return { ok: true, summary: `Logged ${type} of ${naira(amount)} - ${category} (${txn.description}) ${type === 'income' ? 'into' : 'from'} ${txn.bank || 'Cash'}. They can change this on the transaction.`, kind: 'transaction' };
     }
 
     if (name === 'create_budget') {

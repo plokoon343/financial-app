@@ -26,5 +26,15 @@ check('a refund after a failure is money in', parseAlert('Your failed transfer o
 check('the balance is never read as the amount', parseAlert('Bal: NGN 99,000.00. Acct debited NGN 1,500.00 for POS').amount === 1500);
 check('text with no numbers is dropped', classifyAlert('Welcome to mobile banking').kind === 'ignore');
 
+// Transfer receipts (a shared GTWorld PDF): the narration is who it went to, never the date line.
+const RCPT = ['Receipt', '17 Oct 2026, 15:05, GMT+01:00', '₦10,600.00', 'Ten Thousand Six Hundred Naira Zero Kobo', 'Success', 'Sender', 'Onukogu, Chidumebi Vincent', 'Receiver', 'Chimdalu Miriam Onukogu', 'Account number', '7043467062', 'Receiving bank', 'Moniepoint Mfb', 'Reference number', '000013261017150533000068396299', 'Remark', 'Instant Outward Transfer 000013261017150533000068396299 To Moniepoint Mfb/Chimdalu Miriam Onukogu'];
+for (const [label, text] of [['lines', RCPT.join('\n')], ['one line', RCPT.join(' ')]]) {
+  const r = parseAlert(text, { source: 'share' });
+  check(`receipt (${label}): narration is the receiver`, r && r.description === 'Transfer to Chimdalu Miriam Onukogu', r && r.description);
+  check(`receipt (${label}): amount, direction and category`, r && r.amount === 10600 && r.type === 'expense' && r.category === 'Transfer');
+  check(`receipt (${label}): the receiving bank is not the user's bank`, r && r.bank !== 'Moniepoint', r && r.bank);
+}
+check('interest earned is income, not Other Income', parseAlert('Credit Alert NGN2.99 OWealth Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'Investment');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

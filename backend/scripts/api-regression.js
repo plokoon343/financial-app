@@ -702,6 +702,17 @@ async function main() {
     check('delete-account: a made-up link is refused', (await call('POST', '/api/account-deletion/confirm', { token: 'made-up' }, { 'Content-Type': 'application/json' })).status === 404);
   }
 
+  // ── Round 5 S5: birthday (day and month only) and onboarding events ──
+  {
+    const set = await call('PUT', '/api/me', { birthdayDay: 14, birthdayMonth: 3 });
+    check('S5 a birthday is saved as day and month only', set.status === 200 && set.body?.birthdayDay === 14 && set.body?.birthdayMonth === 3 && !('birthdayYear' in (set.body || {})), JSON.stringify(set.body));
+    check('S5 /api/me returns it with the switch on by default', (await call('GET', '/api/me')).body?.birthdayEmails === true);
+    check('S5 31 April is refused', (await call('PUT', '/api/me', { birthdayDay: 31, birthdayMonth: 4 })).status === 400);
+    check('S5 the Birthday messages switch saves', (await call('PUT', '/api/me', { birthdayEmails: false })).body?.birthdayEmails === false);
+    check('S5 clearing the birthday works', (await call('PUT', '/api/me', { birthdayDay: null, birthdayMonth: null })).body?.birthdayDay === null);
+    check('S5 onboarding events are accepted', (await call('POST', '/api/events', { name: 'onboarding_step_skipped', props: { step: 'birthday' } })).status === 200);
+  }
+
   // ── Round 4 A1: the Home "N things need a quick look" count equals the Action Center rows ──
   {
     const db = mongoose.connection.db;

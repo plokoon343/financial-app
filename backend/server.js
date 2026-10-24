@@ -48,6 +48,7 @@ const welcomeEmails = require('./lib/welcomeEmails');
 const { bankMethods } = require('./lib/bankMethods');
 const { deriveCategoryKey, subscriptionKey } = require('./lib/merchantKey');
 const cashflowMath = require('./lib/cashflowMath');
+const birthday = require('./lib/birthday');
 const { categorizeTransaction } = require('./lib/categorize');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
@@ -322,6 +323,13 @@ const userSchema = new mongoose.Schema({
   // Quiet hours (Lagos clock, whole hours). Default 22 to 7. No push goes out inside them.
   notifQuietFrom: { type: Number, default: 22, min: 0, max: 23 },
   notifQuietTo:   { type: Number, default: 7, min: 0, max: 23 },
+  // Birthday: day and month only, never the year. Birthday messages is a switch in Notifications.
+  // Who they are, from onboarding (optional): shapes budgets and tips shown later.
+  audience: { type: String, enum: ['', 'student', 'corper'], default: '' },
+  birthdayDay:   { type: Number, min: 1, max: 31 },
+  birthdayMonth: { type: Number, min: 1, max: 12 },
+  birthdayEmails: { type: Boolean, default: true },
+  birthdayEmailYear: { type: Number, default: 0 }, // the year the email last went out
   weeklyInsightWeek: { type: String, default: '' }, // Sunday (Lagos date) the weekly insight push last went out
   // Onboarding: the banks and wallets the user said they use (registry codes), plus
   // any typed under 'Other'. Drives the 'banks to connect' checklist on Home.
@@ -2317,6 +2325,7 @@ app.get('/api/me', auth, async (req, res) => {
     primaryGoal: u.primaryGoal || '', emailAlerts: u.emailAlerts !== false,
     twoFactorEnabled: !!u.twoFactorEnabled,
     onboarded: !!u.onboarded, lastLogin: u.lastLogin || null,
+    birthdayDay: u.birthdayDay || null, birthdayMonth: u.birthdayMonth || null, birthdayEmails: u.birthdayEmails !== false, audience: u.audience || '',
     trainingOptOut: !!u.trainingOptOut,
     seenTips: u.seenTips || [],
   });
@@ -2430,8 +2439,21 @@ app.get('/api/billing/status', auth, async (req, res) => {
 // Update profile / onboarding fields
 app.put('/api/me', auth, async (req, res) => {
   try {
-    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, onboarded, twoFactorEnabled } = req.body;
+    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, onboarded, twoFactorEnabled, birthdayDay, birthdayMonth, birthdayEmails, audience } = req.body;
     const u = req.user;
+    // Birthday: both numbers together, a real date, or both empty to clear it.
+    let birthdayChanged = false;
+    if (birthdayDay !== undefined || birthdayMonth !== undefined) {
+      if ((birthdayDay === null || birthdayDay === '') && (birthdayMonth === null || birthdayMonth === '')) {
+        u.birthdayDay = undefined; u.birthdayMonth = undefined; birthdayChanged = true;
+      } else {
+        const bd = birthday.clean(birthdayDay, birthdayMonth);
+        if (!bd) return res.status(400).json({ message: 'That is not a real day and month.' });
+        u.birthdayDay = bd.day; u.birthdayMonth = bd.month; birthdayChanged = true;
+      }
+    }
+    if (birthdayEmails !== undefined) u.birthdayEmails = !!birthdayEmails;
+    if (audience !== undefined) u.audience = ['student', 'corper'].includes(audience) ? audience : '';
     if (name !== undefined && name.trim()) u.name = name.trim();
     if (phone !== undefined) u.phone = phone.toString().slice(0, 20);
     if (monthlyIncome !== undefined) u.monthlyIncome = Math.max(0, parseFloat(monthlyIncome) || 0);
@@ -2440,7 +2462,8 @@ app.put('/api/me', auth, async (req, res) => {
     if (twoFactorEnabled !== undefined) u.twoFactorEnabled = !!twoFactorEnabled;
     if (onboarded !== undefined) u.onboarded = !!onboarded;
     await u.save();
-    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, twoFactorEnabled: u.twoFactorEnabled, onboarded: u.onboarded });
+    if (birthdayChanged || birthdayEmails !== undefined) syncBirthdayToBrevo(u).catch(() => {});
+    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, twoFactorEnabled: u.twoFactorEnabled, onboarded: u.onboarded, birthdayDay: u.birthdayDay || null, birthdayMonth: u.birthdayMonth || null, birthdayEmails: u.birthdayEmails !== false, audience: u.audience || '' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -3482,7 +3505,7 @@ app.get('/api/transactions/:id/context', auth, async (req, res) => {
 
 // Product events for the insight loop. Names are a fixed list; props are small and
 // carry no amounts or transaction text.
-const EVENT_NAMES = new Set(['insight_viewed', 'insight_tapped', 'recap_shared']);
+const EVENT_NAMES = new Set(['insight_viewed', 'insight_tapped', 'recap_shared', 'onboarding_step_viewed', 'onboarding_step_completed', 'onboarding_step_skipped']);
 const productEventSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   name: { type: String, required: true, index: true },
@@ -7140,6 +7163,49 @@ async function runNudgesJob(now = new Date()) {
   } finally { nudgesRunning = false; }
 }
 
+// ── Birthday emails ─────────────────────────────────────────────────────────────
+// Day and month only. Brevo gets the day and month as one contact attribute (BIRTHDAY_DM,
+// "DD-MM") and nothing else new; clearing the birthday or switching the messages off removes it.
+async function syncBirthdayToBrevo(u) {
+  if (!emailConfigured() || !u.email) return;
+  const value = u.birthdayEmails !== false ? birthday.brevoAttribute(u.birthdayDay, u.birthdayMonth) : '';
+  await axios.post('https://api.brevo.com/v3/contacts', { email: u.email, attributes: { BIRTHDAY_DM: value }, updateEnabled: true }, {
+    headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' }, timeout: 15000,
+  });
+}
+
+// 9 am Lagos, once a year per person. The send is claimed first (the year is written
+// before sending), so two overlapping runs cannot send it twice; a failed send gives the
+// claim back so the next hourly run is not needed, since the 9 o'clock window is one hour.
+async function runBirthdayEmails(now = new Date()) {
+  if (!emailConfigured()) return { skipped: 'email not configured' };
+  const t = birthday.lagosParts(now);
+  if (t.hour !== 9) return { skipped: 'not 9 am in Lagos' };
+  const candidates = await User.find({ birthdayDay: { $gte: 1 }, birthdayEmails: { $ne: false }, emailAlerts: { $ne: false }, birthdayEmailYear: { $ne: t.year } })
+    .select('name email birthdayDay birthdayMonth birthdayEmails emailAlerts birthdayEmailYear').lean();
+  let sent = 0;
+  for (const u of birthday.dueBirthdayEmails(candidates, now)) {
+    try {
+      const claimed = await User.updateOne({ _id: u._id, birthdayEmailYear: { $ne: t.year } }, { $set: { birthdayEmailYear: t.year } });
+      if (!claimed.modifiedCount) continue;
+      const templateId = Number(process.env.BREVO_TEMPLATE_BIRTHDAY) || 0;
+      if (templateId) {
+        await axios.post('https://api.brevo.com/v3/smtp/email', { to: [{ email: u.email }], templateId, params: { firstName: birthday.firstName(u.name) } }, {
+          headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' }, timeout: 15000,
+        });
+      } else {
+        const m = birthday.birthdayEmail(u.name);
+        await sendEmail({ to: u.email, subject: m.subject, text: m.text, html: m.html });
+      }
+      sent++;
+    } catch (e) {
+      await User.updateOne({ _id: u._id }, { $set: { birthdayEmailYear: 0 } }).catch(() => {});
+      console.error('[birthday]', e.response?.data?.message || e.message);
+    }
+  }
+  return { sent };
+}
+
 // Hourly, from an external scheduler (cron-job.org / Render cron) holding CRON_SECRET.
 // /api/cron/insights is the old daily job's address, kept so an existing schedule works.
 app.post(['/api/cron/nudges', '/api/cron/insights'], async (req, res) => {
@@ -7151,6 +7217,7 @@ app.post(['/api/cron/nudges', '/api/cron/insights'], async (req, res) => {
   if (testing && req.query.wait) return res.json(await runNudgesJob(at));
   res.status(202).json({ ok: true });
   reconcileBillPayments().catch((e) => console.error('[cron/nudges] billpay', e.message));
+  runBirthdayEmails(at).then((r) => r && r.sent && console.log('[birthday]', r)).catch((e) => console.error('[birthday]', e.message));
   runWeeklyInsightPush(at).then((r) => r && r.sent && console.log('[weekly-insight]', r)).catch((e) => console.error('[weekly-insight]', e.message));
   runNudgesJob(at).then((r) => console.log('[cron/nudges]', r)).catch((e) => console.error('[cron/nudges]', e.message));
   maybeSendWeeklyReport(new Date()).then((r) => r && console.log('[weekly-report]', r)).catch((e) => console.error('[weekly-report]', e.message));
@@ -8679,7 +8746,7 @@ async function maybeSendWeeklyReport(at = new Date()) {
 const SETUP_KEYS = [
   { group: 'Payments on the web', keys: [['PAYSTACK_SECRET_KEY', 'Plus checkout, webhook and bill payments']], note: 'Paystack needs only the secret key here; the web app redirects to Paystack, so no public key is used.' },
   { group: 'Google Play Billing', keys: [['GOOGLE_PLAY_SERVICE_ACCOUNT', 'checks every Play purchase with Google'], ['PLAY_RTDN_SECRET', 'Play renewal and cancel notifications'], ['PLAY_ACCOUNT_SECRET', 'ties purchases to accounts (falls back to JWT_SECRET)']] },
-  { group: 'Email (Brevo)', keys: [['BREVO_API_KEY', 'all email'], ['BREVO_TEMPLATE_WAITLIST_WELCOME', 'waitlist welcome'], ['BREVO_TEMPLATE_NEWSLETTER_WELCOME', 'newsletter welcome'], ['WELCOME_HEADER_URL', 'header image in welcome emails']] },
+  { group: 'Email (Brevo)', keys: [['BREVO_API_KEY', 'all email'], ['BREVO_TEMPLATE_WAITLIST_WELCOME', 'waitlist welcome'], ['BREVO_TEMPLATE_NEWSLETTER_WELCOME', 'newsletter welcome'], ['BREVO_TEMPLATE_BIRTHDAY', 'birthday email (optional; a built-in one is used without it)'], ['WELCOME_HEADER_URL', 'header image in welcome emails']] },
   { group: 'Scheduled jobs', keys: [['CRON_SECRET', 'hourly /api/cron/nudges (header x-cron-secret): reminders, nudges, bill re-checks, weekly report']] },
   { group: 'AI, personal data (paid only)', keys: [['GEMINI_PAID_API_KEY', 'unknown alerts and statements, ask about my money; must be on a billing-enabled Google project']] },
   { group: 'AI, stripped shop names (free tiers)', keys: [['GEMINI_API_KEY', 'Gemini free'], ['XAI_API_KEY', 'Grok (xAI)'], ['CF_ACCOUNT_ID', 'Cloudflare Workers AI'], ['CF_AI_TOKEN', 'Cloudflare Workers AI'], ['OPENROUTER_API_KEY', 'OpenRouter free models'], ['NVIDIA_API_KEY', 'NVIDIA NIM']] },

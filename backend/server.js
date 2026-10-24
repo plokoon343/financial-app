@@ -36,6 +36,7 @@ const { detectDirection, parseLabeledAlert, alertDescription } = require('./lib/
 const { classifyAlert, alertIgnoreReason, alertShape } = require('./lib/alertClassify');
 const { parseAlert } = require('./lib/alertParser');
 const capture = require('./lib/capture');
+const compliance = require('./lib/compliance');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
 const { homeSummary } = require('./lib/homeSummary');
@@ -740,6 +741,53 @@ const parseCorrectionSchema = new mongoose.Schema({
   timeToReviewMs:     { type: Number, default: null },
 });
 const ParseCorrection = mongoose.model('ParseCorrection', parseCorrectionSchema);
+
+// NDPC/NDPR (round 5, 14): what and when. One row per change, not one row per
+// user, so "Download my data" and a future "Privacy and data" screen can show
+// the whole trail, not just the latest state. Deleted with the account.
+const consentSchema = new mongoose.Schema({
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  type:      { type: String, enum: compliance.CONSENT_TYPES, required: true },
+  action:    { type: String, enum: ['granted', 'revoked'], required: true },
+  version:   { type: String, default: compliance.POLICY_VERSION },
+  source:    { type: String, default: 'api' }, // 'web' | 'android' | 'ios' | 'api'
+  createdAt: { type: Date, default: Date.now },
+});
+consentSchema.index({ userId: 1, createdAt: -1 });
+const Consent = mongoose.model('Consent', consentSchema);
+const recordConsent = (userId, type, action, extra = {}) => {
+  if (!compliance.isConsentType(type)) return;
+  Consent.create({ userId, type, action, ...extra }).catch((e) => console.error('[consent]', e.message));
+};
+
+// Privacy policy 4.3 promises "records of security events such as sign-ins,
+// password resets and sign out of all devices requests". One row per event;
+// matches the policy's "security logs ... generally not more than 12 months".
+const securityEventSchema = new mongoose.Schema({
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  type:      { type: String, enum: compliance.SECURITY_EVENT_TYPES, required: true },
+  ip:        { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now, expires: 365 * 86400 },
+});
+const SecurityEvent = mongoose.model('SecurityEvent', securityEventSchema);
+const logSecurityEvent = (userId, type, req) => {
+  if (!compliance.isSecurityEventType(type)) return;
+  SecurityEvent.create({ userId, type, ip: (req && (req.ip || req.get?.('x-forwarded-for'))) || '' }).catch((e) => console.error('[security-event]', e.message));
+};
+
+// "Staff/admin access to user data logged" (14): every superadmin-gated
+// request, who made it and which account (if any) it named. Not a security
+// log of the user's own activity, so it gets its own retention (also 12
+// months, the same ceiling the policy sets for security logs).
+const adminAccessLogSchema = new mongoose.Schema({
+  adminId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  adminEmail: { type: String, default: '' },
+  method:     { type: String, default: '' },
+  path:       { type: String, default: '' },
+  targetUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+  createdAt:  { type: Date, default: Date.now, expires: 365 * 86400 },
+});
+const AdminAccessLog = mongoose.model('AdminAccessLog', adminAccessLogSchema);
 
 // One row per user per Lagos day they used the app: the history behind the active-user
 // and retention metrics (lastActiveAt alone only knows the latest visit). No content,
@@ -2059,6 +2107,13 @@ const auth = async (req, res, next) => {
 const superAdminAuth = async (req, res, next) => {
   try {
     if (req.user.role !== 'superadmin') return res.status(403).json({ message: 'Access denied. Superadmin only.' });
+    // Every admin-gated request touches other users' data in some form
+    // (a list, a lookup, a change), so log it here once rather than at each
+    // of the 30+ routes this guards.
+    AdminAccessLog.create({
+      adminId: req.user._id, adminEmail: req.user.email, method: req.method, path: req.baseUrl + req.path,
+      targetUserId: mongoose.isValidObjectId(req.params?.id) ? req.params.id : null,
+    }).catch((e) => console.error('[admin-access-log]', e.message));
     next();
   } catch (error) { res.status(403).json({ message: 'Access denied' }); }
 };
@@ -2154,6 +2209,8 @@ app.post('/api/register', authLimiter, async (req, res) => {
     }
     const user = new User({ name, email: cleanEmail, password: hashedPassword, phone: cleanPhone.slice(0, 20), emailVerified: true, signupClient: clientOf(req) });
     await user.save();
+    recordConsent(user._id, 'terms', 'granted', { source: clientOf(req) || 'web' });
+    recordConsent(user._id, 'privacy', 'granted', { source: clientOf(req) || 'web' });
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
@@ -2188,6 +2245,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
 
     user.lastLogin = new Date();
     await user.save();
+    logSecurityEvent(user._id, 'login', req);
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
@@ -2212,6 +2270,7 @@ app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
       user.emailVerified = true;
       user.lastLogin = new Date();
       await user.save();
+      logSecurityEvent(user._id, 'login', req);
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
       return res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
     }
@@ -2224,6 +2283,9 @@ app.post('/api/verify-login-otp', authLimiter, async (req, res) => {
     if (pending.otpHash !== hashToken(code)) return res.status(400).json({ message: 'Incorrect code' });
     const created = new User({ name: pending.name, email: pending.email, password: pending.password, phone: pending.phone, emailVerified: true, lastLogin: new Date(), signupClient: clientOf(req) });
     await created.save();
+    recordConsent(created._id, 'terms', 'granted', { source: clientOf(req) || 'web' });
+    recordConsent(created._id, 'privacy', 'granted', { source: clientOf(req) || 'web' });
+    logSecurityEvent(created._id, 'login', req);
     await PendingRegistration.deleteOne({ _id: pending._id });
     const token = jwt.sign({ userId: created._id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: created._id, name: created.name, email: created.email, role: created.role, onboarded: created.onboarded } });
@@ -2297,8 +2359,14 @@ app.post('/api/auth/google', authLimiter, async (req, res) => {
     } else if (!user.googleId) {
       user.googleId = payload.sub;
     }
+    const isNewUser = user.isNew;
     user.lastLogin = new Date();
     await user.save();
+    if (isNewUser) {
+      recordConsent(user._id, 'terms', 'granted', { source: clientOf(req) || 'web' });
+      recordConsent(user._id, 'privacy', 'granted', { source: clientOf(req) || 'web' });
+    }
+    logSecurityEvent(user._id, 'login', req);
 
     // Google itself is the strong factor, so we skip our email OTP here.
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
@@ -2358,6 +2426,7 @@ app.patch('/api/me/beta', auth, async (req, res) => {
   try {
     const on = !!req.body.enabled;
     await User.updateOne({ _id: req.user._id }, { $set: { betaTester: on } });
+    recordConsent(req.user._id, 'beta', on ? 'granted' : 'revoked', { source: clientOf(req) || 'web' });
     res.json({ ok: true, betaTester: on, groupUrl: on ? WHATSAPP_CHANNEL_URL : '' });
   } catch (e) { console.error('[me/beta]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -2480,6 +2549,7 @@ app.post('/api/change-password', sensitiveLimiter, auth, async (req, res) => {
     acct.password = await bcrypt.hash(newPassword, await bcrypt.genSalt(10));
     acct.sessionsValidFrom = new Date(); // sign out other sessions on password change
     await acct.save();
+    logSecurityEvent(acct._id, 'password_change', req);
     res.json({ message: 'Password changed successfully.' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -2507,6 +2577,7 @@ app.post('/api/logout-all', auth, async (req, res) => {
   try {
     req.user.sessionsValidFrom = new Date();
     await req.user.save();
+    logSecurityEvent(req.user._id, 'logout_all', req);
     res.json({ message: 'Logged out of all devices.' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -2532,6 +2603,7 @@ async function deleteUserData(userId, email) {
     Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
     Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview, PendingAlert, CorrectionEvent, AiChat,
+    Consent, SecurityEvent,
   ].map((M) => M.deleteMany({ userId: uid })));
   await ActivityDay.deleteMany({ userId: uid });
   // 'billpayments' also holds the current bill purchases (they carry a VTpass
@@ -2546,11 +2618,14 @@ async function deleteUserData(userId, email) {
   await User.deleteOne({ _id: uid });
 }
 
-// Export all of the user's data as JSON
+// Export all of the user's data. "Download my data" (14): JSON by default
+// (the full record), or ?format=csv for just the transactions, matching the
+// portability promise in the privacy policy ("You can export your
+// transactions from the Service").
 app.get('/api/me/export', auth, async (req, res) => {
   try {
     const uid = req.user._id;
-    const [transactions, budgets, goals, subscriptions, bills, accounts, contacts, tickets, legacy] = await Promise.all([
+    const [transactions, budgets, goals, subscriptions, bills, accounts, contacts, tickets, consents, legacy] = await Promise.all([
       Transaction.find({ userId: uid }).lean(),
       Budget.find({ userId: uid }).lean(),
       Goal.find({ userId: uid }).lean(),
@@ -2559,14 +2634,28 @@ app.get('/api/me/export', auth, async (req, res) => {
       UserAccount.find({ userId: uid }).lean(),
       Contact.find({ userId: uid }).lean(),
       SupportTicket.find({ userId: uid }).lean(),
+      Consent.find({ userId: uid }).sort({ createdAt: 1 }).lean(),
       legacyRows(uid),
     ]);
+    if (String(req.query.format || '').toLowerCase() === 'csv') {
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', 'attachment; filename="automonie-transactions.csv"');
+      return res.send(compliance.transactionsToCSV(transactions));
+    }
     res.json({
       exportedAt: new Date().toISOString(),
       profile: { name: req.user.name, email: req.user.email, phone: req.user.phone, monthlyIncome: req.user.monthlyIncome, primaryGoal: req.user.primaryGoal },
-      transactions, budgets, goals, subscriptions, bills, accounts, contacts, supportTickets: tickets,
+      transactions, budgets, goals, subscriptions, bills, accounts, contacts, supportTickets: tickets, consents,
       ...(Object.keys(legacy).length ? { legacy } : {}),
     });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Consent history alone (14): what and when, for a future "Privacy and data" screen.
+app.get('/api/me/consents', auth, async (req, res) => {
+  try {
+    const consents = await Consent.find({ userId: req.user._id }).sort({ createdAt: -1 }).lean();
+    res.json({ consents });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -2716,6 +2805,7 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
     // token stops working immediately (same as a normal password change).
     user.sessionsValidFrom = new Date();
     await user.save();
+    logSecurityEvent(user._id, 'password_reset', req);
     res.json({ message: 'Password updated. You can now log in with your new password.' });
   } catch (error) {
     console.error('[reset-password]', error.message);
@@ -3470,6 +3560,7 @@ app.post('/api/me/training-optout', auth, async (req, res) => {
   try {
     req.user.trainingOptOut = !!req.body.optOut;
     await req.user.save();
+    recordConsent(req.user._id, 'training', req.user.trainingOptOut ? 'revoked' : 'granted', { source: clientOf(req) || 'web' });
     res.json({ trainingOptOut: req.user.trainingOptOut });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -4198,6 +4289,7 @@ app.get('/api/inbound-email/address', auth, async (req, res) => {
         if (!(await User.exists({ inboundEmailToken: tok }))) { user.inboundEmailToken = tok; break; }
       }
       await user.save();
+      recordConsent(user._id, 'email_forwarding', 'granted', { source: clientOf(req) || 'web' });
     }
     res.json({
       address: `${user.inboundEmailToken}@${INBOUND_DOMAIN}`,
@@ -4710,6 +4802,7 @@ app.post('/api/capture/key', auth, async (req, res) => {
     const key = capture.newCaptureKey();
     req.user.captureKeyHash = capture.hashCaptureKey(key);
     await req.user.save();
+    recordConsent(req.user._id, 'notification_access', 'granted', { source: clientOf(req) || 'android' });
     res.json({ key, endpoint: `${process.env.PUBLIC_API_URL || 'https://financial-app-w2ai.onrender.com'}/api/ingest/capture` });
   } catch (e) { console.error('[capture/key]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -4752,6 +4845,7 @@ app.delete('/api/capture/key', auth, async (req, res) => {
   try {
     req.user.captureKeyHash = undefined;
     await req.user.save();
+    recordConsent(req.user._id, 'notification_access', 'revoked', { source: clientOf(req) || 'android' });
     res.json({ connected: false });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -5865,6 +5959,15 @@ app.delete('/api/admin/users/:id', auth, superAdminAuth, async (req, res) => {
     await deleteUserData(user._id, user.email);
     res.json({ message: 'User and all associated data deleted' });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
+});
+// Self-audit (14): every superadmin-gated request, logged by superAdminAuth
+// above. Lets the owner review staff access to user data, including their own.
+app.get('/api/admin/access-log', auth, superAdminAuth, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+    const log = await AdminAccessLog.find({}).sort({ createdAt: -1 }).limit(limit).lean();
+    res.json({ log });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 app.get('/api/admin/stats', auth, superAdminAuth, async (req, res) => {
   try {

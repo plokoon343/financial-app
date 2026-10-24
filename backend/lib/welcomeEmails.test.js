@@ -7,11 +7,11 @@ const check = (label, cond, extra = '') => { if (cond) pass++; else { fail++; co
 const banned = /save automatically|auto-?save|autopay|we'?ll save for you/i;
 const emoji = /\p{Extended_Pictographic}/u;
 
-const w = waitlistWelcome({ name: 'Ada Obi', whatsappUrl: 'https://chat.whatsapp.com/x' });
+const w = waitlistWelcome({ name: 'Ada Obi', whatsappUrl: 'https://whatsapp.com/channel/x' });
 check('waitlist greets by first name', w.html.includes('Hey Ada,') && w.text.startsWith('Hey Ada,'));
 check('waitlist is the founder letter', /where did all my money go/.test(w.text) && /helping us build Automonie/.test(w.html) && /Tobe/.test(w.text));
 check('waitlist has no em dash', !/—/.test(w.html + w.text));
-check('waitlist links the community', w.html.includes('https://chat.whatsapp.com/x'));
+check('waitlist links the channel', w.html.includes('https://whatsapp.com/channel/x') && w.html.includes('WhatsApp channel') && !/community/i.test(w.html));
 check('waitlist without a name still reads well', waitlistWelcome({}).html.includes('Hey there,'));
 const wGif = waitlistWelcome({ headerImageUrl: 'https://www.automonie.com/email/welcome.gif' });
 check('header image has alt text', /<img src="https:\/\/www\.automonie\.com\/email\/welcome\.gif"[^>]*alt="Welcome to Automonie"/.test(wGif.html));
@@ -36,7 +36,7 @@ check('under 100 KB so Gmail never clips it', all.every((e) => Buffer.byteLength
 const tw = waitlistWelcome({ template: true });
 const tn = newsletterWelcome({ template: true });
 check('template: greeting placeholder with a fallback', tw.html.includes('{% if params.firstName %}Hey {{ params.firstName }},{% else %}Hey there,{% endif %}'));
-check('template: community link placeholder', tw.html.includes('href="{{ params.whatsappUrl }}"'));
+check('template: channel link placeholder', tw.html.includes('href="{{ params.whatsappUrl }}"'));
 check('template: header image chosen at send time', tw.html.includes('{% if params.headerImageUrl %}<tr><td style="padding:0"><img src="{{ params.headerImageUrl }}"') && tw.html.includes('{% else %}'));
 check('template: unsubscribe placeholder', tn.html.includes('href="{{ params.unsubscribeUrl }}"') && tn.text.includes('{{ params.unsubscribeUrl }}'));
 

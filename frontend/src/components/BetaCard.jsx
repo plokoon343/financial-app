@@ -60,7 +60,7 @@ export default function BetaCard() {
 
       {isBeta && groupUrl && (
         <a href={groupUrl} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ display: 'inline-flex', marginTop: 12, background: '#25D366' }}>
-          <i className="fab fa-whatsapp" style={{ marginRight: 8 }}></i> Join the beta WhatsApp community
+          <i className="fab fa-whatsapp" style={{ marginRight: 8 }}></i> Join our WhatsApp channel
         </a>
       )}
 

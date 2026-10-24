@@ -81,8 +81,8 @@ ${P('Automonie is being built to help you understand your money without turning 
 </ul>
 ${P('Because budgeting shouldn’t feel like punishment. It should feel like finally being in control.')}
 ${P('And we’re just getting started. Since you’re here early, you’re not just another user: you’re helping us build Automonie. As we roll out new features, we’d love to hear what works, what doesn’t, and what you wish your money app could do.')}
-${whatsappUrl ? `${P('Tell us in our WhatsApp community, and get early updates there first.', ';margin-bottom:12px')}
-<p style="margin:0 0 20px">${button(whatsappUrl, 'Join the community')}</p>` : ''}
+${whatsappUrl ? `${P('Join our WhatsApp channel for money tips and updates.', ';margin-bottom:12px')}
+<p style="margin:0 0 20px">${button(whatsappUrl, 'Join the channel')}</p>` : ''}
 ${P('No complicated finance talk. No guilt trips. No “stop buying coffee” lectures. Just your money, your habits, and a clearer picture of where it all goes.')}
 ${P('Welcome to Automonie. Let’s make budgeting make sense.')}
 <p style="margin:0">Tobe<br>Automonie</p>`,
@@ -104,7 +104,7 @@ Automonie is being built to help you understand your money without turning budge
 Because budgeting shouldn't feel like punishment. It should feel like finally being in control.
 
 And we're just getting started. Since you're here early, you're not just another user: you're helping us build Automonie. As we roll out new features, we'd love to hear what works, what doesn't, and what you wish your money app could do.
-${whatsappUrl ? `\nTell us in our WhatsApp community, and get early updates there first: ${whatsappUrl}\n` : ''}
+${whatsappUrl ? `\nJoin our WhatsApp channel for money tips and updates: ${whatsappUrl}\n` : ''}
 No complicated finance talk. No guilt trips. No "stop buying coffee" lectures. Just your money, your habits, and a clearer picture of where it all goes.
 
 Welcome to Automonie. Let's make budgeting make sense.

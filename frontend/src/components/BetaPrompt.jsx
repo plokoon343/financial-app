@@ -8,7 +8,7 @@ const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.get
 const DISMISS_KEY = 'beta_prompt_dismissed';
 
 // A dismissible card that invites non-beta users to join the beta program. Shows on
-// the Dashboard; one click opts them in and reveals the community link. Hidden once
+// the Dashboard; one click opts them in and reveals the WhatsApp channel link. Hidden once
 // they join or dismiss it.
 export default function BetaPrompt() {
   const { user, updateUser } = useAuth();
@@ -50,7 +50,7 @@ export default function BetaPrompt() {
           <>
             <strong style={{ color: 'var(--text-primary, #1a365d)', display: 'block', marginBottom: 2 }}>You're a beta tester now. Thank you!</strong>
             <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary, #5b6b82)' }}>
-              {groupUrl ? 'Join the community to get early builds and share feedback.' : 'Send feedback any time from Settings.'}
+              {groupUrl ? 'Join our WhatsApp channel for money tips and updates.' : 'Send feedback any time from Settings.'}
             </span>
           </>
         ) : (
@@ -66,7 +66,7 @@ export default function BetaPrompt() {
       {joined ? (
         groupUrl ? (
           <a href={groupUrl} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ background: '#25D366', whiteSpace: 'nowrap' }}>
-            <i className="fab fa-whatsapp" style={{ marginRight: 8 }}></i> Join community
+            <i className="fab fa-whatsapp" style={{ marginRight: 8 }}></i> Join the channel
           </a>
         ) : (
           <Link to="/settings" className="btn-secondary" style={{ whiteSpace: 'nowrap' }}>Open Settings</Link>

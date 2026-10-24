@@ -76,6 +76,8 @@ check('priority: bill before spike', select([c('spend_spike'), c('bill_due')], {
 check('category switched off is skipped', select([c('bill_due'), c('spend_spike')], { copy: COPY, now: NOW, prefs: { bills: false } }).trigger === 'spend_spike');
 check('quiet hours 23:00 -> nothing', select([c('bill_due')], { copy: COPY, now: at('2026-10-14T23:00:00') }) === null);
 check('quiet hours 06:30 -> nothing', select([c('bill_due')], { copy: COPY, now: at('2026-10-14T06:30:00') }) === null);
+check('own quiet hours 23 to 6: 06:30 is allowed', select([c('bill_due')], { copy: COPY, now: at('2026-10-14T06:30:00'), quiet: { from: 23, to: 6 } }) !== null);
+check('own quiet hours 23 to 6: 23:30 is quiet', select([c('bill_due')], { copy: COPY, now: at('2026-10-14T23:30:00'), quiet: { from: 23, to: 6 } }) === null);
 check('07:00 -> sends', select([c('bill_due')], { copy: COPY, now: at('2026-10-14T07:00:00') }) !== null);
 const sent = (hoursAgo, trigger = 'month_start', key = `k${hoursAgo}`) => ({ trigger, key, sentAt: new Date(NOW - hoursAgo * 3600000) });
 check('two already today -> nothing', select([c('bill_due')], { copy: COPY, now: NOW, log: [sent(4), sent(8)] }) === null);

@@ -41,6 +41,7 @@ const nudges = require('./lib/nudges');
 const { homeSummary } = require('./lib/homeSummary');
 const trackingSummary = require('./lib/trackingSummary');
 const promo = require('./lib/promo');
+const txnNotify = require('./lib/txnNotify');
 const plans = require('./lib/plans');
 const studentLib = require('./lib/student');
 const welcomeEmails = require('./lib/welcomeEmails');
@@ -316,6 +317,11 @@ const userSchema = new mongoose.Schema({
     streaks: { type: Boolean, default: true }, recap: { type: Boolean, default: true }, tips: { type: Boolean, default: true },
   },
   showAmountsInNotifications: { type: Boolean, default: false },
+  // "New transactions added" notices: batched (2 min after the last), a daily 8 pm summary (default) or off.
+  newTxnNotify:   { type: String, enum: ['batched', 'daily', 'off'], default: 'daily' },
+  // Quiet hours (Lagos clock, whole hours). Default 22 to 7. No push goes out inside them.
+  notifQuietFrom: { type: Number, default: 22, min: 0, max: 23 },
+  notifQuietTo:   { type: Number, default: 7, min: 0, max: 23 },
   weeklyInsightWeek: { type: String, default: '' }, // Sunday (Lagos date) the weekly insight push last went out
   // Onboarding: the banks and wallets the user said they use (registry codes), plus
   // any typed under 'Other'. Drives the 'banks to connect' checklist on Home.
@@ -633,6 +639,19 @@ const nudgeLogSchema = new mongoose.Schema({
 nudgeLogSchema.index({ userId: 1, sentAt: -1 });
 nudgeLogSchema.index({ sentAt: -1 });
 const NudgeLog = mongoose.model('NudgeLog', nudgeLogSchema);
+
+// Transactions that arrived on their own and are waiting for their "added" notice.
+const pendingTxnNoticeSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  description: { type: String, default: '' },
+  amount: { type: Number, default: 0 },
+  type: { type: String, default: 'expense' },
+  category: { type: String, default: '' },
+  needsLook: { type: Boolean, default: false },
+  source: { type: String, default: '' },
+  addedAt: { type: Date, default: Date.now, expires: 3 * 86400 },   // an unsent notice older than 3 days is dropped
+});
+const PendingTxnNotice = mongoose.model('PendingTxnNotice', pendingTxnNoticeSchema);
 
 // Admin edits to the nudge copy (by variant id), applied over data/nudge-copy.json.
 const nudgeCopySchema = new mongoose.Schema({
@@ -4298,6 +4317,7 @@ async function ingestAlert(user, parsed, source = 'email') {
     bankCode: eCode, accountMask: eMask, senderKey: eSender,
     ...(parsed.confidence ? { parseConfidence: String(parsed.confidence).slice(0, 8) } : {}),
   }).save();
+  queueNewTxn(user._id, saved, source);
   if (parsed.isFee) await linkFee(user._id, saved);
   await touchUserAccount(user._id, { bankCode: eCode, bankName: eBank, accountMask: eMask }, when);
   await maybeLinkSubscription(user._id, { description: parsed.description, amount: parsed.amount, category: parsed.category, date: when, bankName: eBank });
@@ -4949,6 +4969,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       });
     });
     const inserted = await Transaction.insertMany(docs, { ordered: false });
+    for (const d of docs) queueNewTxn(req.user._id, d, 'import');
     for (let i = 0; i < docs.length; i++) if (fresh[i].isFee) await linkFee(req.user._id, docs[i]);
     // Register any accounts these transactions touched, so a new (bank, account)
     // pair can be surfaced for naming. One touch per distinct account in the batch.
@@ -6952,6 +6973,8 @@ app.post('/api/push/register', auth, async (req, res) => {
   try {
     const token = (req.body.token || '').toString().trim();
     if (!isExpoToken(token)) return res.status(400).json({ message: 'Invalid push token' });
+    // A phone belongs to whoever is signed in on it now: take the token off any other account.
+    await User.updateMany({ _id: { $ne: req.user._id }, pushTokens: token }, { $pull: { pushTokens: token } });
     await User.updateOne({ _id: req.user._id }, { $addToSet: { pushTokens: token } });
     res.json({ ok: true });
   } catch (e) { console.error('[push/register]', e.message); res.status(500).json({ message: 'Server error' }); }
@@ -6963,6 +6986,9 @@ const NUDGE_CATEGORIES = nudges.CATEGORIES;
 const pushSettingsOut = (u) => ({
   categories: Object.fromEntries(NUDGE_CATEGORIES.map((c) => [c, u.nudgePrefs?.[c] !== false])),
   showAmounts: !!u.showAmountsInNotifications,
+  newTransactions: txnNotify.modeOf(u),
+  quietFrom: txnNotify.quietOf(u).from,
+  quietTo: txnNotify.quietOf(u).to,
 });
 app.get('/api/push/settings', auth, (req, res) => res.json(pushSettingsOut(req.user)));
 app.post('/api/push/settings', auth, async (req, res) => {
@@ -6974,6 +7000,16 @@ app.post('/api/push/settings', auth, async (req, res) => {
       for (const c of NUDGE_CATEGORIES) if (typeof b.categories[c] === 'boolean') set[`nudgePrefs.${c}`] = b.categories[c];
     }
     if (typeof b.showAmounts === 'boolean') set.showAmountsInNotifications = b.showAmounts;
+    if (b.newTransactions !== undefined) {
+      if (!txnNotify.MODES.includes(b.newTransactions)) return res.status(400).json({ message: 'Choose every time, daily summary or off.' });
+      set.newTxnNotify = b.newTransactions;
+    }
+    if (b.quietFrom !== undefined || b.quietTo !== undefined) {
+      const from = b.quietFrom !== undefined ? b.quietFrom : txnNotify.quietOf(req.user).from;
+      const to = b.quietTo !== undefined ? b.quietTo : txnNotify.quietOf(req.user).to;
+      if (!txnNotify.isHour(from) || !txnNotify.isHour(to)) return res.status(400).json({ message: 'Quiet hours must be whole hours from 0 to 23.' });
+      set.notifQuietFrom = from; set.notifQuietTo = to;
+    }
     if (!Object.keys(set).length) return res.status(400).json({ message: 'Nothing to change.' });
     const u = await User.findByIdAndUpdate(req.user._id, { $set: set }, { new: true });
     res.json(pushSettingsOut(u));
@@ -6987,8 +7023,12 @@ async function sendExpoPush(tokens, { title, body, data }) {
     .map((to) => ({ to, sound: 'default', title, body, data: data || {}, channelId: 'alerts', priority: 'high' }));
   for (let i = 0; i < messages.length; i += 100) {
     try {
-      await axios.post('https://exp.host/--/api/v2/push/send', messages.slice(i, i + 100),
+      const batch = messages.slice(i, i + 100);
+      const r = await axios.post('https://exp.host/--/api/v2/push/send', batch,
         { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
+      // A phone that uninstalled the app keeps getting tried forever; forget it.
+      const dead = (r.data && r.data.data || []).map((tk, k) => (tk && tk.details && tk.details.error === 'DeviceNotRegistered' ? batch[k].to : null)).filter(Boolean);
+      if (dead.length) User.updateMany({ pushTokens: { $in: dead } }, { $pull: { pushTokens: { $in: dead } } }).catch(() => {});
     } catch (e) { console.error('[expo-push]', e.response?.data || e.message); }
   }
 }
@@ -7028,7 +7068,7 @@ async function nudgeSnapshot(u, now) {
 async function nudgeUser(u, copy, now) {
   const log = await NudgeLog.find({ userId: u._id, sentAt: { $gte: new Date(now.getTime() - 45 * 86400000) } }, { trigger: 1, key: 1, sentAt: 1, variantId: 1 }).sort({ sentAt: -1 }).lean();
   const snap = await nudgeSnapshot(u, now);
-  const chosen = nudges.select(nudges.evaluate(snap, now), { log, prefs: u.nudgePrefs || {}, copy, now });
+  const chosen = nudges.select(nudges.evaluate(snap, now), { log, prefs: u.nudgePrefs || {}, copy, now, quiet: txnNotify.quietOf(u) });
   if (!chosen) return null;
   const spec = copy[chosen.trigger];
   const complete = chosen.trigger === 'goal_progress' && chosen.vars.pct === 100;
@@ -7043,15 +7083,57 @@ async function nudgeUser(u, copy, now) {
   return row;
 }
 
+// ── "New transactions added" ────────────────────────────────────────────────────
+// Called when a transaction arrives by itself (never for hand-entered ones). The row
+// waits in PendingTxnNotice; a short timer plus a one-minute sweep send it when due.
+async function queueNewTxn(userId, t, source) {
+  try {
+    const u = await User.findById(userId).select('pushTokens newTxnNotify').lean();
+    if (!u || !(u.pushTokens || []).length || txnNotify.modeOf(u) === 'off') return;
+    const cat = t.category || '';
+    await PendingTxnNotice.create({
+      userId, description: String(t.description || '').slice(0, 80), amount: t.amount, type: t.type,
+      category: cat, needsLook: !cat || cat === 'Other' || cat === 'Other Income' || t.parseConfidence === 'low',
+      source, addedAt: new Date(),
+    });
+    setTimeout(() => { flushTxnNotices().catch(() => {}); }, txnNotify.BATCH_WAIT_MS + 2000).unref();
+  } catch (e) { console.error('[txn-notice] queue', e.message); }
+}
+
+let flushingNotices = false;
+async function flushTxnNotices(now = new Date()) {
+  if (flushingNotices) return { skipped: 'already running' };
+  flushingNotices = true;
+  try {
+    const ids = await PendingTxnNotice.distinct('userId');
+    let sent = 0;
+    for (const id of ids) {
+      const u = await User.findById(id).select('email pushTokens newTxnNotify notifQuietFrom notifQuietTo showAmountsInNotifications').lean();
+      const mode = txnNotify.modeOf(u);
+      if (!u || mode === 'off' || !(u.pushTokens || []).length || txnNotify.isTestAccount(u)) { await PendingTxnNotice.deleteMany({ userId: id }); continue; }
+      const pending = await PendingTxnNotice.find({ userId: id }).sort({ addedAt: 1 }).lean();
+      if (!txnNotify.dueNow({ mode, pending, now, hour: nudges.lagos(now).hour, quiet: txnNotify.quietOf(u) })) continue;
+      const m = txnNotify.describe(pending, { showAmounts: !!u.showAmountsInNotifications });
+      await PendingTxnNotice.deleteMany({ _id: { $in: pending.map((p) => p._id) } });   // before sending: never twice
+      await sendExpoPush(u.pushTokens, { title: m.title, body: m.body, data: { type: 'new_txns', nav: m.nav } });
+      await createNotification(id, { type: 'info', title: m.title, message: m.body }).catch(() => {});
+      sent += 1;
+    }
+    return { users: ids.length, sent };
+  } finally { flushingNotices = false; }
+}
+setInterval(() => { flushTxnNotices().catch((e) => console.error('[txn-notice] sweep', e.message)); }, 60 * 1000).unref();
+
 let nudgesRunning = false;
 async function runNudgesJob(now = new Date()) {
   if (nudgesRunning) return { skipped: 'already running' };
   nudgesRunning = true;
   try {
     const copy = await nudgeCopy();
-    const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id pushTokens nudgePrefs showAmountsInNotifications createdAt lastActiveAt lastLogin').lean();
+    const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id email pushTokens nudgePrefs showAmountsInNotifications notifQuietFrom notifQuietTo createdAt lastActiveAt lastLogin').lean();
     let sent = 0;
     for (const u of users) {
+      if (txnNotify.isTestAccount(u)) continue;   // demo and test accounts never get pushes
       try { if (await nudgeUser(u, copy, now)) sent += 1; } catch (e) { console.error('[nudges] user', String(u._id), e.message); }
     }
     return { users: users.length, sent };

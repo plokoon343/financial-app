@@ -151,9 +151,12 @@ function evaluate(s, now) {
 
 // Pick at most one candidate to send now, or null. log = this user's recent sends
 // [{ trigger, key, sentAt }]; prefs = { spending, budgets, ... } (missing = on).
-function select(candidates, { log = [], prefs = {}, copy, now }) {
+function select(candidates, { log = [], prefs = {}, copy, now, quiet }) {
   const L = lagos(now);
-  if (L.hour >= LIMITS.quietFrom || L.hour < LIMITS.quietTo) return null; // queued: re-evaluated after 07:00
+  // The user's own quiet hours (default 22 to 7); from > to wraps midnight.
+  const from = quiet ? quiet.from : LIMITS.quietFrom, to = quiet ? quiet.to : LIMITS.quietTo;
+  const inQuiet = from === to ? false : from > to ? (L.hour >= from || L.hour < to) : (L.hour >= from && L.hour < to);
+  if (inQuiet) return null; // queued: re-evaluated when quiet hours end
   const today = log.filter((l) => lagosDay(l.sentAt) === L.dateKey);
   if (today.length >= LIMITS.perDay) return null;
   const last = log.reduce((m, l) => Math.max(m, new Date(l.sentAt).getTime()), 0);

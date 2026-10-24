@@ -14,6 +14,7 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const axios = require('axios');
 const crypto = require('crypto');
+const insightFeed = require('./lib/insightFeed');
 const { fingerprint, matchScore, MERGE, PROBABLE: PROBABLE_DUP } = require('./lib/dedupe');
 const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
@@ -315,6 +316,7 @@ const userSchema = new mongoose.Schema({
     streaks: { type: Boolean, default: true }, recap: { type: Boolean, default: true }, tips: { type: Boolean, default: true },
   },
   showAmountsInNotifications: { type: Boolean, default: false },
+  weeklyInsightWeek: { type: String, default: '' }, // Sunday (Lagos date) the weekly insight push last went out
   // Onboarding: the banks and wallets the user said they use (registry codes), plus
   // any typed under 'Other'. Drives the 'banks to connect' checklist on Home.
   banksUsed:   { type: [String], default: [] },
@@ -3429,6 +3431,81 @@ app.post('/api/me/training-optout', auth, async (req, res) => {
     res.json({ trainingOptOut: req.user.trainingOptOut });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
+
+
+// ── Insights front and centre (Round 5, 10) ──
+// Numbers come from lib/insightFeed (plain arithmetic over the user's own rows).
+const insightRows = (userId, days = 65) => Transaction.find(
+  { userId, date: { $gte: new Date(Date.now() - days * 86400000) }, type: { $in: ['income', 'expense'] } },
+  { date: 1, amount: 1, type: 1, category: 1, description: 1 },
+).lean();
+app.get('/api/insights/feed', auth, async (req, res) => {
+  try { res.json({ insights: insightFeed.buildFeed(await insightRows(req.user._id)) }); }
+  catch (e) { console.error('[insights/feed]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.get('/api/insights/lines', auth, async (req, res) => {
+  try {
+    const rows = await insightRows(req.user._id);
+    res.json({ money: insightFeed.moneyLine(rows), forecast: insightFeed.forecastLine(rows) });
+  } catch (e) { console.error('[insights/lines]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.get('/api/transactions/:id/context', auth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: req.user._id }).select('date amount type category description').lean();
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+    const d = new Date(txn.date);
+    const from = new Date(d.getTime() - 35 * 86400000), to = new Date(d.getTime() + 35 * 86400000);
+    const rows = await Transaction.find({ userId: req.user._id, type: 'expense', date: { $gte: from, $lte: to } }).select('date amount type category description').lean();
+    res.json({ line: insightFeed.contextLine(txn, rows) });
+  } catch (e) { console.error('[transactions/context]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Product events for the insight loop. Names are a fixed list; props are small and
+// carry no amounts or transaction text.
+const EVENT_NAMES = new Set(['insight_viewed', 'insight_tapped', 'recap_shared']);
+const productEventSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  name: { type: String, required: true, index: true },
+  props: { type: Object, default: {} },
+  at: { type: Date, default: Date.now },
+});
+const ProductEvent = mongoose.model('ProductEvent', productEventSchema);
+app.post('/api/events', auth, async (req, res) => {
+  try {
+    const name = String(req.body?.name || '');
+    if (!EVENT_NAMES.has(name)) return res.status(400).json({ message: 'Unknown event' });
+    const raw = req.body?.props && typeof req.body.props === 'object' ? req.body.props : {};
+    const props = {};
+    for (const k of Object.keys(raw).slice(0, 6)) { const v = raw[k]; if (['string', 'number', 'boolean'].includes(typeof v)) props[k.slice(0, 24)] = typeof v === 'string' ? v.slice(0, 40) : v; }
+    await ProductEvent.create({ userId: req.user._id, name, props });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Sunday 6 pm (Lagos) push: "Your week in money: Food took 38%, transport is down 12%."
+// Once per user per Sunday, outside quiet hours, only if the Spending notification
+// switch is on and the week has enough rows. Percentages only, so Hide amounts holds.
+async function runWeeklyInsightPush(now = new Date()) {
+  const L = nudges.lagos(now);
+  const lagosNow = new Date(now.getTime() + 3600000);
+  if (lagosNow.getUTCDay() !== 0 || lagosNow.getUTCHours() < 18 || lagosNow.getUTCHours() >= 22) return { skipped: 'not Sunday evening' };
+  const week = lagosNow.toISOString().slice(0, 10);
+  const users = await User.find({ 'pushTokens.0': { $exists: true }, weeklyInsightWeek: { $ne: week }, 'nudgePrefs.spending': { $ne: false } }).select('_id pushTokens').lean();
+  let sent = 0;
+  for (const u of users) {
+    try {
+      const claimed = await User.updateOne({ _id: u._id, weeklyInsightWeek: { $ne: week } }, { $set: { weeklyInsightWeek: week } });
+      if (!claimed.modifiedCount) continue;
+      const line = insightFeed.weeklyLine(await insightRows(u._id, 20), now);
+      if (!line) continue;
+      await sendExpoPush(u.pushTokens, { title: 'Your week in money', body: line, data: { type: 'weekly_insight', nav: '/insights' } });
+      await createNotification(u._id, { type: 'info', title: 'Your week in money', message: line, link: '/insights', dedupeKey: `weekly-insight:${week}` }).catch(() => {});
+      sent += 1;
+    } catch (e) { console.error('[weekly-insight]', String(u._id), e.message); }
+  }
+  return { users: users.length, sent, month: L.monthKey };
+}
 
 // Recap release config - clients read this to know which recaps are "dropped".
 app.get('/api/recaps/config', auth, async (req, res) => {
@@ -6992,6 +7069,7 @@ app.post(['/api/cron/nudges', '/api/cron/insights'], async (req, res) => {
   if (testing && req.query.wait) return res.json(await runNudgesJob(at));
   res.status(202).json({ ok: true });
   reconcileBillPayments().catch((e) => console.error('[cron/nudges] billpay', e.message));
+  runWeeklyInsightPush(at).then((r) => r && r.sent && console.log('[weekly-insight]', r)).catch((e) => console.error('[weekly-insight]', e.message));
   runNudgesJob(at).then((r) => console.log('[cron/nudges]', r)).catch((e) => console.error('[cron/nudges]', e.message));
   maybeSendWeeklyReport(new Date()).then((r) => r && console.log('[weekly-report]', r)).catch((e) => console.error('[weekly-report]', e.message));
 });

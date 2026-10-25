@@ -627,6 +627,37 @@ const budgetSchema = new mongoose.Schema({
 budgetSchema.index({ userId: 1, month: 1 });
 const Budget = mongoose.model('Budget', budgetSchema);
 
+// A category the user named themselves via "Other" (round 6, part B item 5), so it
+// appears in every category picker afterwards - on web and mobile, not just the
+// browser or phone it was typed on. The fixed lists (frontend/mobile constants)
+// stay as they are; this is only the per-user additions to them.
+const customCategorySchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  name:   { type: String, required: true },
+  nameLower: { type: String, required: true }, // case-insensitive dedupe/lookup
+  type:   { type: String, enum: ['income', 'expense'], required: true },
+}, { timestamps: true });
+customCategorySchema.index({ userId: 1, type: 1, nameLower: 1 }, { unique: true });
+const CustomCategory = mongoose.model('CustomCategory', customCategorySchema);
+
+// Fire-and-forget: remember a category the moment it's used anywhere a transaction
+// or budget is written (manual add, detail edit, review, budget, Ask - item 5),
+// not only the one "+ Other" dialog. A client's own base list (frontend/mobile
+// constants) always wins the dedupe on its side, so remembering a built-in name
+// here too (e.g. "Food") is harmless - every client filters it back out before
+// it ever shows as a "custom" chip.
+const PLACEHOLDER_CATEGORY = /^other(\s+income)?$/i;
+function rememberCategory(userId, category, type) {
+  const name = String(category || '').trim().slice(0, 40);
+  if (!name || PLACEHOLDER_CATEGORY.test(name)) return;
+  const nameLower = name.toLowerCase();
+  CustomCategory.findOneAndUpdate(
+    { userId, type, nameLower },
+    { $setOnInsert: { userId, type, nameLower, name } },
+    { upsert: true },
+  ).catch((e) => console.error('[remember-category]', e.message));
+}
+
 const goalSchema = new mongoose.Schema({
   userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name:     { type: String, required: true },
@@ -2610,7 +2641,7 @@ async function deleteUserData(userId, email) {
     Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
     Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview, PendingAlert, CorrectionEvent, AiChat,
-    Consent, SecurityEvent,
+    Consent, SecurityEvent, CustomCategory,
   ].map((M) => M.deleteMany({ userId: uid })));
   await ActivityDay.deleteMany({ userId: uid });
   // 'billpayments' also holds the current bill purchases (they carry a VTpass
@@ -3008,6 +3039,7 @@ app.post('/api/transactions', auth, async (req, res) => {
     ...(dedupeGroupId ? { dedupeGroupId: String(dedupeGroupId).slice(0, 64) } : {}),
   });
   await transaction.save();
+  rememberCategory(req.user._id, transaction.category, transaction.type === 'income' ? 'income' : 'expense');
   if (shared && bCode) { try { await touchUserAccount(req.user._id, { bankCode: bCode, bankName: bank || '', accountMask: bMask }, transaction.date); } catch { /* non-fatal */ } }
   await maybeLinkSubscription(req.user._id, { description: transaction.description, amount: transaction.amount, category: transaction.category, date: transaction.date });
   if (transaction.type === 'expense') {
@@ -3082,6 +3114,7 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
       await learnCategories(req.user._id, [{ description: txn.description, category: txn.category }]);
       // "or any other way": a manual recategorise to Subscriptions also surfaces it.
       await maybeLinkSubscription(req.user._id, { description: txn.description, amount: txn.amount, category: txn.category, date: txn.date, bankName: txn.bank });
+      rememberCategory(req.user._id, txn.category, txn.type === 'income' ? 'income' : 'expense');
     }
     res.json(txn);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
@@ -3151,6 +3184,7 @@ app.post('/api/budgets', auth, async (req, res) => {
   if (existing) return res.status(400).json({ message: `Budget for ${category} already exists for ${currentMonth}` });
   const budget = new Budget({ userId: req.user._id, category: category.trim(), amount: Math.abs(amount), month: currentMonth });
   await budget.save();
+  rememberCategory(req.user._id, budget.category, 'expense');
   res.status(201).json(budget);
 });
 app.delete('/api/budgets/:id', auth, async (req, res) => {
@@ -3158,6 +3192,66 @@ app.delete('/api/budgets/:id', auth, async (req, res) => {
   if (!budget) return res.status(404).json({ message: 'Budget not found' });
   await Budget.findByIdAndDelete(req.params.id);
   res.json({ message: 'Budget deleted' });
+});
+
+// ── Custom categories (round 6, part B item 5) ──
+// The user's own additions to the fixed category lists (web/mobile constants),
+// so a name typed via "Other" on any screen shows up in every picker afterwards.
+app.get('/api/categories', auth, async (req, res) => {
+  const rows = await CustomCategory.find({ userId: req.user._id }).sort({ createdAt: 1 }).lean();
+  res.json({
+    categories: rows.map((r) => ({ id: r._id, name: r.name, type: r.type })),
+    expense: rows.filter((r) => r.type === 'expense').map((r) => r.name),
+    income: rows.filter((r) => r.type === 'income').map((r) => r.name),
+  });
+});
+
+// Called the moment a custom name is confirmed (any "+ Other" dialog). Upserts so
+// the same screen can call it every time without worrying about duplicates.
+app.post('/api/categories', auth, async (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 40);
+  const type = req.body?.type === 'income' ? 'income' : 'expense';
+  if (!name || /^other(\s+income)?$/i.test(name)) return res.status(400).json({ message: 'Give this category a real name.' });
+  const nameLower = name.toLowerCase();
+  const row = await CustomCategory.findOneAndUpdate(
+    { userId: req.user._id, type, nameLower },
+    { $setOnInsert: { userId: req.user._id, type, nameLower, name } },
+    { upsert: true, new: true },
+  );
+  res.status(201).json({ id: row._id, name: row.name, type: row.type });
+});
+
+// Rename: also carries every transaction and budget already filed under the old
+// name forward to the new one, so the picker and the ledger never disagree.
+app.patch('/api/categories/:id', auth, async (req, res) => {
+  const row = await CustomCategory.findOne({ _id: req.params.id, userId: req.user._id });
+  if (!row) return res.status(404).json({ message: 'Category not found' });
+  const name = String(req.body?.name || '').trim().slice(0, 40);
+  if (!name || /^other(\s+income)?$/i.test(name)) return res.status(400).json({ message: 'Give this category a real name.' });
+  const nameLower = name.toLowerCase();
+  const dupe = await CustomCategory.findOne({ userId: req.user._id, type: row.type, nameLower, _id: { $ne: row._id } });
+  if (dupe) return res.status(400).json({ message: `You already have a category called "${dupe.name}".` });
+  const oldName = row.name;
+  row.name = name; row.nameLower = nameLower;
+  await row.save();
+  await Promise.all([
+    Transaction.updateMany({ userId: req.user._id, category: oldName }, { $set: { category: name } }),
+    Budget.updateMany({ userId: req.user._id, category: oldName }, { $set: { category: name } }),
+  ]);
+  res.json({ id: row._id, name: row.name, type: row.type });
+});
+
+// Delete: asks where its transactions go (default: Other / Other Income).
+app.delete('/api/categories/:id', auth, async (req, res) => {
+  const row = await CustomCategory.findOne({ _id: req.params.id, userId: req.user._id });
+  if (!row) return res.status(404).json({ message: 'Category not found' });
+  const reassignTo = String(req.body?.reassignTo || (row.type === 'income' ? 'Other Income' : 'Other')).trim().slice(0, 40) || 'Other';
+  await Promise.all([
+    Transaction.updateMany({ userId: req.user._id, category: row.name }, { $set: { category: reassignTo } }),
+    Budget.deleteMany({ userId: req.user._id, category: row.name }), // a budget for a category that no longer exists doesn't make sense to keep
+    CustomCategory.deleteOne({ _id: row._id }),
+  ]);
+  res.json({ message: 'Category deleted', reassignedTo: reassignTo });
 });
 
 // Corper starter preset: seed a ₦77k NYSC allawee budget for this month plus an
@@ -7868,6 +7962,7 @@ const executeAiTool = async (name, input, user, { refs = [] } = {}) => {
       if (src && src.kind === 'bank') { txn.bank = src.bank; txn.bankCode = src.bankCode; txn.accountMask = src.accountMask; }
       else txn.paymentMethod = 'cash';
       await txn.save();
+      rememberCategory(userId, txn.category, type);
       if (type === 'expense') checkBudgetAlert(userId, txn.category, date.toISOString().slice(0, 7));
       return { ok: true, summary: `Logged ${type} of ${naira(amount)} - ${category} (${txn.description}) ${type === 'income' ? 'into' : 'from'} ${txn.bank || 'Cash'}. They can change this on the transaction.`, kind: 'transaction' };
     }
@@ -7881,6 +7976,7 @@ const executeAiTool = async (name, input, user, { refs = [] } = {}) => {
         return { ok: false, summary: `A budget for ${category} already exists for ${month}. They can edit it on the Budget screen.` };
       }
       await new Budget({ userId, category, amount, month }).save();
+      rememberCategory(userId, category, 'expense');
       return { ok: true, summary: `Set a ${naira(amount)} budget for ${category} (${month}).`, kind: 'budget' };
     }
 

@@ -34,7 +34,8 @@ for (const [label, text] of [['lines', RCPT.join('\n')], ['one line', RCPT.join(
   check(`receipt (${label}): amount, direction and category`, r && r.amount === 10600 && r.type === 'expense' && r.category === 'Transfer');
   check(`receipt (${label}): the receiving bank is not the user's bank`, r && r.bank !== 'Moniepoint', r && r.bank);
 }
-check('interest earned is income, not Other Income', parseAlert('Credit Alert NGN2.99 OWealth Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'Investment');
+check('interest earned is income, not Other Income', parseAlert('Credit Alert NGN2.99 Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'Investment');
+check('owealth interest is its own category, not Investment', parseAlert('Credit Alert NGN2.99 OWealth Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'OWealth Interest');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

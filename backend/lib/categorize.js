@@ -24,7 +24,10 @@ const categorizeTransaction = (description, typeOrAmount) => {
     { for: 'income',  keywords: ['salary', 'wage', 'payroll', 'monthly pay', 'stipend'], category: 'Salary' },
     { for: 'income',  keywords: ['freelance', 'consulting', 'contract pay', 'upwork', 'fiverr'], category: 'Freelance' },
     { for: 'income',  keywords: ['sales', 'invoice', 'business income', 'customer payment'], category: 'Business' },
-    { for: 'income',  keywords: ['dividend', 'interest credit', 'interest earned', 'owealth interest', 'investment return', 'maturity', 'roi'], category: 'Investment' },
+    // OWealth (OPay's savings pocket) interest is its own category, not Investment -
+    // round 6, part B item 6. Checked before the general interest/dividend rule.
+    { for: 'income',  keywords: ['owealth interest'], category: 'OWealth Interest' },
+    { for: 'income',  keywords: ['dividend', 'interest credit', 'interest earned', 'investment return', 'maturity', 'roi'], category: 'Investment' },
     { for: 'income',  keywords: ['gift', 'present'], category: 'Gift' },
     { for: 'income',  keywords: ['refund', 'reversal', 'returned', 'chargeback'], category: 'Refund' },
 

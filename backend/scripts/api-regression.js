@@ -702,6 +702,18 @@ async function main() {
     check('delete-account: a made-up link is refused', (await call('POST', '/api/account-deletion/confirm', { token: 'made-up' }, { 'Content-Type': 'application/json' })).status === 404);
   }
 
+  // ── Round 6 E: amounts in pushes are on by default; choosing is remembered; Hide amounts mirrors to the server ──
+  {
+    const first = await call('GET', '/api/push/settings');
+    check('E amounts in pushes are on for a new account', first.body?.showAmounts === true, JSON.stringify(first.body));
+    const off = await call('POST', '/api/push/settings', { showAmounts: false });
+    check('E switching it off saves', off.body?.showAmounts === false);
+    const row = await mongoose.connection.db.collection('users').findOne({ _id: insertedId });
+    check('E the choice is remembered so the migration leaves it alone', row?.notifAmountsChosen === true);
+    check('E Hide amounts can be mirrored to the server', (await call('POST', '/api/push/settings', { hideAmounts: true })).status === 200 && (await mongoose.connection.db.collection('users').findOne({ _id: insertedId })).hideAmounts === true);
+    await call('POST', '/api/push/settings', { showAmounts: true, hideAmounts: false });
+  }
+
   // ── Round 5 S5: birthday (day and month only) and onboarding events ──
   {
     const set = await call('PUT', '/api/me', { birthdayDay: 14, birthdayMonth: 3 });

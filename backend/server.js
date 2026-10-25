@@ -318,7 +318,12 @@ const userSchema = new mongoose.Schema({
     spending: { type: Boolean, default: true }, budgets: { type: Boolean, default: true }, bills: { type: Boolean, default: true },
     streaks: { type: Boolean, default: true }, recap: { type: Boolean, default: true }, tips: { type: Boolean, default: true },
   },
-  showAmountsInNotifications: { type: Boolean, default: false },
+  // Amounts in pushes are ON by default (owner, 25 Oct). notifAmountsChosen is set when the user flips
+  // the switch, so a one-off migration can move everyone who never chose to the new default.
+  // hideAmounts mirrors the app's Hide amounts switch: while it is on, pushes never show amounts.
+  showAmountsInNotifications: { type: Boolean, default: true },
+  notifAmountsChosen: { type: Boolean, default: false },
+  hideAmounts: { type: Boolean, default: false },
   // "New transactions added" notices: batched (2 min after the last), a daily 8 pm summary (default) or off.
   newTxnNotify:   { type: String, enum: ['batched', 'daily', 'off'], default: 'daily' },
   // Quiet hours (Lagos clock, whole hours). Default 22 to 7. No push goes out inside them.
@@ -7227,10 +7232,13 @@ app.post('/api/push/register', auth, async (req, res) => {
 
 // Push settings: one switch per category, and whether amounts may show on the lock
 // screen (off by default). Older apps send { insights } which switches all of them.
+// Amounts may appear in a push only when the user allows it (on by default) AND the app's
+// Hide amounts switch is off. A missing value counts as the default, on.
+const pushAmounts = (u) => u.showAmountsInNotifications !== false && !u.hideAmounts;
 const NUDGE_CATEGORIES = nudges.CATEGORIES;
 const pushSettingsOut = (u) => ({
   categories: Object.fromEntries(NUDGE_CATEGORIES.map((c) => [c, u.nudgePrefs?.[c] !== false])),
-  showAmounts: !!u.showAmountsInNotifications,
+  showAmounts: u.showAmountsInNotifications !== false,
   newTransactions: txnNotify.modeOf(u),
   quietFrom: txnNotify.quietOf(u).from,
   quietTo: txnNotify.quietOf(u).to,
@@ -7244,7 +7252,8 @@ app.post('/api/push/settings', auth, async (req, res) => {
     if (b.categories && typeof b.categories === 'object') {
       for (const c of NUDGE_CATEGORIES) if (typeof b.categories[c] === 'boolean') set[`nudgePrefs.${c}`] = b.categories[c];
     }
-    if (typeof b.showAmounts === 'boolean') set.showAmountsInNotifications = b.showAmounts;
+    if (typeof b.showAmounts === 'boolean') { set.showAmountsInNotifications = b.showAmounts; set.notifAmountsChosen = true; }
+    if (typeof b.hideAmounts === 'boolean') set.hideAmounts = b.hideAmounts;
     if (b.newTransactions !== undefined) {
       if (!txnNotify.MODES.includes(b.newTransactions)) return res.status(400).json({ message: 'Choose every time, daily summary or off.' });
       set.newTxnNotify = b.newTransactions;
@@ -7319,7 +7328,7 @@ async function nudgeUser(u, copy, now) {
   const complete = chosen.trigger === 'goal_progress' && chosen.vars.pct === 100;
   const lastVariant = log.find((l) => l.trigger === chosen.trigger)?.variantId;
   const variant = nudges.pickVariant(complete ? spec.completeVariants : spec.variants, lastVariant);
-  const body = variant && nudges.render(variant, chosen.vars, { showAmounts: !!u.showAmountsInNotifications });
+  const body = variant && nudges.render(variant, chosen.vars, { showAmounts: pushAmounts(u) });
   if (!body) return null;
   const row = await NudgeLog.create({ userId: u._id, trigger: chosen.trigger, category: spec.category, variantId: variant.id, key: chosen.key, sentAt: now });
   await sendExpoPush(u.pushTokens, { title: spec.title, body, data: { type: 'nudge', nudgeId: String(row._id), nav: spec.nav } });
@@ -7353,12 +7362,12 @@ async function flushTxnNotices(now = new Date()) {
     const ids = await PendingTxnNotice.distinct('userId');
     let sent = 0;
     for (const id of ids) {
-      const u = await User.findById(id).select('email pushTokens newTxnNotify notifQuietFrom notifQuietTo showAmountsInNotifications').lean();
+      const u = await User.findById(id).select('email pushTokens newTxnNotify notifQuietFrom notifQuietTo showAmountsInNotifications hideAmounts').lean();
       const mode = txnNotify.modeOf(u);
       if (!u || mode === 'off' || !(u.pushTokens || []).length || txnNotify.isTestAccount(u)) { await PendingTxnNotice.deleteMany({ userId: id }); continue; }
       const pending = await PendingTxnNotice.find({ userId: id }).sort({ addedAt: 1 }).lean();
       if (!txnNotify.dueNow({ mode, pending, now, hour: nudges.lagos(now).hour, quiet: txnNotify.quietOf(u) })) continue;
-      const m = txnNotify.describe(pending, { showAmounts: !!u.showAmountsInNotifications });
+      const m = txnNotify.describe(pending, { showAmounts: pushAmounts(u) });
       await PendingTxnNotice.deleteMany({ _id: { $in: pending.map((p) => p._id) } });   // before sending: never twice
       await sendExpoPush(u.pushTokens, { title: m.title, body: m.body, data: { type: 'new_txns', nav: m.nav } });
       await createNotification(id, { type: 'info', title: m.title, message: m.body }).catch(() => {});
@@ -7375,7 +7384,7 @@ async function runNudgesJob(now = new Date()) {
   nudgesRunning = true;
   try {
     const copy = await nudgeCopy();
-    const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id email pushTokens nudgePrefs showAmountsInNotifications notifQuietFrom notifQuietTo createdAt lastActiveAt lastLogin').lean();
+    const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id email pushTokens nudgePrefs showAmountsInNotifications hideAmounts notifQuietFrom notifQuietTo createdAt lastActiveAt lastLogin').lean();
     let sent = 0;
     for (const u of users) {
       if (txnNotify.isTestAccount(u)) continue;   // demo and test accounts never get pushes
@@ -8860,6 +8869,13 @@ async function grandfatherGlobalRules() {
   }
   await marks.insertOne({ _id: ID, at: new Date(), kept });
 }
+// One-off: amounts in pushes became ON by default. Everyone who never touched the switch (and so holds
+// the old stored false) moves to on; anyone who chose is left alone. Safe to run on every start.
+mongoose.connection.once('open', () => {
+  User.updateMany({ showAmountsInNotifications: false, notifAmountsChosen: { $ne: true } }, { $set: { showAmountsInNotifications: true } })
+    .then((r) => r.modifiedCount && console.log(`[migrate] amounts in pushes: ${r.modifiedCount} users moved to the new default`))
+    .catch((e) => console.error('[migrate] amounts in pushes', e.message));
+});
 mongoose.connection.once('open', () => { grandfatherGlobalRules().catch((e) => console.error('[migrate] global rules', e.message)); });
 
 async function pendingGlobalRules(limit = 100) {

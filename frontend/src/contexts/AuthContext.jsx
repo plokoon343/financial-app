@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { loadCustomCategories } from '../utils/categoryStore';
 const AuthContext = createContext();
 
 export const useAuth = () => {
@@ -55,6 +56,7 @@ export const AuthProvider = ({ children }) => {
     if (token && userData) {
       setUser(JSON.parse(userData));
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      loadCustomCategories();
     }
     setLoading(false);
   }, []);
@@ -111,6 +113,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('user', JSON.stringify(user));
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     setUser(user);
+    loadCustomCategories();
   };
 
   const login = async (email, password) => {

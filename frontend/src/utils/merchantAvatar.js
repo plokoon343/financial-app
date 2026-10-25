@@ -89,6 +89,7 @@ const CAT = {
   'Loan Repayment': { color: '#f59e0b', icon: 'fas fa-hand-holding-dollar' },
   Freelance: { color: '#3b82f6', icon: 'fas fa-laptop' },
   Investment: { color: '#a855f7', icon: 'fas fa-arrow-trend-up' },
+  'OWealth Interest': { color: '#a855f7', icon: 'fas fa-arrow-trend-up' },
   Gift: { color: '#ec4899', icon: 'fas fa-gift' },
   'Gifts & Donations': { color: '#ec4899', icon: 'fas fa-gift' },
   Refund: { color: '#06b6d4', icon: 'fas fa-rotate-left' },

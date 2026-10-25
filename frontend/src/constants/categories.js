@@ -29,6 +29,7 @@ export const INCOME_CATEGORIES = [
   'Business',
   'Freelance',
   'Investment',
+  'OWealth Interest',
   'Gift',
   'Refund',
   'Other Income',

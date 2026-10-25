@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/inboundEmail.test.js
-const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail } = require('./inboundEmail');
+const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail, mapCloudflarePayload, verifyCloudflareSecret } = require('./inboundEmail');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -142,6 +142,28 @@ check('resolve non-bank -> null', r3 === null);
 // No forwarded marker + non-bank From -> null (a bare signature "From:" must not pass).
 const r4 = resolveBankEmail({ text: 'Regards,\nFrom: John', from: 'me@outlook.com' });
 check('resolve bare From not a bank', r4 === null);
+
+// --- Cloudflare Email Worker mapping + auth (round 6 part F) ---
+const cfBody = { to: 'a123abc@in.automonie.com', from: 'GTBank <alerts@gtbank.com>', subject: 'Debit Alert', text: 'NGN5,000 debited', html: '<p>NGN5,000</p>', date: '2026-10-26T10:00:00.000Z' };
+const mapped = mapCloudflarePayload(cfBody);
+check('cf mapping: recipient from to', mapped.recipient === 'a123abc@in.automonie.com');
+check('cf mapping: from passthrough', mapped.from === 'GTBank <alerts@gtbank.com>');
+check('cf mapping: subject/text/html passthrough', mapped.subject === 'Debit Alert' && mapped.text === 'NGN5,000 debited' && mapped.html === '<p>NGN5,000</p>');
+check('cf mapping: sentAt from date', mapped.sentAt === '2026-10-26T10:00:00.000Z');
+check('cf mapping: token still extracts', extractToken(mapped.recipient) === 'a123abc');
+
+const cfBodyCc = { envelopeTo: '', headerTo: 'someone@else.com', cc: 'a123abc@in.automonie.com', from: 'x@y.com' };
+const mappedCc = mapCloudflarePayload(cfBodyCc);
+check('cf mapping: falls back through to/envelopeTo/headerTo/cc', mappedCc.recipient.includes('a123abc@in.automonie.com'));
+check('cf mapping: no date -> null sentAt', mapCloudflarePayload({ to: 'a@in.automonie.com' }).sentAt === null);
+check('cf mapping: missing fields default to empty strings', mapCloudflarePayload({}).from === '' && mapCloudflarePayload({}).subject === '');
+
+check('cf secret: matching value passes', verifyCloudflareSecret('topsecret123', 'topsecret123'));
+check('cf secret: mismatched value fails', verifyCloudflareSecret('wrong', 'topsecret123') === false);
+check('cf secret: empty received fails', verifyCloudflareSecret('', 'topsecret123') === false);
+check('cf secret: empty expected fails (feature off)', verifyCloudflareSecret('anything', '') === false);
+check('cf secret: both empty fails', verifyCloudflareSecret('', '') === false);
+check('cf secret: different length fails without throwing', verifyCloudflareSecret('short', 'muchlongersecretvalue') === false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

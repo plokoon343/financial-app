@@ -1,0 +1,13 @@
+name = "automonie-email-worker"
+main = "src/index.js"
+compatibility_date = "2026-10-26"
+
+[vars]
+BACKEND_URL = "https://api.automonie.com/api/inbound-email/cloudflare"
+
+# INBOUND_CF_SECRET is a secret, not a var — set it with:
+#   wrangler secret put INBOUND_CF_SECRET
+# and set the same value as INBOUND_CF_SECRET on the Render backend. See
+# docs/ops/cloudflare-migration.md for the full setup, including the Email Routing
+# dashboard steps that bind this Worker to in.automonie.com (not done in this file —
+# a route binding isn't something wrangler.toml controls).

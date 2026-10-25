@@ -4644,9 +4644,84 @@ const parseInboundBody = (req, res, next) => {
   });
 };
 
+// Shared ingest path: both the legacy provider webhook (SendGrid/Mailgun/Postmark/SES,
+// below) and the Cloudflare Email Worker route normalise their payload to this shape
+// and call this. { recipient: every recipient field joined with ',' (extractToken scans
+// all of them), from, subject, text, html, sentAt: a Date/ms/ISO string or null }.
+async function ingestInboundEmail({ recipient, from, subject = '', text = '', html = '', sentAt = null }) {
+  const token = inboundEmail.extractToken(recipient, INBOUND_DOMAIN);
+  if (!token) return { ok: true, skipped: 'no-token' };
+  const user = await User.findOne({ inboundEmailToken: token }).select('_id name inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
+  if (!user) return { ok: true, skipped: 'unknown-recipient' };
+
+  // Gmail forwarding confirmation (spec 3.4): Google's one-time verify mail isn't a
+  // bank, so it would be dropped below: capture its code/link first and surface it
+  // to the onboarding screen so the user can finish enabling forwarding.
+  if (inboundEmail.isGmailForwardingVerification(from)) {
+    const v = inboundEmail.extractGmailVerification({ subject, text, html });
+    if (v) {
+      user.gmailVerifyCode = v.code || '';
+      user.gmailVerifyLink = v.link || '';
+      user.gmailVerifyAt = new Date();
+      await user.save();
+    }
+    return { ok: true, gmailVerification: !!v };
+  }
+
+  // Resolve the effective bank sender + text to parse. Accepts a direct/auto-forward
+  // (envelope From is the bank) AND a manual forward from any provider (From is the
+  // user's Yahoo/Gmail; the bank sits in the quoted forwarded header). Anything with
+  // no recognisable bank sender is silently dropped (spec B1).
+  const resolved = inboundEmail.resolveBankEmail({ subject, text, html, from }, inboundExtraDomains);
+  if (!resolved) return { ok: true, skipped: 'sender-not-allowed' };
+  const bankFrom = resolved.sender;
+
+  // We're receiving mail for this user → light up the status regardless of parse.
+  user.inboundEmailLastAt = new Date();
+
+  // Digest emails (spec 3.6): one mail may cover several transactions. Split the
+  // body into per-transaction segments, a single alert yields exactly one, and
+  // ingest each. Only for a single alert do we parse the subject-bearing text (banks
+  // often put the amount/direction there); a digest's subject is a generic summary.
+  const segments = inboundEmail.splitEmailAlerts(resolved.bodyOnly);
+  let parsedRows;
+  if (segments.length > 1) {
+    parsedRows = (await parseAlertsWithRescue(segments, 'email', bankFrom, { rescue: false })).filter((r) => r && r.amount > 0);
+  } else {
+    const [one] = await parseAlertsWithRescue([resolved.fullText], 'email', bankFrom, { rescue: false });
+    parsedRows = one && one.amount > 0 ? [one] : [];
+  }
+  // An alert with no readable date happened when the bank emailed it, not "today"
+  // (forwards and retries can land days later).
+  const sentDay = sentAt && !isNaN(new Date(sentAt)) ? new Date(sentAt).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }) : null;
+  // For a single alert the subject was parsed with the body (for amount/direction);
+  // the description must come from the body alone, never the subject line.
+  const bodyDescription = segments.length > 1 ? '' : alertDescription(resolved.bodyOnly);
+  let created = 0;
+  for (const parsed of parsedRows) {
+    // Only the rules decide direction. With no debit/credit wording at all it is
+    // a notice, not a transaction, and must not land in the ledger as spending.
+    if (sentDay && parsed.dateFromText === false) parsed.date = sentDay;
+    if (isUnsure(parsed)) { await holdForReview(user._id, parsed, parsed.raw || '', 'email', 'unclear'); continue; }
+    if (bodyDescription) {
+      parsed.description = bodyDescription;
+      parsed.category = parsed.isFee ? 'Bank Charges' : categorizeTransaction(bodyDescription, parsed.type);
+    }
+    created += await ingestAlert(user, parsed, 'email');
+  }
+  if (created) {
+    user.inboundEmailCount = (user.inboundEmailCount || 0) + created;
+    try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
+  }
+  await user.save();
+  return { ok: true, created };
+}
+
 // Provider webhook. Provider-agnostic: normalises SendGrid / Mailgun / Postmark / SES
 // field names. Always answers 200 for accepted-but-ignored mail so the provider
 // doesn't retry; 503 until activated, 401 on a bad secret.
+// Kept alongside the Cloudflare route below until the DNS cutover is confirmed; after
+// that the Postmark MX is removed and this becomes a dormant fallback.
 app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
   try {
     if (!inboundActive()) return res.status(503).json({ message: 'Email forwarding is not enabled yet.' });
@@ -4668,75 +4743,26 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     const subject = b.subject || b.Subject || '';
     const text = b['body-plain'] || b['stripped-text'] || b.TextBody || b.text || b.plain || '';
     const html = b['body-html'] || b.HtmlBody || b.html || '';
+    const sentAt = b.Date || b.date || (b.timestamp ? Number(b.timestamp) * 1000 : null);
 
-    const token = inboundEmail.extractToken(recipient, INBOUND_DOMAIN);
-    if (!token) return res.json({ ok: true, skipped: 'no-token' });
-    const user = await User.findOne({ inboundEmailToken: token }).select('_id name inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
-    if (!user) return res.json({ ok: true, skipped: 'unknown-recipient' });
-
-    // Gmail forwarding confirmation (spec 3.4): Google's one-time verify mail isn't a
-    // bank, so it would be dropped below: capture its code/link first and surface it
-    // to the onboarding screen so the user can finish enabling forwarding.
-    if (inboundEmail.isGmailForwardingVerification(from)) {
-      const v = inboundEmail.extractGmailVerification({ subject, text, html });
-      if (v) {
-        user.gmailVerifyCode = v.code || '';
-        user.gmailVerifyLink = v.link || '';
-        user.gmailVerifyAt = new Date();
-        await user.save();
-      }
-      return res.json({ ok: true, gmailVerification: !!v });
-    }
-
-    // Resolve the effective bank sender + text to parse. Accepts a direct/auto-forward
-    // (envelope From is the bank) AND a manual forward from any provider (From is the
-    // user's Yahoo/Gmail; the bank sits in the quoted forwarded header). Anything with
-    // no recognisable bank sender is silently dropped (spec B1).
-    const resolved = inboundEmail.resolveBankEmail({ subject, text, html, from }, inboundExtraDomains);
-    if (!resolved) return res.json({ ok: true, skipped: 'sender-not-allowed' });
-    const bankFrom = resolved.sender;
-
-    // We're receiving mail for this user → light up the status regardless of parse.
-    user.inboundEmailLastAt = new Date();
-
-    // Digest emails (spec 3.6): one mail may cover several transactions. Split the
-    // body into per-transaction segments, a single alert yields exactly one, and
-    // ingest each. Only for a single alert do we parse the subject-bearing text (banks
-    // often put the amount/direction there); a digest's subject is a generic summary.
-    const segments = inboundEmail.splitEmailAlerts(resolved.bodyOnly);
-    let parsedRows;
-    if (segments.length > 1) {
-      parsedRows = (await parseAlertsWithRescue(segments, 'email', bankFrom, { rescue: false })).filter((r) => r && r.amount > 0);
-    } else {
-      const [one] = await parseAlertsWithRescue([resolved.fullText], 'email', bankFrom, { rescue: false });
-      parsedRows = one && one.amount > 0 ? [one] : [];
-    }
-    // An alert with no readable date happened when the bank emailed it, not "today"
-    // (forwards and retries can land days later).
-    const sent = b.Date || b.date || (b.timestamp ? Number(b.timestamp) * 1000 : null);
-    const sentDay = sent && !isNaN(new Date(sent)) ? new Date(sent).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }) : null;
-    // For a single alert the subject was parsed with the body (for amount/direction);
-    // the description must come from the body alone, never the subject line.
-    const bodyDescription = segments.length > 1 ? '' : alertDescription(resolved.bodyOnly);
-    let created = 0;
-    for (const parsed of parsedRows) {
-      // Only the rules decide direction. With no debit/credit wording at all it is
-      // a notice, not a transaction, and must not land in the ledger as spending.
-      if (sentDay && parsed.dateFromText === false) parsed.date = sentDay;
-      if (isUnsure(parsed)) { await holdForReview(user._id, parsed, parsed.raw || '', 'email', 'unclear'); continue; }
-      if (bodyDescription) {
-        parsed.description = bodyDescription;
-        parsed.category = parsed.isFee ? 'Bank Charges' : categorizeTransaction(bodyDescription, parsed.type);
-      }
-      created += await ingestAlert(user, parsed, 'email');
-    }
-    if (created) {
-      user.inboundEmailCount = (user.inboundEmailCount || 0) + created;
-      try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
-    }
-    await user.save();
-    return res.json({ ok: true, created });
+    const result = await ingestInboundEmail({ recipient, from, subject, text, html, sentAt });
+    return res.json(result);
   } catch (e) { console.error('[inbound-email/webhook]', e.message); return res.status(500).json({ message: 'Server error' }); }
+});
+
+// Cloudflare Email Worker route (round 6 part F): the Worker (infra/email-worker/)
+// parses the raw MIME itself with postal-mime and POSTs a small JSON body here with a
+// shared secret header — never the raw email. Same 503/401/200 contract as the legacy
+// webhook above, and the same ingest path once normalised.
+app.post('/api/inbound-email/cloudflare', async (req, res) => {
+  try {
+    if (!inboundActive()) return res.status(503).json({ message: 'Email forwarding is not enabled yet.' });
+    const key = req.get('x-inbound-cf-secret') || '';
+    if (!inboundEmail.verifyCloudflareSecret(key, process.env.INBOUND_CF_SECRET)) return res.status(401).json({ message: 'Bad webhook key' });
+
+    const result = await ingestInboundEmail(inboundEmail.mapCloudflarePayload(req.body));
+    return res.json(result);
+  } catch (e) { console.error('[inbound-email/cloudflare]', e.message); return res.status(500).json({ message: 'Server error' }); }
 });
 
 // ─── Action Center ──────────────────────────────────────────────────────────────
@@ -8990,7 +9016,7 @@ const SETUP_KEYS = [
   { group: 'Scheduled jobs', keys: [['CRON_SECRET', 'hourly /api/cron/nudges (header x-cron-secret): reminders, nudges, bill re-checks, weekly report']] },
   { group: 'AI, personal data (paid only)', keys: [['GEMINI_PAID_API_KEY', 'unknown alerts and statements, ask about my money; must be on a billing-enabled Google project']] },
   { group: 'AI, stripped shop names (free tiers)', keys: [['GEMINI_API_KEY', 'Gemini free'], ['XAI_API_KEY', 'Grok (xAI)'], ['CF_ACCOUNT_ID', 'Cloudflare Workers AI'], ['CF_AI_TOKEN', 'Cloudflare Workers AI'], ['OPENROUTER_API_KEY', 'OpenRouter free models'], ['NVIDIA_API_KEY', 'NVIDIA NIM']] },
-  { group: 'Email forwarding (inbound)', keys: [['INBOUND_EMAIL_SECRET', 'webhook key the inbound provider sends'], ['INBOUND_EMAIL_DOMAIN', 'the forwarding domain']], note: 'The server only needs the webhook key; a Postmark server token is not used by the code.' },
+  { group: 'Email forwarding (inbound)', keys: [['INBOUND_EMAIL_SECRET', 'webhook key the legacy (Postmark/SendGrid/Mailgun) provider sends'], ['INBOUND_CF_SECRET', 'shared secret the Cloudflare Email Worker sends'], ['INBOUND_EMAIL_DOMAIN', 'the forwarding domain']], note: 'The server only needs the webhook key(s); a Postmark server token is not used by the code.' },
   { group: 'Sign in with Google', keys: [['GOOGLE_CLIENT_IDS', 'web and Android client IDs (or GOOGLE_CLIENT_ID)']] },
   { group: 'Bank linking (Mono)', keys: [['MONO_SECRET_KEY', 'bank sync'], ['MONO_PUBLIC_KEY', 'bank sync'], ['MONO_WEBHOOK_SEC', 'bank sync webhook']] },
   { group: 'Airtime and bills (off by default)', keys: [['FEATURE_BILL_PAYMENTS', 'switch'], ['VTPASS_API_KEY', 'VTpass'], ['VTPASS_SECRET_KEY', 'VTpass'], ['VTPASS_PUBLIC_KEY', 'VTpass'], ['BILLS_CALLBACK_URL', 'where web users return after paying']] },

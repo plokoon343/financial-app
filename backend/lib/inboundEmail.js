@@ -247,9 +247,36 @@ function extractGmailVerification({ subject = '', text = '', html = '' } = {}) {
   return { code, link };
 }
 
+// ── Cloudflare Email Worker (round 6 part F) ──
+// The Worker (infra/email-worker/) parses the raw MIME itself and POSTs a small JSON
+// body; this is the pure mapping from that body to the shape server.js's shared
+// ingestInboundEmail() expects, kept separate so it's unit-testable without the app.
+function mapCloudflarePayload(body = {}) {
+  const b = body || {};
+  return {
+    recipient: [b.to, b.envelopeTo, b.headerTo, b.cc].filter(Boolean).join(','),
+    from: b.from || '',
+    subject: b.subject || '',
+    text: b.text || '',
+    html: b.html || '',
+    sentAt: b.date || null,
+  };
+}
+
+// Constant-time secret check for the Worker's `x-inbound-cf-secret` header, mirroring
+// server.js's safeEqual(): false unless both sides are non-empty and the same length
+// (timingSafeEqual throws on a length mismatch, so that's checked first).
+function verifyCloudflareSecret(received, expected) {
+  const x = Buffer.from((received || '').toString());
+  const y = Buffer.from((expected || '').toString());
+  if (!x.length || !y.length || x.length !== y.length) return false;
+  return crypto.timingSafeEqual(x, y);
+}
+
 module.exports = {
   genToken, BANK_EMAIL_DOMAINS, isAllowedSender, senderDomain, emailAddress,
   extractToken, htmlToText, stripQuotedReply, emailToText, emailBodyText,
   isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts,
   forwardedSender, unwrapForwarded, resolveBankEmail,
+  mapCloudflarePayload, verifyCloudflareSecret,
 };

@@ -3142,6 +3142,20 @@ app.post('/api/transactions/:id/apply-rule', auth, async (req, res) => {
   } catch (e) { console.error('[apply-rule]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// ── Personal rules (You > Categories and rules) ──
+// apply-rule above only ever creates a LearnedCategory row; there was no way for
+// the user to see or undo one afterward. `key` is a normalised merchant string
+// ("kilimanjaro restaurant lekki"), readable as-is once title-cased on the client.
+app.get('/api/rules', auth, async (req, res) => {
+  const rows = await LearnedCategory.find({ userId: req.user._id }).sort({ updatedAt: -1 }).lean();
+  res.json({ rules: rows.map((r) => ({ id: r._id, key: r.key, category: r.category, updatedAt: r.updatedAt })) });
+});
+app.delete('/api/rules/:id', auth, async (req, res) => {
+  const row = await LearnedCategory.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+  if (!row) return res.status(404).json({ message: 'Rule not found' });
+  res.json({ message: 'Rule deleted' });
+});
+
 // Batch delete by id list.
 app.post('/api/transactions/batch-delete', auth, async (req, res) => {
   try {
@@ -3234,11 +3248,14 @@ app.patch('/api/categories/:id', auth, async (req, res) => {
   const oldName = row.name;
   row.name = name; row.nameLower = nameLower;
   await row.save();
-  await Promise.all([
+  const [txnResult, budgetResult] = await Promise.all([
     Transaction.updateMany({ userId: req.user._id, category: oldName }, { $set: { category: name } }),
     Budget.updateMany({ userId: req.user._id, category: oldName }, { $set: { category: name } }),
   ]);
-  res.json({ id: row._id, name: row.name, type: row.type });
+  res.json({
+    id: row._id, name: row.name, type: row.type,
+    updated: (txnResult.modifiedCount || 0) + (budgetResult.modifiedCount || 0),
+  });
 });
 
 // Delete: asks where its transactions go (default: Other / Other Income).
@@ -3246,12 +3263,12 @@ app.delete('/api/categories/:id', auth, async (req, res) => {
   const row = await CustomCategory.findOne({ _id: req.params.id, userId: req.user._id });
   if (!row) return res.status(404).json({ message: 'Category not found' });
   const reassignTo = String(req.body?.reassignTo || (row.type === 'income' ? 'Other Income' : 'Other')).trim().slice(0, 40) || 'Other';
-  await Promise.all([
+  const [txnResult] = await Promise.all([
     Transaction.updateMany({ userId: req.user._id, category: row.name }, { $set: { category: reassignTo } }),
     Budget.deleteMany({ userId: req.user._id, category: row.name }), // a budget for a category that no longer exists doesn't make sense to keep
     CustomCategory.deleteOne({ _id: row._id }),
   ]);
-  res.json({ message: 'Category deleted', reassignedTo: reassignTo });
+  res.json({ message: 'Category deleted', reassignedTo: reassignTo, updated: txnResult.modifiedCount || 0 });
 });
 
 // Corper starter preset: seed a ₦77k NYSC allawee budget for this month plus an

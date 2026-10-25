@@ -2159,6 +2159,9 @@ const uploadSingle = (req, res, next) => {
 // --------------------------
 
 // Health & test
+// Cheap liveness check for the host's health probe: no database call, so a slow Mongo
+// never makes the host restart a working server. /api/health below also checks the DB.
+app.get('/health', (req, res) => res.json({ status: 'OK' }));
 app.get('/api/health', async (req, res) => {
   try {
     await mongoose.connection.db.admin().ping();

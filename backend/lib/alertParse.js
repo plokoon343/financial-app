@@ -119,30 +119,112 @@ function alertDescription(raw) {
   return /[A-Za-z]{3,}/.test(body) ? body.slice(0, 140) : '';
 }
 
-// ── Transfer receipts (GTWorld, Access and others export a receipt PDF) ──
-// A receipt lists Sender / Receiver / Receiving bank / Remark on their own lines. The
-// narration is "Transfer to <Receiver>", never the date line or the amount in words, and
-// the Receiving bank is the OTHER side's bank, not the user's. Returns null when the text
-// is not laid out like that.
+// ── Transfer receipts (GTWorld, Access, OPay and other banks/wallets export a
+// receipt PDF or receipt screenshot after a transfer) ──
+// A generic labelled-field reader: every bank seen so far (GTWorld, Access, GTCO,
+// OPay, Kuda, Moniepoint, PalmPay, Zenith, UBA, First Bank) lays a receipt out the
+// same way underneath the branding - a label, then its value, either on the next
+// line or run together on one line (some PDF text extractors drop line breaks:
+// "Receiver Ada Obi Account number 123 Receiving bank Moniepoint Mfb Reference ...").
+// round 6, part A item 2.
 const titleCase = (s) => s.toLowerCase().replace(/\b[a-z']/g, (c) => c.toUpperCase());
-function parseTransferReceipt(raw) {
-  const lines = String(raw || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const valueAfter = (label) => {
-    const i = lines.findIndex((l) => l.toLowerCase() === label);
-    if (i >= 0 && lines[i + 1]) return lines[i + 1];
-    // Same fields run together on one line (some PDF readers drop the line breaks):
-    // "Receiver Ada Obi Account number 123 Receiving bank Moniepoint Mfb Reference ...".
-    const STOP = '(?:sender|receiver|beneficiary|account number|account name|receiving bank|reference number|reference|remark|narration|status|success|transaction)';
-    const inline = String(raw).match(new RegExp('\\b' + label + '\\s*[:-]?\\s+(.+?)(?=\\s+' + STOP + '\\b|\\n|$)', 'i'));
-    return inline ? inline[1].trim() : '';
-  };
-  const clean = (n) => titleCase(n.replace(/[^A-Za-z .,'-]/g, ' ').replace(/\s{2,}/g, ' ').trim());
-  const receiver = valueAfter('receiver') || valueAfter('beneficiary');
-  const sender = valueAfter('sender');
-  if (!receiver || !sender || !/[A-Za-z]{2,}/.test(receiver)) return null;
-  const name = clean(receiver);
-  return { receiver: name, sender, receivingBank: valueAfter('receiving bank'), description: ('Transfer to ' + name).slice(0, 140) };
+const cleanName = (n) => titleCase(n.replace(/[^A-Za-z .,'&-]/g, ' ').replace(/\s{2,}/g, ' ').trim());
+const RECEIPT_LABELS = {
+  amount: ['transaction amount', 'amount'],
+  date: ['transaction date', 'value date', 'date'],
+  sender: ['sender name', 'sender details', 'sender'],
+  beneficiary: ['beneficiary name', 'beneficiary details', 'recipient name', 'recipient details', 'beneficiary', 'recipient', 'receiver'],
+  bank: ['receiving bank', 'beneficiary bank', 'recipient bank', 'destination bank'],
+  reference: ['transaction reference', 'transaction no.', 'transaction no', 'reference number', 'reference'],
+  sessionId: ['session id', 'session no', 'stan'],
+  status: ['transaction status', 'status'],
+  // "Bank Deposit" (OPay, money arriving) vs "INTER-BANK" / "Outward Transfer" (money
+  // leaving) - the one field that says which way a receipt with no other direction
+  // wording went.
+  type: ['transaction type', 'txn type'],
+};
+// Fields never read for their own value, but still a label another field's inline
+// value must stop before ("Receiver Ada Obi Account number 123 Receiving bank ...").
+const RECEIPT_STOP_ONLY = ['account number', 'account name', 'remark', 'narration', 'success'];
+const ALL_RECEIPT_LABELS = [...new Set([...Object.values(RECEIPT_LABELS).flat(), ...RECEIPT_STOP_ONLY])].sort((a, b) => b.length - a.length);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const RECEIPT_STOP = ALL_RECEIPT_LABELS.map(escapeRe).join('|');
+
+function receiptValueAfter(lines, raw, label) {
+  const i = lines.findIndex((l) => l.toLowerCase().replace(/:\s*$/, '') === label);
+  if (i >= 0 && lines[i + 1]) return lines[i + 1].trim();
+  const inline = raw.match(new RegExp('\\b' + escapeRe(label) + '\\s*[:\\-]?\\s+(.+?)(?=\\s+(?:' + RECEIPT_STOP + ')\\b|\\n|$)', 'i'));
+  return inline ? inline[1].trim() : '';
 }
+function receiptField(lines, raw, field) {
+  for (const label of RECEIPT_LABELS[field]) {
+    const v = receiptValueAfter(lines, raw, label);
+    if (v) return v;
+  }
+  return '';
+}
+
+// Everything under a label up to the next recognised one, not just the single next
+// line - a name is often followed by a masked account number and the account's own
+// bank name on separate lines ("Sender Details\nChidumebi Onukogu\nAccess Bank
+// 150****731"). Used only to strip a whole counterparty block before bank
+// detection; receiptField (one line) is still right for reading a name.
+function receiptBlockAfter(lines, field) {
+  const LABEL_SET = new Set(ALL_RECEIPT_LABELS);
+  for (const label of RECEIPT_LABELS[field]) {
+    const i = lines.findIndex((l) => l.toLowerCase().replace(/:\s*$/, '') === label);
+    if (i < 0) continue;
+    const out = [];
+    for (let j = i + 1; j < lines.length && !LABEL_SET.has(lines[j].toLowerCase().replace(/:\s*$/, '')); j++) out.push(lines[j]);
+    // Joined with a literal space (for display/search in already-joined text) and
+    // kept as the line list too (findStripPattern needs \s+ between lines, since
+    // the original text may still have real newlines between them).
+    if (out.length) return out;
+  }
+  return [];
+}
+// A regex that matches a block's lines in order with any whitespace (including a
+// real newline) between them, for removing it from the still-structured raw text.
+function blockStripPattern(blockLines) {
+  if (!blockLines || !blockLines.length) return null;
+  return new RegExp(blockLines.map(escapeRe).join('\\s+'), 'ig');
+}
+
+// Returns null when the text isn't laid out like a labelled receipt at all (no
+// sender or beneficiary field found).
+function parseLabelledReceipt(raw) {
+  const t = String(raw || '');
+  const lines = t.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const senderRaw = receiptField(lines, t, 'sender');
+  const beneficiaryRaw = receiptField(lines, t, 'beneficiary');
+  if (!senderRaw && !beneficiaryRaw) return null;
+  const type = receiptField(lines, t, 'type');
+  const isCredit = /\b(deposit|inward|credit)\b/i.test(type);
+  const nameRaw = isCredit ? (senderRaw || beneficiaryRaw) : (beneficiaryRaw || senderRaw);
+  const name = nameRaw && /[A-Za-z]{2,}/.test(nameRaw) ? cleanName(nameRaw) : '';
+  return {
+    sender: senderRaw,
+    senderBlock: receiptBlockAfter(lines, 'sender'),
+    receiver: beneficiaryRaw ? cleanName(beneficiaryRaw) : '',
+    receiverRaw: beneficiaryRaw,
+    receiverBlock: receiptBlockAfter(lines, 'beneficiary'),
+    receivingBank: receiptField(lines, t, 'bank'),
+    amountText: receiptField(lines, t, 'amount'),
+    dateText: receiptField(lines, t, 'date'),
+    // The session id (a NIP transfer's shared identifier, present on both the
+    // sending and receiving bank's receipt) is what links the two sides of a
+    // self-transfer; a bank's own "Transaction Reference" is usually internal to
+    // that bank alone and won't match the other side's receipt.
+    reference: receiptField(lines, t, 'sessionId') || receiptField(lines, t, 'reference'),
+    status: receiptField(lines, t, 'status'),
+    // '' when the receipt doesn't say (e.g. plain Sender/Receiver layouts): the
+    // caller falls back to its own default, same as before this function existed.
+    direction: type ? (isCredit ? 'income' : 'expense') : '',
+    description: name ? ((isCredit ? 'Received from ' : 'Transfer to ') + name).slice(0, 140) : '',
+  };
+}
+// Back-compat name: this used to be the narrower Sender/Receiver-only reader.
+const parseTransferReceipt = parseLabelledReceipt;
 
 // ── Is this even a transaction? ──
 // Banks and wallet apps push OTPs, loan offers, promos and balance notices through the
@@ -177,6 +259,6 @@ function alertIgnoreReason(raw) {
 }
 
 module.exports = {
-  detectDirection, parseLabeledAlert, parseTransferReceipt, alertDescription, alertIgnoreReason, alertLooksTransactional,
+  detectDirection, parseLabeledAlert, parseTransferReceipt, parseLabelledReceipt, blockStripPattern, alertDescription, alertIgnoreReason, alertLooksTransactional,
   CREDIT_STRONG, DEBIT_STRONG, CREDIT_WEAK, DEBIT_WEAK,
 };

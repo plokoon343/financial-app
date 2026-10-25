@@ -9,7 +9,7 @@
 // 3. The amount is never the balance: balance figures are blanked before we look.
 const { normalizeAmount } = require('./amount');
 const { normalizeAnyDate } = require('./dates');
-const { detectDirection, parseLabeledAlert, parseTransferReceipt, alertDescription } = require('./alertParse');
+const { detectDirection, parseLabeledAlert, parseTransferReceipt, blockStripPattern, alertDescription } = require('./alertParse');
 const { classifyAlert, isFeeText, bankRule, withoutBalance } = require('./alertClassify');
 const { fingerprintAccount, detectBank } = require('./bankDetect');
 const { categorizeTransaction } = require('./categorize');
@@ -42,12 +42,30 @@ function firstMoney(text, opts) {
 function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {}) {
   const raw = String(msg || '').trim();
   if (!raw) return null;
-  const first = classifyAlert(raw);
+  let first = classifyAlert(raw);
   if (first.kind === 'ignore') return null;
 
-  // A transfer receipt names the OTHER side's bank (Receiving bank, and again in the remark); the user's own bank is not that one.
+  // A transfer receipt names the OTHER side (a "Receiving bank" field, or just the
+  // beneficiary/sender's name, which is often itself a wallet's registered business
+  // name - "OPAY DIGITAL SERVICES LIMITED" - that would otherwise be mistaken for
+  // the user's own bank). Strip whichever side is the counterparty: the beneficiary
+  // on an outgoing receipt, the sender on an incoming one.
   const receipt = parseTransferReceipt(raw);
-  const ownText = receipt && receipt.receivingBank ? raw.split(receipt.receivingBank).join(' ') : raw;
+  // A labelled receipt with a readable sender/beneficiary name IS a transaction,
+  // whether or not the generic classifier found a debit/credit verb to be sure of
+  // it (some banks' receipts just say "Transaction Status: Successful", nothing
+  // more direction-like) - round 6, part A item 2.
+  if (first.kind === 'unsure' && receipt && receipt.description) first = { kind: 'transaction', reason: '' };
+  let ownText = raw;
+  if (receipt) {
+    if (receipt.receivingBank) {
+      ownText = ownText.replace(new RegExp(receipt.receivingBank.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), ' ');
+    } else {
+      const block = receipt.direction === 'income' ? receipt.senderBlock : receipt.receiverBlock;
+      const pattern = blockStripPattern(block);
+      if (pattern) ownText = ownText.replace(pattern, ' ');
+    }
+  }
   const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(ownText, sender);
   const rule = bankRule(bankCode);
   const labeled = parseLabeledAlert(raw);
@@ -61,19 +79,31 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {
   const ruled = rule?.amountRe && raw.match(rule.amountRe);
   if (ruled) { const n = normalizeAmount(ruled[1], amtOpts); if (n.value != null) { amount = n.value; amtConf = 'high'; amountPath = 'bank'; } }
   if (amount == null && labeled && labeled.amount) { amount = labeled.amount; amtConf = 'high'; amountPath = 'labelled'; }
+  // A labelled receipt's own "Amount" field (round 6, part A item 2) beats scanning
+  // the whole text, which can snag a session id or account number by mistake.
+  if (amount == null && receipt && receipt.amountText) {
+    const n = firstMoney(receipt.amountText, amtOpts);
+    if (n) { amount = n.value; amtConf = 'high'; amountPath = 'receipt'; }
+  }
   if (amount == null) { const n = firstMoney(noBal, amtOpts); if (n) { amount = n.value; amtConf = n.confidence; amountPath = 'shared'; } }
 
-  // Direction: the bank's pattern, then a labelled field, then tiered inference.
+  // Direction: the bank's pattern, then a labelled field, then the receipt's own
+  // "Transaction Type" (Bank Deposit = in, everything else we've seen = out), then
+  // tiered inference.
   let dir = null;
   const rd = rule?.directionRe && raw.match(rule.directionRe);
   if (rd) dir = { type: /^c/i.test(rd[1]) ? 'income' : 'expense', conf: 'high' };
   if (!dir && labeled) dir = { type: labeled.type, conf: 'high' };
+  if (!dir && receipt && receipt.direction) dir = { type: receipt.direction, conf: 'high' };
   if (!dir) dir = detectDirection(raw);
 
-  // Date: the bank's pattern, a labelled Value Date, the first date in the text, else today.
+  // Date: the bank's pattern, a labelled Value Date, the receipt's own date field,
+  // the first date in the text, else today.
   const rdate = rule?.dateRe && raw.match(rule.dateRe);
   const dm = raw.match(SMS_DATE_RE);
-  const textDate = (rdate && toISO(rdate[1])) || (labeled && labeled.date && toISO(labeled.date)) || (dm && toISO(dm[1])) || null;
+  const receiptDateMatch = receipt && receipt.dateText && receipt.dateText.match(SMS_DATE_RE);
+  const textDate = (rdate && toISO(rdate[1])) || (labeled && labeled.date && toISO(labeled.date))
+    || (receiptDateMatch && toISO(receiptDateMatch[1])) || (dm && toISO(dm[1])) || null;
   const date = textDate || new Date(today).toISOString().slice(0, 10);
 
   // Narration: the bank's pattern, a labelled field, the counterparty phrase, else the
@@ -100,7 +130,7 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {
   const amt = amount != null ? +Number(amount).toFixed(2) : 0;
   return {
     date, dateFromText: !!textDate, directionKnown: dir.conf !== 'low', description, amount: amt,
-    type, category, bank, bankCode, accountMask, senderKey, reference: null, raw,
+    type, category, bank, bankCode, accountMask, senderKey, reference: (receipt && receipt.reference) || null, raw,
     kind, isFee: kind === 'fee',
     // Unclear alerts and low-confidence amounts wait for a person (spec A6).
     needsReview: confidence === 'low',

@@ -55,6 +55,10 @@ function scorePair(debit, credit, opts = {}) {
   if (mentionsSelf(debit.description, userName) || mentionsSelf(credit.description, userName)) s += 15;
   const rk = routeKey(debit.bank, credit.bank);
   if (routeKeys.has(rk)) s += 25;                                           // user previously confirmed this route
+  // Round 6, part A item 3: two receipts for the same transfer (e.g. the sending
+  // bank's and the receiving wallet's) often carry the same bank reference/session
+  // id. That is as certain a match as this gets, so it outweighs everything else.
+  if (debit.reference && credit.reference && lc(debit.reference) === lc(credit.reference)) s += 60;
   return s;
 }
 
@@ -73,8 +77,13 @@ function detectTransfers(txns, opts = {}) {
   const candidates = [];
   for (const d of debits) {
     for (const c of credits) {
-      if (lc(d.bank) === lc(c.bank)) continue;           // must be different accounts
-      if (!d.bank || !c.bank) continue;                  // need both banks to be sure
+      if (d.bank && c.bank && lc(d.bank) === lc(c.bank)) continue; // must be different accounts
+      const sameRef = d.reference && c.reference && lc(d.reference) === lc(c.reference);
+      // Normally need both banks named to be sure these are two different accounts;
+      // a shared bank reference (round 6, part A item 3 - the two receipts of one
+      // transfer, read off the same NIP session id) is strong enough on its own,
+      // for a receipt that never states which bank it's from in its own text.
+      if (!sameRef && (!d.bank || !c.bank)) continue;
       const score = scorePair(d, c, opts);
       if (score >= ASK) candidates.push({ debit: d, credit: c, score });
     }

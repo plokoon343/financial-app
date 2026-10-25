@@ -1,0 +1,1 @@
+{"raw":"Transfer Receipt\nAmount\nN45,000.00\nRecipient\nTamara Eze\nRecipient Bank\nOPay\nDate\n25 Oct 2026\nNarration\nFeeding money\nReference\nKUDA998877","expected":{"amount":45000,"direction":"debit","date":"2026-10-25"},"anonymised":true,"constructed":true,"note":"No real Kuda receipt sample available; built from Kuda's known receipt field names."}

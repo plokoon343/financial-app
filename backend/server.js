@@ -499,6 +499,10 @@ const transactionSchema = new mongoose.Schema({
   channel: { type: String, default: '' },
   importedAt: { type: Date },
   transferPairId: { type: String, default: '' },  // links the two sides of an internal transfer
+  // The bank's own reference/session id for this transaction, when the source stated
+  // one explicitly (a transfer receipt - round 6, part A item 3). Used to pair the two
+  // sides of a self-transfer with certainty instead of guessing from amount and time.
+  reference: { type: String, default: '' },
   reversalPairId: { type: String, default: '' },  // links a reversal credit to the debit it cancels
   // Cash tracking (spec C4): a cash_withdrawal the user has broken down into what the
   // cash was actually spent on. The child expense rows carry cashParentId = the
@@ -1944,7 +1948,7 @@ const reconcileTransfers = async (userId, { allHistory = false } = {}) => {
     query.date = { $gte: since };
   }
   const [txns, user, routes] = await Promise.all([
-    Transaction.find(query).select('type amount date bank description').lean(),
+    Transaction.find(query).select('type amount date bank description reference').lean(),
     User.findById(userId).select('name').lean(),
     TransferRoute.find({ userId }).select('routeKey').lean(),
   ]);
@@ -4434,6 +4438,7 @@ async function ingestAlert(user, parsed, source = 'email') {
     source, bank: eBank, importedAt: new Date(),
     bankCode: eCode, accountMask: eMask, senderKey: eSender,
     ...(parsed.confidence ? { parseConfidence: String(parsed.confidence).slice(0, 8) } : {}),
+    ...(parsed.reference ? { reference: String(parsed.reference).slice(0, 60) } : {}),
   }).save();
   queueNewTxn(user._id, saved, source);
   if (parsed.isFee) await linkFee(user._id, saved);
@@ -8389,7 +8394,7 @@ app.get('/api/transactions/pending-transfers', auth, async (req, res) => {
     const uid = req.user._id;
     const [txns, user, routes] = await Promise.all([
       Transaction.find({ userId: uid, type: { $in: ['income', 'expense'] } })
-        .select('type amount date bank description').lean(),
+        .select('type amount date bank description reference').lean(),
       User.findById(uid).select('name').lean(),
       TransferRoute.find({ userId: uid }).select('routeKey').lean(),
     ]);

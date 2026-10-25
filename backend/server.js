@@ -190,6 +190,26 @@ function stripMongoOperators(obj, depth = 0) {
     else stripMongoOperators(obj[key], depth + 1);
   }
 }
+// ── Request timing (round 7 A2) ─────────────────────────────────────────────────
+// Every API request is timed. Anything slower than SLOW_MS is logged with its route pattern (never
+// the URL's ids or query, never a body), and a small in-memory table keeps count, average, worst and
+// p95-ish (the 20 slowest) per route for the admin page: GET /api/admin/perf. Resets on restart.
+const SLOW_MS = Number(process.env.SLOW_REQUEST_MS) || 600;
+const routeStats = new Map();
+app.use((req, res, next) => {
+  const t0 = process.hrtime.bigint();
+  res.on('finish', () => {
+    if (!req.originalUrl.startsWith('/api/')) return;
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    const key = `${req.method} ${req.baseUrl || ''}${req.route ? req.route.path : '(unmatched)'}`;
+    let st = routeStats.get(key);
+    if (!st) { st = { count: 0, total: 0, max: 0, slow: [] }; routeStats.set(key, st); }
+    st.count += 1; st.total += ms; if (ms > st.max) st.max = ms;
+    st.slow.push(ms); if (st.slow.length > 200) st.slow.shift();
+    if (ms > SLOW_MS) console.warn(`[slow] ${key} ${Math.round(ms)}ms status ${res.statusCode}`);
+  });
+  next();
+});
 app.use((req, _res, next) => {
   stripMongoOperators(req.body);
   stripMongoOperators(req.query);
@@ -535,6 +555,11 @@ const TransferRoute = mongoose.model('TransferRoute', transferRouteSchema);
 // Indexes for the common per-user queries (date listing & statement grouping).
 transactionSchema.index({ userId: 1, date: -1 });
 transactionSchema.index({ userId: 1, importBatch: 1 });
+// Round 7 A2: spending/income by type and date (Home, Cashflow, Insights), the 'needs a category' count
+// and 'cash to log' (Action Center), and pairing self-transfers by reference.
+transactionSchema.index({ userId: 1, type: 1, date: -1 });
+transactionSchema.index({ userId: 1, category: 1 });
+transactionSchema.index({ userId: 1, reference: 1 }, { sparse: true });
 // Never store a channel ("SMS", "Email", "Share") as the bank; record it as the channel.
 transactionSchema.pre('validate', function setChannel() {
   if (!this.channel) this.channel = channelFor({ source: this.source, bank: this.bank });
@@ -3003,7 +3028,9 @@ app.get('/api/transactions', auth, async (req, res) => {
     if (search) query.description = { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
     const sortField = sort === 'amount' ? 'amount' : 'date';
     const sortOrder = order === 'asc' ? 1 : -1;
-    const transactions = await Transaction.find(query).sort({ [sortField]: sortOrder });
+    // lean(): plain objects, no Mongoose document wrapping, which is most of the cost of returning
+    // thousands of rows. The JSON the apps receive is the same.
+    const transactions = await Transaction.find(query).sort({ [sortField]: sortOrder }).lean();
     res.json(transactions);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -4844,6 +4871,21 @@ async function actionCenterItems(userId) {
   return items;
 }
 
+// Home asks for the Action Center count on every open, and building it scans subscriptions, possible
+// duplicates and senders. A 20 second per-user memo keeps repeated opens cheap; the Action Center
+// screen itself always builds a fresh list, and any change the user makes there is a few seconds from
+// showing on Home.
+const ACTION_MEMO_MS = 20000;
+const actionMemo = new Map();
+async function actionCenterItemsCached(userId) {
+  const key = String(userId);
+  const hit = actionMemo.get(key);
+  if (hit && Date.now() - hit.at < ACTION_MEMO_MS) return hit.items;
+  const items = await actionCenterItems(userId);
+  if (actionMemo.size > 2000) actionMemo.clear();
+  actionMemo.set(key, { at: Date.now(), items });
+  return items;
+}
 app.get('/api/action-center', auth, async (req, res) => {
   try {
     const items = await actionCenterItems(req.user._id);
@@ -7420,6 +7462,15 @@ async function runNudgesJob(now = new Date()) {
   } finally { nudgesRunning = false; }
 }
 
+// Slowest routes since the last restart (superadmin only): count, average, worst, and the 95th percentile of the last 200.
+app.get('/api/admin/perf', auth, superAdminAuth, (_req, res) => {
+  const rows = [...routeStats.entries()].map(([route, st]) => {
+    const sorted = [...st.slow].sort((a, b) => a - b);
+    return { route, count: st.count, avgMs: Math.round(st.total / st.count), p95Ms: Math.round(sorted[Math.floor(sorted.length * 0.95)] || 0), maxMs: Math.round(st.max) };
+  }).sort((a, b) => b.avgMs * b.count - a.avgMs * a.count);
+  res.json({ since: 'last restart', slowThresholdMs: SLOW_MS, routes: rows.slice(0, 40) });
+});
+
 // ── Birthday emails ─────────────────────────────────────────────────────────────
 // Day and month only. Brevo gets the day and month as one contact attribute (BIRTHDAY_DM,
 // "DD-MM") and nothing else new; clearing the birthday or switching the messages off removes it.
@@ -7707,16 +7758,21 @@ app.get('/api/home/summary', auth, async (req, res) => {
     const userId = req.user._id;
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const [monthTxns, bills, subs, last] = await Promise.all([
+    const lagos = birthday.lagosParts(now);
+    const budgetMonth = `${lagos.year}-${String(lagos.month).padStart(2, '0')}`;
+    const [monthTxns, bills, subs, last, unread, budgets] = await Promise.all([
       Transaction.find({ userId, date: { $gte: monthStart }, type: { $in: ['income', 'expense'] } }).select('amount type').lean(),
       RecurringBill.find({ userId, status: { $ne: 'paused' } }).lean(),
       Subscription.find({ userId, status: 'active' }).lean(),
       Transaction.findOne({ userId }).sort({ createdAt: -1 }).select('createdAt').lean(),
+      // Bell count and this month's budgets ride along, so Home needs one request, not three.
+      Notification.countDocuments({ userId, read: false }),
+      Budget.find({ userId, month: budgetMonth }).select('category amount month').lean(),
     ]);
     const sum = (t) => monthTxns.filter((x) => x.type === t).reduce((s, x) => s + Math.abs(x.amount), 0);
     // The "N things need a quick look" line comes from the same function the Action
     // Center list uses, so the count and the rows always match.
-    const items = await actionCenterItems(userId);
+    const items = await actionCenterItemsCached(userId);
     const counts = items.reduce((m, it) => { m[it.type] = (m[it.type] || 0) + 1; return m; }, {});
     const pick = (t) => items.find((i) => i.type === t) || null;
     const actions = {
@@ -7726,6 +7782,7 @@ app.get('/api/home/summary', auth, async (req, res) => {
       overdue: pick('overdue_payments')?.count || 0,
     };
     res.json({
+      unread, budgets,
       ...homeSummary({
         now, monthlyIncome: req.user.monthlyIncome || 0,
         monthIncome: sum('income'), monthExpense: sum('expense'),
@@ -8464,7 +8521,7 @@ app.get('/api/reminders', auth, async (req, res) => {
 
     // 3) Action Center: things we need the user to decide.
     try {
-      const pending = (await actionCenterItems(userId)).length;
+      const pending = (await actionCenterItemsCached(userId)).length;
       if (pending > 0) {
         reminders.push({
           id: 'actions', type: 'review', severity: 'medium', icon: 'list',

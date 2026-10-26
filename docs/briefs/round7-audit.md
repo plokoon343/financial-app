@@ -51,3 +51,19 @@ Covered: JWT (secret strength, now-pinned verify algorithm), password hashing, p
 **Nothing critical or high found so far** - but this is a first-pass finding, not a clean bill of health: the session stopped at the weekly usage guardrail (~50%) before reaching input handling (NoSQL guard coverage, upload limits, PDF-parsing limits, regex-DoS), secrets (the grep across all four repos + the mobile bundle), data handling (AI-provider stripping, log hygiene, CORS, CSP/HSTS headers), mobile storage (SecureStore/MMKV/FLAG_SECURE - likely fine per earlier sessions' work, not re-confirmed), `npm audit` in any of the four repos, the web app, the mobile app, or the website. The remaining ~30 `:id` routes also still need checking.
 
 **A follow-up A1 session should finish the rest of the checklist before the F fix session starts** - treat this round's "no critical/high" as provisional, covering roughly 40% of the brief.
+
+## A3 results: UX and UI audit (26 Oct 2026, Sonnet)
+
+Full report with the findings table and screenshots: `docs/briefs/round7-a3-ux-audit.md` (screenshots in `docs/design/round7-a3/`). Mobile `56ab766`, pushed. `npx tsc --noEmit` and `npx expo lint` both clean (lint's 9 warnings are pre-existing, unrelated to this change).
+
+Walked the mobile app via the Expo web preview against a seeded local API (new `api-test` launch config on a throwaway DB), Light/Dark at 360/412, plus a pass over the web app at desktop and 375 width.
+
+**Critical finding: the bundled Poppins font has no glyph for the ₦ (NAIRA SIGN, U+20A6) character** - confirmed with `fontTools` against the actual `.ttf`. In the Expo web preview this corrupts every single money amount in the app (a line drawn through the whole number, not just the ₦) because React Native's `fontFamily` takes one font with no fallback stack; the web app is unaffected because its CSS declares a font stack that lets the browser swap just the missing glyph. Root cause is certain; whether the same *visual* corruption reproduces on real iOS/Android (native font-fallback engines may handle a missing glyph more gracefully than this Chromium environment did) is not confirmed - put it first on the S9 phone-test list. Not fixed here: this needs a real decision (render ₦ separately in a font that has it, or switch fonts) and device verification, not a blind inline edit.
+
+**Fixed directly:** inconsistent decimal display in the mobile transaction list (`-₦500.00` next to `-₦3,600` in the same list) - `lib/format.ts` now shows kobo only when an amount actually has them, regardless of size.
+
+Six more findings (Medium/Low): unlabelled Sign In button for screen readers, "Create one" routing through the onboarding carousel instead of straight to register, two different recap interstitials stacking on first session view, a clipped plan label on Profile, an unlabelled web settings icon, and a `transform-origin` console warning whose source wasn't pinned down in the time available. Full detail and fixes in the linked report.
+
+**Also checked and found NOT to be a bug:** the web app's responsive sidebar (a first look mid-resize was misleading; a fresh load and a real rotation both reflow correctly), and the "9 to review" (Home) vs "3 alerts" (Action Center) counts (they reconcile - alerts + recurring-charge candidates).
+
+**Not done this round:** Goals detail, Subscriptions, Bills, Settings sub-screens, Connect Bank, Ask assistant, and a line-by-line diff against `docs/design/screen-specs-v1.md` (this was a checklist walkthrough, not a spec diff).

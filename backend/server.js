@@ -231,7 +231,7 @@ const apiLimiter = rateLimit({
   keyGenerator: (req) => {
     const token = (req.get('Authorization') || '').replace('Bearer ', '');
     if (token) {
-      try { return `u:${jwt.verify(token, JWT_SECRET).userId}`; } catch { /* fall back to IP */ }
+      try { return `u:${jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }).userId}`; } catch { /* fall back to IP */ }
     }
     return rateLimit.ipKeyGenerator(req.ip);
   },
@@ -2145,7 +2145,7 @@ const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ message: 'No token', authExpired: true });
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     req.user = await User.findById(decoded.userId);
     if (!req.user) return res.status(401).json({ message: 'User not found', authExpired: true });
     // "Log out of all devices": reject tokens issued before the cutoff.

@@ -41,3 +41,13 @@ Code-level; numbers below are from the local API on a throwaway DB with 5,000 tr
 | 10 | Home and Plan recompute insight rows over the whole transaction list when it changes; admin stats runs a count per user (admin only). | Low | **Open:** fine at today's sizes; revisit with #3. |
 
 Not measured here: cold start to Home on a phone, tab-switch time and scroll frame rate (the owner's S9 timings). Backend `npm test` 47/47; checked on a test DB: summary fields, warm and cold timings, the perf table.
+
+## A1 results: security audit (26 Oct 2026, Sonnet) - PARTIAL, stopped at the usage guardrail
+
+Full report: `docs/security/round7-a1-audit.md`. Backend `f864283`, pushed. `npm test` 47/47.
+
+Covered: JWT (secret strength, now-pinned verify algorithm), password hashing, password-reset token single-use/expiry, 2FA, Google sign-in token verification, rate limits on auth routes, account-enumeration in messages, and a spot-check of about 20 of the roughly 50 `:id` routes for userId ownership (all correctly scoped). **Fixed:** `jwt.verify`'s two call sites now pin `algorithms: ['HS256']` instead of relying on the library's default inference - low exploitability as it stood, a one-line hardening regardless.
+
+**Nothing critical or high found so far** - but this is a first-pass finding, not a clean bill of health: the session stopped at the weekly usage guardrail (~50%) before reaching input handling (NoSQL guard coverage, upload limits, PDF-parsing limits, regex-DoS), secrets (the grep across all four repos + the mobile bundle), data handling (AI-provider stripping, log hygiene, CORS, CSP/HSTS headers), mobile storage (SecureStore/MMKV/FLAG_SECURE - likely fine per earlier sessions' work, not re-confirmed), `npm audit` in any of the four repos, the web app, the mobile app, or the website. The remaining ~30 `:id` routes also still need checking.
+
+**A follow-up A1 session should finish the rest of the checklist before the F fix session starts** - treat this round's "no critical/high" as provisional, covering roughly 40% of the brief.

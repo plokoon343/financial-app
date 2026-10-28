@@ -147,6 +147,11 @@ const safeEqual = (a, b) => {
 const cronAuthorized = (req) => !!process.env.CRON_SECRET && safeEqual(req.get('x-cron-secret'), process.env.CRON_SECRET);
 
 const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
+// Escape a user-controlled string before it reaches an HTML email body (round 7
+// A1): the only place this mattered was the account-deletion email's greeting,
+// built from the account's own display name with no character restriction at
+// signup.
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Fail fast if the JWT secret is missing - never fall back to a public default.
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -2763,12 +2768,14 @@ const SITE_URL = (process.env.SITE_URL || 'https://www.automonie.com').replace(/
 
 const sendDeletedEmail = async (to, name) => {
   if (!emailConfigured()) return false;
-  const hi = name ? `Hi ${String(name).split(' ')[0]},` : 'Hi,';
+  const firstName = name ? String(name).split(' ')[0] : '';
+  const hi = firstName ? `Hi ${firstName},` : 'Hi,';
+  const hiHtml = firstName ? `Hi ${escapeHtml(firstName)},` : 'Hi,';
   await sendEmail({
     to,
     subject: 'Your Automonie account has been deleted',
     text: `${hi}\n\nYour Automonie account and its data (transactions, budgets, goals, bills, accounts, contacts and settings) have been deleted. Copies in our routine backups are overwritten within 90 days. Payment records we must keep by law are retained.\n\nIf you didn't ask for this, reply to this email straight away.\n\nThe Automonie team`,
-    html: `<p>${hi}</p><p>Your Automonie account and its data (transactions, budgets, goals, bills, accounts, contacts and settings) have been deleted. Copies in our routine backups are overwritten within 90 days. Payment records we must keep by law are retained.</p><p>If you didn't ask for this, reply to this email straight away.</p><p>The Automonie team</p>`,
+    html: `<p>${hiHtml}</p><p>Your Automonie account and its data (transactions, budgets, goals, bills, accounts, contacts and settings) have been deleted. Copies in our routine backups are overwritten within 90 days. Payment records we must keep by law are retained.</p><p>If you didn't ask for this, reply to this email straight away.</p><p>The Automonie team</p>`,
   });
   return true;
 };

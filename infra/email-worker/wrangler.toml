@@ -1,6 +1,8 @@
 name = "automonie-email-worker"
 main = "src/index.js"
 compatibility_date = "2026-10-26"
+# Email-only Worker: no public workers.dev URL or HTTP route. Email Routing invokes it.
+workers_dev = false
 
 [vars]
 BACKEND_URL = "https://api.automonie.com/api/inbound-email/cloudflare"

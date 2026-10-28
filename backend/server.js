@@ -4785,16 +4785,20 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
 });
 
 // Cloudflare Email Worker route (round 6 part F): the Worker (infra/email-worker/)
-// parses the raw MIME itself with postal-mime and POSTs a small JSON body here with a
-// shared secret header — never the raw email. Same 503/401/200 contract as the legacy
-// webhook above, and the same ingest path once normalised.
-app.post('/api/inbound-email/cloudflare', async (req, res) => {
+// POSTs the raw email (message/rfc822, envelope addresses in headers) with a shared
+// secret header, and we parse it here, keeping the Worker inside the free-plan CPU
+// limit. The older JSON body form is still accepted. Same 503/401/200 contract as the
+// legacy webhook above, and the same ingest path once normalised.
+app.post('/api/inbound-email/cloudflare', express.raw({ type: 'message/rfc822', limit: '6mb' }), async (req, res) => {
   try {
     if (!inboundActive()) return res.status(503).json({ message: 'Email forwarding is not enabled yet.' });
     const key = req.get('x-inbound-cf-secret') || '';
     if (!inboundEmail.verifyCloudflareSecret(key, process.env.INBOUND_CF_SECRET)) return res.status(401).json({ message: 'Bad webhook key' });
 
-    const result = await ingestInboundEmail(inboundEmail.mapCloudflarePayload(req.body));
+    const body = Buffer.isBuffer(req.body)
+      ? await inboundEmail.parseRawEmail(req.body, { to: req.get('x-envelope-to') || '', from: req.get('x-envelope-from') || '' })
+      : req.body;
+    const result = await ingestInboundEmail(inboundEmail.mapCloudflarePayload(body));
     return res.json(result);
   } catch (e) { console.error('[inbound-email/cloudflare]', e.message); return res.status(500).json({ message: 'Server error' }); }
 });

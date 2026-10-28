@@ -263,6 +263,25 @@ function mapCloudflarePayload(body = {}) {
   };
 }
 
+// The Worker now sends the raw email (message/rfc822) untouched, so parsing never
+// eats into the Workers free-plan CPU limit; we parse it here into the same fields
+// the Worker used to send. postal-mime is ESM-only, hence the dynamic import.
+// `envelope` carries the SMTP envelope addresses from the Worker's headers, which
+// are what the token is read from (the To: header can differ after forwarding).
+async function parseRawEmail(raw, envelope = {}) {
+  const { default: PostalMime } = await import('postal-mime');
+  const p = await PostalMime.parse(raw);
+  return {
+    to: envelope.to || '',
+    headerTo: (p.to || []).map((a) => a.address).filter(Boolean).join(','),
+    from: (p.from && p.from.address) || envelope.from || '',
+    subject: p.subject || '',
+    text: p.text || '',
+    html: p.html || '',
+    date: p.date || null,
+  };
+}
+
 // Constant-time secret check for the Worker's `x-inbound-cf-secret` header, mirroring
 // server.js's safeEqual(): false unless both sides are non-empty and the same length
 // (timingSafeEqual throws on a length mismatch, so that's checked first).
@@ -278,5 +297,5 @@ module.exports = {
   extractToken, htmlToText, stripQuotedReply, emailToText, emailBodyText,
   isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts,
   forwardedSender, unwrapForwarded, resolveBankEmail,
-  mapCloudflarePayload, verifyCloudflareSecret,
+  mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail,
 };

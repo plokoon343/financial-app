@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/inboundEmail.test.js
-const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail, mapCloudflarePayload, verifyCloudflareSecret } = require('./inboundEmail');
+const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail, mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail } = require('./inboundEmail');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -165,5 +165,13 @@ check('cf secret: empty expected fails (feature off)', verifyCloudflareSecret('a
 check('cf secret: both empty fails', verifyCloudflareSecret('', '') === false);
 check('cf secret: different length fails without throwing', verifyCloudflareSecret('short', 'muchlongersecretvalue') === false);
 
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+// Raw email from the Worker (message/rfc822): parsed here, token read from the envelope.
+(async () => {
+  const raw = Buffer.from('From: GTBank <gens@gtbank.com>\r\nTo: Me <me@gmail.com>\r\nSubject: GeNS Debit Alert\r\nContent-Type: text/plain\r\n\r\nAmt: NGN5,000.00 Desc: POS SHOPRITE\r\n');
+  const p = await parseRawEmail(raw, { to: 'abc123@in.automonie.com', from: 'me@gmail.com' });
+  check('raw: sender from the From header', p.from === 'gens@gtbank.com');
+  check('raw: subject and text', p.subject === 'GeNS Debit Alert' && /NGN5,000\.00/.test(p.text));
+  check('raw: envelope address carries the token', extractToken(mapCloudflarePayload(p).recipient) === 'abc123');
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+})();

@@ -8,9 +8,6 @@
     "deploy": "wrangler deploy",
     "secret:set": "wrangler secret put INBOUND_CF_SECRET"
   },
-  "dependencies": {
-    "postal-mime": "^2.2.7"
-  },
   "devDependencies": {
     "wrangler": "^3.80.0"
   }

@@ -172,6 +172,8 @@ check('cf secret: different length fails without throwing', verifyCloudflareSecr
   check('raw: sender from the From header', p.from === 'gens@gtbank.com');
   check('raw: subject and text', p.subject === 'GeNS Debit Alert' && /NGN5,000\.00/.test(p.text));
   check('raw: envelope address carries the token', extractToken(mapCloudflarePayload(p).recipient) === 'abc123');
+  check('domains: new and legacy both accepted during a move', extractToken('abc123@inbox.example.com', ['inbox.example.com', 'in.automonie.com']) === 'abc123' && extractToken('abc123@in.automonie.com', ['inbox.example.com', 'in.automonie.com']) === 'abc123');
+  check('domains: any other domain refused', extractToken('abc123@evil.com', ['inbox.example.com', 'in.automonie.com']) === '');
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

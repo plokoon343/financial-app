@@ -4431,6 +4431,9 @@ app.post('/api/parse-sms', auth, async (req, res) => {
 // provider POSTs them to the webhook below, and we parse them like SMS. Activated
 // once INBOUND_EMAIL_SECRET (+ DNS/MX for the inbound domain) are configured.
 const INBOUND_DOMAIN = process.env.INBOUND_EMAIL_DOMAIN || 'in.automonie.com';
+// Every domain we accept forwarded mail on: the current one (shown to users) plus any
+// older ones still receiving mail during a move (INBOUND_EMAIL_LEGACY_DOMAINS, comma-separated).
+const INBOUND_DOMAINS = [INBOUND_DOMAIN, ...(process.env.INBOUND_EMAIL_LEGACY_DOMAINS || '').split(',').map((s) => s.trim()).filter(Boolean)];
 const inboundExtraDomains = (process.env.INBOUND_EMAIL_EXTRA_DOMAINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const inboundActive = () => !!process.env.INBOUND_EMAIL_SECRET;
 
@@ -4683,7 +4686,7 @@ const parseInboundBody = (req, res, next) => {
 // and call this. { recipient: every recipient field joined with ',' (extractToken scans
 // all of them), from, subject, text, html, sentAt: a Date/ms/ISO string or null }.
 async function ingestInboundEmail({ recipient, from, subject = '', text = '', html = '', sentAt = null }) {
-  const token = inboundEmail.extractToken(recipient, INBOUND_DOMAIN);
+  const token = inboundEmail.extractToken(recipient, INBOUND_DOMAINS);
   if (!token) return { ok: true, skipped: 'no-token' };
   const user = await User.findOne({ inboundEmailToken: token }).select('_id name inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
   if (!user) return { ok: true, skipped: 'unknown-recipient' };
@@ -9084,7 +9087,7 @@ const SETUP_KEYS = [
   { group: 'Scheduled jobs', keys: [['CRON_SECRET', 'hourly /api/cron/nudges (header x-cron-secret): reminders, nudges, bill re-checks, weekly report']] },
   { group: 'AI, personal data (paid only)', keys: [['GEMINI_PAID_API_KEY', 'unknown alerts and statements, ask about my money; must be on a billing-enabled Google project']] },
   { group: 'AI, stripped shop names (free tiers)', keys: [['GEMINI_API_KEY', 'Gemini free'], ['XAI_API_KEY', 'Grok (xAI)'], ['CF_ACCOUNT_ID', 'Cloudflare Workers AI'], ['CF_AI_TOKEN', 'Cloudflare Workers AI'], ['OPENROUTER_API_KEY', 'OpenRouter free models'], ['NVIDIA_API_KEY', 'NVIDIA NIM']] },
-  { group: 'Email forwarding (inbound)', keys: [['INBOUND_EMAIL_SECRET', 'webhook key the legacy (Postmark/SendGrid/Mailgun) provider sends'], ['INBOUND_CF_SECRET', 'shared secret the Cloudflare Email Worker sends'], ['INBOUND_EMAIL_DOMAIN', 'the forwarding domain']], note: 'The server only needs the webhook key(s); a Postmark server token is not used by the code.' },
+  { group: 'Email forwarding (inbound)', keys: [['INBOUND_EMAIL_SECRET', 'webhook key the legacy (Postmark/SendGrid/Mailgun) provider sends'], ['INBOUND_CF_SECRET', 'shared secret the Cloudflare Email Worker sends'], ['INBOUND_EMAIL_DOMAIN', 'the forwarding domain'], ['INBOUND_EMAIL_LEGACY_DOMAINS', 'older forwarding domains still accepted during a move (comma-separated)']], note: 'The server only needs the webhook key(s); a Postmark server token is not used by the code.' },
   { group: 'Sign in with Google', keys: [['GOOGLE_CLIENT_IDS', 'web and Android client IDs (or GOOGLE_CLIENT_ID)']] },
   { group: 'Bank linking (Mono)', keys: [['MONO_SECRET_KEY', 'bank sync'], ['MONO_PUBLIC_KEY', 'bank sync'], ['MONO_WEBHOOK_SEC', 'bank sync webhook']] },
   { group: 'Airtime and bills (off by default)', keys: [['FEATURE_BILL_PAYMENTS', 'switch'], ['VTPASS_API_KEY', 'VTpass'], ['VTPASS_SECRET_KEY', 'VTpass'], ['VTPASS_PUBLIC_KEY', 'VTpass'], ['BILLS_CALLBACK_URL', 'where web users return after paying']] },

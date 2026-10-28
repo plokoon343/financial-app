@@ -53,14 +53,16 @@ function isAllowedSender(from, extra = []) {
 
 // Extract our per-user token from the recipient address, tolerating plus-addressing
 // and any of the To/Cc list. Returns the token or ''.
+// `inboundDomain` may be one domain or a list: while forwarding moves to a new domain,
+// addresses on the old one keep working.
 function extractToken(recipient, inboundDomain = 'in.automonie.com') {
-  const dom = lc(inboundDomain);
+  const doms = (Array.isArray(inboundDomain) ? inboundDomain : [inboundDomain]).map(lc).filter(Boolean);
   const candidates = (recipient || '').toString().split(/[,;]/);
   for (const c of candidates) {
     const addr = emailAddress(c);
     const at = addr.lastIndexOf('@');
     if (at === -1) continue;
-    if (addr.slice(at + 1) !== dom) continue;
+    if (!doms.includes(addr.slice(at + 1))) continue;
     const local = addr.slice(0, at).split('+')[0]; // strip plus-addressing
     if (/^[a-z0-9]+$/.test(local)) return local;
   }

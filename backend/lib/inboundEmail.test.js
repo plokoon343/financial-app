@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/inboundEmail.test.js
-const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail, mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail, expandBundle, rfc822FromJsonAttachments } = require('./inboundEmail');
+const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail, mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail, expandBundle, rfc822FromJsonAttachments, isOutlookForwardingNotice, looksLikeForwardingNotice, classifyEmailAlertType } = require('./inboundEmail');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -202,6 +202,20 @@ check('cf secret: different length fails without throwing', verifyCloudflareSecr
   check('bundle: Postmark attachments decode, others ignored', pm.length === 1 && /GeNS Debit/.test(pm[0].toString()));
   const pmParts = await expandBundle({ attached: pm }, { to: 'abc123@automonie.app' });
   check('bundle: Postmark attachment parses', pmParts.length === 1 && pmParts[0].from === 'gens@gtbank.com');
+  // --- round 9 part A3: Outlook forwarding notice ---
+  check('outlook notice: microsoft.com sender detected', isOutlookForwardingNotice('Microsoft account team <account-security-noreply@microsoft.com>'));
+  check('outlook notice: accountprotection.microsoft.com detected', isOutlookForwardingNotice('no-reply@accountprotection.microsoft.com'));
+  check('outlook notice: a bank is not mistaken for one', isOutlookForwardingNotice('alerts@gtbank.com') === false);
+  check('outlook notice: body must actually mention forwarding', looksLikeForwardingNotice({ subject: 'New sign-in to your account', text: 'We noticed a new sign-in.' }) === false);
+  check('outlook notice: forwarding mention matches', looksLikeForwardingNotice({ subject: 'A forwarding rule was added to your account', text: '' }));
+
+  // --- round 9 part A1: email alert-type classifier ---
+  check('classify: a parsed transaction is debit_credit', classifyEmailAlertType({ createdCount: 1, subject: 'Debit Alert', bodyText: '' }) === 'debit_credit');
+  check('classify: an OTP sender is excluded', classifyEmailAlertType({ createdCount: 0, subject: 'Your OTP', bodyText: 'Your one-time password is 123456' }) === 'otp');
+  check('classify: a newsletter is excluded', classifyEmailAlertType({ createdCount: 0, subject: 'This week in savings', bodyText: 'Unsubscribe here' }) === 'promo');
+  check('classify: a statement subject with nothing parsed', classifyEmailAlertType({ createdCount: 0, subject: 'Your monthly Statement', bodyText: '' }) === 'e_statement');
+  check('classify: nothing recognisable is unknown, not guessed into a type', classifyEmailAlertType({ createdCount: 0, subject: 'Hi', bodyText: 'just saying hello' }) === 'unknown');
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

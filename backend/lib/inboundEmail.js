@@ -249,6 +249,39 @@ function extractGmailVerification({ subject = '', text = '', html = '' } = {}) {
   return { code, link };
 }
 
+// ── Outlook/Microsoft 365 forwarding notice (round 9 part A3) ──
+// Unlike Gmail, Outlook.com and Microsoft 365 do not send a one-time CODE to paste
+// back in when you set up a forwarding rule - the rule just takes effect from
+// Outlook's own Settings > Mail > Forwarding. What Microsoft does send is a security
+// alert ("We've added a forwarding rule...") from its account-protection system,
+// which is worth surfacing (so the user knows forwarding is live) but has nothing to
+// confirm or paste. This is a lighter detector than Gmail's, and reported as such
+// rather than claimed to be the same flow.
+function isOutlookForwardingNotice(from) {
+  const dom = senderDomain(from);
+  return dom === 'microsoft.com' || dom === 'accountprotection.microsoft.com';
+}
+function looksLikeForwardingNotice({ subject = '', text = '', html = '' } = {}) {
+  const hay = `${subject}\n${text}\n${htmlToText(html)}`.toLowerCase();
+  return /forward(ing)?\b/.test(hay);
+}
+
+// ── Email alert-type classifier (round 9 part A1) ──
+// What kind of mail a confirmed-bank-domain sender actually sends: a real transaction
+// alert, an e-statement, an OTP, or marketing/newsletter. Only the first two are ever
+// offered in a generated filter - an OTP or promo sender from the same bank domain
+// must never end up forwarded.
+const OTP_WORDS = /\b(otp|one[- ]time (?:password|pin|code)|verification code|security code)\b/i;
+const PROMO_WORDS = /\b(unsubscribe|promo(?:tion)?|cashback|win a|limited time|newsletter|special offer)\b/i;
+function classifyEmailAlertType({ createdCount = 0, subject = '', bodyText = '' } = {}) {
+  if (createdCount > 0) return 'debit_credit';
+  const hay = `${subject}\n${bodyText}`;
+  if (OTP_WORDS.test(hay)) return 'otp';
+  if (PROMO_WORDS.test(hay)) return 'promo';
+  if (/\bstatement\b/i.test(subject)) return 'e_statement';
+  return 'unknown';
+}
+
 // ── Cloudflare Email Worker (round 6 part F) ──
 // The Worker (infra/email-worker/) parses the raw MIME itself and POSTs a small JSON
 // body; this is the pure mapping from that body to the shape server.js's shared
@@ -326,4 +359,5 @@ module.exports = {
   isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts,
   forwardedSender, unwrapForwarded, resolveBankEmail,
   mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail, expandBundle, rfc822FromJsonAttachments, MAX_BUNDLE_EMAILS,
+  isOutlookForwardingNotice, looksLikeForwardingNotice, classifyEmailAlertType,
 };

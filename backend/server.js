@@ -413,6 +413,11 @@ const userSchema = new mongoose.Schema({
   gmailVerifyCode: { type: String, default: '' },
   gmailVerifyLink: { type: String, default: '' },
   gmailVerifyAt:   { type: Date },
+  // round 9 part A3: a security notice from Microsoft about forwarding (no code to
+  // paste, unlike Gmail - just a heads-up to go confirm in Outlook's own settings).
+  outlookForwardNoticeAt: { type: Date },
+  // round 9 part A4: the first non-bank email is told once, never repeated.
+  notifiedNonBankEmailOnce: { type: Boolean, default: false },
   onboarded:     { type: Boolean, default: false },
   lastLogin:     { type: Date },
   // Email-based 2-step verification (#21/#22).
@@ -950,6 +955,16 @@ const createNotification = async (userId, { type = 'info', title, message = '', 
   try { await Notification.create({ userId, type, title, message, link, dedupeKey }); }
   catch (e) { console.error('[createNotification]', e.message); }
 };
+
+// round 9 part A3: an in-app notice (the persisted "log that it arrived") plus a push
+// the moment a forwarding confirmation/notice email lands. Fire-and-forget by design -
+// never blocks mail ingestion, and this never acts on the user's behalf.
+function notifyForwardingEvent(userId, { title, message, pushBody, dedupeKey, data }) {
+  createNotification(userId, { type: 'info', title, message, dedupeKey }).catch(() => {});
+  User.findById(userId).select('pushTokens').lean().then((u) => {
+    if (u?.pushTokens?.length) sendExpoPush(u.pushTokens, { title, body: pushBody || message, data: data || {} }).catch(() => {});
+  }).catch(() => {});
+}
 
 // In-app / beta feedback. Any signed-in user can send it; beta testers are nudged to.
 // Superadmin reads it in the admin feedback inbox.
@@ -3774,7 +3789,15 @@ app.get('/api/transactions/:id/context', auth, async (req, res) => {
 
 // Product events for the insight loop. Names are a fixed list; props are small and
 // carry no amounts or transaction text.
-const EVENT_NAMES = new Set(['insight_viewed', 'insight_tapped', 'recap_shared', 'onboarding_step_viewed', 'onboarding_step_completed', 'onboarding_step_skipped']);
+const EVENT_NAMES = new Set([
+  'insight_viewed', 'insight_tapped', 'recap_shared', 'onboarding_step_viewed', 'onboarding_step_completed', 'onboarding_step_skipped',
+  // Round 9 Part C: interactive tutorials (coach-mark tour, quests, JIT tips, practice mode, help videos)
+  'tour_started', 'tour_step', 'tour_skipped', 'tour_completed',
+  'quest_completed', 'quests_all_done', 'quest_shared',
+  'tip_shown',
+  'practice_tried', 'sample_month_viewed',
+  'video_start', 'video_complete', 'video_skip',
+]);
 const productEventSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   name: { type: String, required: true, index: true },
@@ -4457,6 +4480,13 @@ const INBOUND_DOMAIN = process.env.INBOUND_EMAIL_DOMAIN || 'automonie.app';
 const INBOUND_DOMAINS = [INBOUND_DOMAIN, ...(process.env.INBOUND_EMAIL_LEGACY_DOMAINS || 'in.automonie.com').split(',').map((s) => s.trim()).filter(Boolean)];
 // Most forwarded mail is not from a bank: nearly always a Gmail "forward all mail" setting.
 const nonBankNudge = (u) => (u.inboundOtherMails || 0) >= 5 && (u.inboundOtherMails || 0) > (u.inboundBankMails || 0);
+// round 9 part A4: the 3-state status line on Automatic tracking's email row.
+// 'waiting' -> never received one; 'stale' -> had one, nothing in 7 days; else 'connected'.
+const STALE_AFTER_MS = 7 * 86400000;
+function inboundStatus(u) {
+  if (!u.inboundEmailLastAt) return 'waiting';
+  return (Date.now() - new Date(u.inboundEmailLastAt).getTime() > STALE_AFTER_MS) ? 'stale' : 'connected';
+}
 const inboundExtraDomains = (process.env.INBOUND_EMAIL_EXTRA_DOMAINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const inboundActive = () => !!process.env.INBOUND_EMAIL_SECRET;
 
@@ -4483,6 +4513,7 @@ app.get('/api/inbound-email/address', auth, async (req, res) => {
       count: user.inboundEmailCount || 0,
       nonBankNudge: nonBankNudge(user),
       gmailVerification: gmailVerificationPayload(user),
+      status: inboundStatus(user),
     });
   } catch (e) { console.error('[inbound-email/address]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -4499,7 +4530,7 @@ function gmailVerificationPayload(u) {
 app.get('/api/inbound-email/status', auth, async (req, res) => {
   try {
     const u = await User.findById(req.user._id).select('inboundEmailLastAt inboundEmailCount inboundBankMails inboundOtherMails gmailVerifyCode gmailVerifyLink gmailVerifyAt');
-    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0, nonBankNudge: nonBankNudge(u), gmailVerification: gmailVerificationPayload(u) });
+    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0, nonBankNudge: nonBankNudge(u), gmailVerification: gmailVerificationPayload(u), status: inboundStatus(u) });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -4705,6 +4736,56 @@ const parseInboundBody = (req, res, next) => {
   });
 };
 
+// ── Bank email sender list (round 9 part A1) ──
+// Mined from our own successfully-matched inbound mail (addresses and counts only,
+// never the mail itself), so the exact filter in A2 can be built from senders we've
+// actually confirmed instead of the user hunting for their bank's address.
+const bankEmailSenderSchema = new mongoose.Schema({
+  bankCode:  { type: String, required: true, index: true },
+  sender:    { type: String, required: true },   // lowercased full address, e.g. 'gens@gtbank.com'
+  alertType: { type: String, enum: ['debit_credit', 'e_statement', 'otp', 'promo', 'unknown'], default: 'unknown' },
+  // learning: under 3 distinct users, never offered. unverified: 3+, awaiting an
+  // admin look. verified: offered in A2's filter. rejected: never offered, never re-added.
+  status:    { type: String, enum: ['learning', 'unverified', 'verified', 'rejected'], default: 'learning' },
+  userIds:   { type: [mongoose.Schema.Types.ObjectId], default: [] }, // distinct users seen from (capped below)
+  count:     { type: Number, default: 0 },
+  firstSeen: { type: Date, default: Date.now },
+  lastSeen:  { type: Date, default: Date.now },
+}, { timestamps: true });
+bankEmailSenderSchema.index({ bankCode: 1, sender: 1 }, { unique: true });
+const BankEmailSender = mongoose.model('BankEmailSender', bankEmailSenderSchema);
+
+// data/banks.json's own domain list, reversed: 'gtbank.com' -> 'gtbank'. Reused so A1
+// doesn't need a second hand-maintained bank list.
+const EMAIL_DOMAIN_TO_BANK = new Map();
+for (const b of require('./data/banks.json')) for (const d of (b.domains || [])) EMAIL_DOMAIN_TO_BANK.set(String(d).toLowerCase(), b.code);
+const bankCodeForSender = (from) => EMAIL_DOMAIN_TO_BANK.get(inboundEmail.senderDomain(from)) || '';
+
+// Fire-and-forget: record one occurrence of a bank-domain sender. Never throws into
+// the caller - this is analytics, never allowed to break ingestion.
+async function recordBankEmailSender({ bankCode, sender, alertType, userId }) {
+  if (!bankCode || !sender) return;
+  try {
+    let row = await BankEmailSender.findOne({ bankCode, sender });
+    if (!row) { await BankEmailSender.create({ bankCode, sender, alertType, userIds: [userId], count: 1 }); return; }
+    row.lastSeen = new Date();
+    row.count += 1;
+    if (!row.userIds.some((id) => String(id) === String(userId))) row.userIds.push(userId);
+    // A decided sender (verified/rejected) keeps its decision; only its counters move.
+    if (row.status === 'learning' && row.userIds.length >= 3 && alertType !== 'otp' && alertType !== 'promo') {
+      row.status = 'unverified';
+    }
+    await row.save();
+  } catch (e) { console.error('[bank-email-sender]', e.message); }
+}
+// Seeded once (idempotent via upsert): the one sender address we know for certain,
+// from the owner's own GTBank alerts.
+BankEmailSender.findOneAndUpdate(
+  { bankCode: 'gtbank', sender: 'gens@gtbank.com' },
+  { $setOnInsert: { bankCode: 'gtbank', sender: 'gens@gtbank.com', alertType: 'debit_credit', status: 'verified', userIds: [], count: 0 } },
+  { upsert: true },
+).catch((e) => console.error('[bank-email-sender seed]', e.message));
+
 // Shared ingest path: both the legacy provider webhook (SendGrid/Mailgun/Postmark/SES,
 // below) and the Cloudflare Email Worker route normalise their payload to this shape
 // and call this. { recipient: every recipient field joined with ',' (extractToken scans
@@ -4712,12 +4793,13 @@ const parseInboundBody = (req, res, next) => {
 async function ingestInboundEmail({ recipient, from, subject = '', text = '', html = '', sentAt = null }) {
   const token = inboundEmail.extractToken(recipient, INBOUND_DOMAINS);
   if (!token) return { ok: true, skipped: 'no-token' };
-  const user = await User.findOne({ inboundEmailToken: token }).select('_id name inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
+  const user = await User.findOne({ inboundEmailToken: token }).select('_id name inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt notifiedNonBankEmailOnce banksUsed');
   if (!user) return { ok: true, skipped: 'unknown-recipient' };
 
-  // Gmail forwarding confirmation (spec 3.4): Google's one-time verify mail isn't a
-  // bank, so it would be dropped below: capture its code/link first and surface it
-  // to the onboarding screen so the user can finish enabling forwarding.
+  // Gmail forwarding confirmation (spec 3.4, extended round 9 A3): Google's one-time
+  // verify mail isn't a bank, so it would be dropped below: capture its code/link
+  // first, surface it to the onboarding screen, push it, and log that it arrived
+  // (never the code itself) so the user can finish enabling forwarding.
   if (inboundEmail.isGmailForwardingVerification(from)) {
     const v = inboundEmail.extractGmailVerification({ subject, text, html });
     if (v) {
@@ -4725,8 +4807,27 @@ async function ingestInboundEmail({ recipient, from, subject = '', text = '', ht
       user.gmailVerifyLink = v.link || '';
       user.gmailVerifyAt = new Date();
       await user.save();
+      console.log(`[email-verify] gmail code arrived for user=${user._id}`);
+      notifyForwardingEvent(user._id, {
+        title: 'Your Gmail code is ready', message: 'Paste it in Gmail to finish turning on forwarding.',
+        pushBody: 'Your Gmail code is ready. Paste it in Gmail to finish forwarding.',
+        dedupeKey: `gmail-verify:${user._id}:${v.code}`, data: { type: 'gmail_verify', nav: '/email-forwarding' },
+      });
     }
     return { ok: true, gmailVerification: !!v };
+  }
+  // Outlook/Microsoft 365's own forwarding notice (round 9 A3): no code to paste
+  // (see lib/inboundEmail.js's note on this), just a heads-up that it's worth
+  // checking Outlook's own settings confirm the rule took.
+  if (inboundEmail.isOutlookForwardingNotice(from) && inboundEmail.looksLikeForwardingNotice({ subject, text, html })) {
+    user.outlookForwardNoticeAt = new Date();
+    await user.save();
+    console.log(`[email-verify] outlook forwarding notice arrived for user=${user._id}`);
+    notifyForwardingEvent(user._id, {
+      title: 'Outlook sent a forwarding notice', message: 'Check Outlook’s settings to confirm your forwarding rule is active.',
+      dedupeKey: `outlook-notice:${user._id}`, data: { type: 'outlook_notice', nav: '/email-forwarding' },
+    });
+    return { ok: true, outlookNotice: true };
   }
 
   // Resolve the effective bank sender + text to parse. Accepts a direct/auto-forward
@@ -4734,9 +4835,31 @@ async function ingestInboundEmail({ recipient, from, subject = '', text = '', ht
   // user's Yahoo/Gmail; the bank sits in the quoted forwarded header). Anything with
   // no recognisable bank sender is silently dropped (spec B1).
   const resolved = inboundEmail.resolveBankEmail({ subject, text, html, from }, inboundExtraDomains);
-  if (!resolved) { User.updateOne({ _id: user._id }, { $inc: { inboundOtherMails: 1 } }).catch(() => {}); return { ok: true, skipped: 'sender-not-allowed' }; }
+  if (!resolved) {
+    // round 9 A4: discard without storing anything about it, and say so once, ever.
+    User.updateOne({ _id: user._id }, { $inc: { inboundOtherMails: 1 } }).catch(() => {});
+    if (!user.notifiedNonBankEmailOnce) {
+      User.updateOne({ _id: user._id, notifiedNonBankEmailOnce: { $ne: true } }, { $set: { notifiedNonBankEmailOnce: true } }).then((r) => {
+        if (r.modifiedCount) createNotification(user._id, { type: 'info', title: 'Not a bank alert', message: 'We got an email that isn’t a bank alert. Check your filter only includes bank senders.', dedupeKey: `non-bank-email-once:${user._id}` }).catch(() => {});
+      }).catch(() => {});
+    }
+    return { ok: true, skipped: 'sender-not-allowed' };
+  }
   User.updateOne({ _id: user._id }, { $inc: { inboundBankMails: 1 } }).catch(() => {});
   const bankFrom = resolved.sender;
+  const emailBankCode = bankCodeForSender(bankFrom);
+  // round 9 A4: an alert from a bank the user hasn't added to their picked list -
+  // suggest adding it, once per bank (dedupeKey collapses repeats).
+  if (emailBankCode && !(user.banksUsed || []).includes(emailBankCode)) {
+    const dedupeKey = `bank-suggest:${user._id}:${emailBankCode}`;
+    Notification.exists({ userId: user._id, dedupeKey }).then((exists) => {
+      if (exists) return;
+      createNotification(user._id, {
+        type: 'info', title: 'Add this bank?', message: 'We read an alert from a bank that isn’t in your list yet. Add it so we keep tracking it reliably.',
+        link: '/setup', dedupeKey,
+      }).catch(() => {});
+    }).catch(() => {});
+  }
 
   // We're receiving mail for this user → light up the status regardless of parse.
   user.inboundEmailLastAt = new Date();
@@ -4776,6 +4899,14 @@ async function ingestInboundEmail({ recipient, from, subject = '', text = '', ht
     try { await reconcileTransfers(user._id); } catch { /* non-fatal */ }
   }
   await user.save();
+  // round 9 A1: mine the sender, now that we know whether it actually produced a
+  // transaction (what kind of mail this address sends).
+  if (emailBankCode) {
+    recordBankEmailSender({
+      bankCode: emailBankCode, sender: inboundEmail.emailAddress(bankFrom), userId: user._id,
+      alertType: inboundEmail.classifyEmailAlertType({ createdCount: created, subject, bodyText: resolved.bodyOnly }),
+    });
+  }
   return { ok: true, created };
 }
 
@@ -5716,6 +5847,63 @@ app.put('/api/me/banks', auth, async (req, res) => {
   } catch (e) { console.error('[me/banks]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// ── Email filter generator (round 9 part A2) ──
+// The user's own forwarding address, creating it the first time it's needed - same
+// lazy-generation as /api/inbound-email/address, so this works even before the user
+// has opened the Email alerts screen.
+async function ensureInboundToken(user) {
+  if (user.inboundEmailToken) return user.inboundEmailToken;
+  for (let i = 0; i < 5; i++) {
+    const tok = inboundEmail.genToken();
+    if (!(await User.exists({ inboundEmailToken: tok }))) { user.inboundEmailToken = tok; break; }
+  }
+  await user.save();
+  recordConsent(user._id, 'email_forwarding', 'granted', {});
+  return user.inboundEmailToken;
+}
+const escapeXml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+
+// The exact filter for the signed-in user's picked banks, built only from verified
+// senders. missingBanks lists any picked bank with no verified sender yet - "We're
+// still learning this bank's alert address" is shown for those, client-side.
+async function buildEmailFilter(user) {
+  const codes = user.banksUsed || [];
+  const [senders, token] = await Promise.all([
+    codes.length ? BankEmailSender.find({ bankCode: { $in: codes }, status: 'verified', alertType: { $in: ['debit_credit', 'e_statement'] } }).lean() : [],
+    ensureInboundToken(user),
+  ]);
+  const haveBank = new Set(senders.map((s) => s.bankCode));
+  const banksJson = require('./data/banks.json');
+  const nameFor = (code) => (banksJson.find((b) => b.code === code) || {}).name || code;
+  const missingBanks = codes.filter((c) => !haveBank.has(c)).map((c) => ({ code: c, name: nameFor(c) }));
+  const addresses = [...new Set(senders.map((s) => s.sender))];
+  return { addresses, missingBanks, forwardTo: `${token}@${INBOUND_DOMAIN}`, filter: addresses.length ? `from:(${addresses.join(' OR ')})` : '' };
+}
+
+app.get('/api/me/email-filter', auth, async (req, res) => {
+  try {
+    res.json(await buildEmailFilter(req.user));
+  } catch (e) { console.error('[me/email-filter]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Gmail's real filter-import format (Settings > Filters and Blocked Addresses >
+// Import filters): an Atom feed, one <entry> per filter, criteria/actions as
+// apps:property elements. Written from Gmail's documented schema; not verified
+// against a live Gmail import in this session (no test Gmail account available) -
+// flagged in the round 9 report for the owner to try once.
+app.get('/api/me/email-filter/gmail.xml', auth, async (req, res) => {
+  try {
+    const { addresses, forwardTo } = await buildEmailFilter(req.user);
+    if (!addresses.length) return res.status(422).json({ message: 'We’re still learning your bank’s alert address. Forward one alert once and we’ll learn it, then try again.' });
+    const now = new Date().toISOString();
+    const stamp = Date.now();
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<feed xmlns="http://www.w3.org/2005/Atom" xmlns:apps="http://schemas.google.com/apps/2006">\n  <title>Mail Filters</title>\n  <id>tag:mail.google.com,2008:filters:${stamp}</id>\n  <updated>${now}</updated>\n  <author><name>Automonie</name></author>\n  <entry>\n    <category term="filter"></category>\n    <title>Mail Filter</title>\n    <id>tag:mail.google.com,2008:filter:${stamp}</id>\n    <updated>${now}</updated>\n    <content></content>\n    <apps:property name="from" value="${escapeXml(addresses.join(' OR '))}"/>\n    <apps:property name="forwardTo" value="${escapeXml(forwardTo)}"/>\n    <apps:property name="shouldArchive" value="false"/>\n  </entry>\n</feed>\n`;
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    res.set('Content-Disposition', 'attachment; filename="automonie-filter.xml"');
+    res.send(xml);
+  } catch (e) { console.error('[me/email-filter/gmail.xml]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // The bank list for pickers: banks, microfinance banks and fintechs (data/banks.json),
 // then the user's own additions. Grouped by type, alphabetical within a group.
 const TYPE_ORDER = ['bank', 'mfb', 'fintech'];
@@ -5765,6 +5953,35 @@ app.get('/api/admin/bank-requests', auth, superAdminAuth, async (req, res) => {
   try {
     const rows = await BankRequest.find({}).sort({ count: -1, lastAt: -1 }).limit(100).lean();
     res.json({ requests: rows.map((r) => ({ name: r.name, type: r.type, users: r.count, lastAt: r.lastAt })) });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Bank email sender review queue (round 9 part A1). An unverified sender has been
+// seen from 3+ distinct users; the admin promotes it (so A2 starts offering it in
+// everyone's filter) or rejects it (an OTP/promo address that slipped through).
+app.get('/api/admin/bank-senders', auth, superAdminAuth, async (req, res) => {
+  try {
+    const status = ['learning', 'unverified', 'verified', 'rejected'].includes(req.query.status) ? req.query.status : undefined;
+    const rows = await BankEmailSender.find(status ? { status } : {}).sort({ lastSeen: -1 }).limit(300).lean();
+    res.json({ senders: rows.map((r) => ({
+      id: r._id, bankCode: r.bankCode, sender: r.sender, alertType: r.alertType, status: r.status,
+      distinctUsers: (r.userIds || []).length, count: r.count, firstSeen: r.firstSeen, lastSeen: r.lastSeen,
+    })) });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+app.post('/api/admin/bank-senders/:id/verify', auth, superAdminAuth, async (req, res) => {
+  try {
+    const alertType = ['debit_credit', 'e_statement'].includes(req.body?.alertType) ? req.body.alertType : undefined;
+    const row = await BankEmailSender.findByIdAndUpdate(req.params.id, { $set: { status: 'verified', ...(alertType ? { alertType } : {}) } }, { new: true });
+    if (!row) return res.status(404).json({ message: 'Not found' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+app.post('/api/admin/bank-senders/:id/reject', auth, superAdminAuth, async (req, res) => {
+  try {
+    const row = await BankEmailSender.findByIdAndUpdate(req.params.id, { $set: { status: 'rejected' } });
+    if (!row) return res.status(404).json({ message: 'Not found' });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 

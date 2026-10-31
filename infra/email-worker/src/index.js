@@ -11,7 +11,7 @@
 
 // A bank alert is a few KB; forwarded mail with logos can be a few hundred KB.
 // Anything over this isn't an alert (statements and photos go through the app).
-const MAX_RAW_BYTES = 5 * 1024 * 1024;
+const MAX_RAW_BYTES = 20 * 1024 * 1024; // forwarded bundles (many alerts attached) run large
 
 // Waits between attempts (ms). With a 25 s timeout per attempt, the worst case is
 // about 90 s in total, long enough for a sleeping backend to start.

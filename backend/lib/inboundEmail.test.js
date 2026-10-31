@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/inboundEmail.test.js
-const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail, mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail } = require('./inboundEmail');
+const { genToken, isAllowedSender, extractToken, htmlToText, stripQuotedReply, emailToText, senderDomain, isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts, emailBodyText, forwardedSender, unwrapForwarded, resolveBankEmail, mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail, expandBundle, rfc822FromJsonAttachments } = require('./inboundEmail');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -174,6 +174,34 @@ check('cf secret: different length fails without throwing', verifyCloudflareSecr
   check('raw: envelope address carries the token', extractToken(mapCloudflarePayload(p).recipient) === 'abc123');
   check('domains: new and legacy both accepted during a move', extractToken('abc123@inbox.example.com', ['inbox.example.com', 'in.automonie.com']) === 'abc123' && extractToken('abc123@in.automonie.com', ['inbox.example.com', 'in.automonie.com']) === 'abc123');
   check('domains: any other domain refused', extractToken('abc123@evil.com', ['inbox.example.com', 'in.automonie.com']) === '');
+  // --- "Forward as attachment" bundle: 3 bank alerts attached to one forward ---
+  const alert = (from, subj, body, date) => `From: ${from}\r\nTo: Me <me@gmail.com>\r\nSubject: ${subj}\r\nDate: ${date}\r\nContent-Type: text/plain\r\n\r\n${body}\r\n`;
+  const inner = [
+    alert('GTBank <gens@gtbank.com>', 'GeNS Debit Alert', 'Amt: NGN5,000.00 Desc: POS SHOPRITE', 'Mon, 05 Oct 2026 10:00:00 +0100'),
+    alert('Access <alerts@accessbankplc.com>', 'Credit Alert', 'Amt: NGN20,000.00 Desc: Salary', 'Tue, 06 Oct 2026 09:00:00 +0100'),
+    alert('OPay <no-reply@opayweb.com>', 'Payment', 'You paid NGN1,200.00 to Bolt', 'Wed, 07 Oct 2026 18:30:00 +0100'),
+  ];
+  const bnd = 'BOUNDARY42';
+  const outer = [
+    'From: Me <me@gmail.com>', 'To: abc123@automonie.app', 'Subject: Fwd: 3 alerts', 'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${bnd}"`, '',
+    `--${bnd}`, 'Content-Type: text/plain', '', 'Here are my old alerts.',
+    ...inner.flatMap((m, i) => [`--${bnd}`, 'Content-Type: message/rfc822', `Content-Disposition: attachment; filename="alert${i + 1}.eml"`, '', m]),
+    `--${bnd}--`, '',
+  ].join('\r\n');
+  const op = await parseRawEmail(Buffer.from(outer), { to: 'abc123@automonie.app', from: 'me@gmail.com' });
+  check('bundle: outer carries 3 attached emails', op.attached.length === 3);
+  const parts = await expandBundle(op, { to: 'abc123@automonie.app', from: 'me@gmail.com' });
+  check('bundle: 3 emails come out', parts.length === 3);
+  check('bundle: each keeps its own sender', parts.map((x) => x.from).join('|') === 'gens@gtbank.com|alerts@accessbankplc.com|no-reply@opayweb.com');
+  check('bundle: each keeps its own date', parts.map((x) => new Date(x.date).toISOString().slice(0, 10)).join('|') === '2026-10-05|2026-10-06|2026-10-07');
+  check('bundle: each is mapped to the user token', parts.every((x) => extractToken(mapCloudflarePayload(x).recipient, ['automonie.app']) === 'abc123'));
+  check('bundle: inner emails are not expanded again', parts.every((x) => x.attached.length === 0));
+  check('bundle: plain email has none', (await expandBundle(p, {})).length === 0);
+  const pm = rfc822FromJsonAttachments([{ ContentType: 'message/rfc822', Content: Buffer.from(inner[0]).toString('base64') }, { ContentType: 'image/png', Content: 'xx' }, null]);
+  check('bundle: Postmark attachments decode, others ignored', pm.length === 1 && /GeNS Debit/.test(pm[0].toString()));
+  const pmParts = await expandBundle({ attached: pm }, { to: 'abc123@automonie.app' });
+  check('bundle: Postmark attachment parses', pmParts.length === 1 && pmParts[0].from === 'gens@gtbank.com');
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

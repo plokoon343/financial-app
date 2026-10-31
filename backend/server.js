@@ -6,6 +6,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 const multer = require('multer');
 const mammoth = require('mammoth');
 const XLSX = require('xlsx');
@@ -254,6 +255,17 @@ const authLimiter = rateLimit({
   message: { message: 'Too many attempts. Please try again in a few minutes.' },
 });
 
+// Sign-in gets its own, tighter limit per email and address, so one noisy address can't
+// lock out the other sign-in routes and one targeted account can't be hammered.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${ipKeyGenerator(req.ip)}|${String((req.body && req.body.email) || '').toLowerCase().slice(0, 120)}`,
+  message: { message: 'Too many attempts. Please try again in a few minutes.' },
+});
+
 // Looser limiter for authenticated write actions (change password, support tickets).
 const sensitiveLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -392,6 +404,10 @@ const userSchema = new mongoose.Schema({
   captureAppLog: { type: [{ _id: false, app: String, at: Date }], default: [], select: false },  // newest 300 captured alerts by app, for per-app counts
   inboundEmailLastAt: { type: Date },
   inboundEmailCount:  { type: Number, default: 0 },
+  // Forwarded mail by kind, so the app can say so when most of it is not from banks
+  // (a "forward all mail" Gmail setting). Counts only; no mail content is kept.
+  inboundBankMails:   { type: Number, default: 0 },
+  inboundOtherMails:  { type: Number, default: 0 },
   // Gmail forwarding confirmation captured from Google's noreply mail (spec 3.4), so
   // the onboarding screen can show the code/link instead of the user hunting for it.
   gmailVerifyCode: { type: String, default: '' },
@@ -1336,15 +1352,20 @@ const renderPdfPage = (pageData) =>
 // forwarded to pdf.js, which decrypts the document. When the PDF is encrypted and
 // the password is missing or wrong, pdf.js rejects with a PasswordException -
 // callers detect that via isPdfPasswordError().
+const PDF_MAX_PAGES = 80;          // a real statement is well under this; a crafted file is not
+const PDF_MAX_MS = 30 * 1000;      // checked between pages: one slow file can't hold the process for long
 const extractPdfText = async (buffer, password = '') => {
   PDFJS_LIB.disableWorker = true;
+  const startedAt = Date.now();
   const params = { data: new Uint8Array(buffer) };
   if (password) params.password = password;
 
   const doc = await PDFJS_LIB.getDocument(params);
   let text = '';
   try {
+    if (doc.numPages > PDF_MAX_PAGES) throw new Error(`PDF has too many pages (${doc.numPages})`);
     for (let i = 1; i <= doc.numPages; i++) {
+      if (Date.now() - startedAt > PDF_MAX_MS) throw new Error('PDF took too long to read');
       const page = await doc.getPage(i);
       text += '\n\n' + (await renderPdfPage(page));
     }
@@ -2288,7 +2309,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, newsletterEditor: !!user.newsletterEditor, betaTester: !!user.betaTester, onboarded: user.onboarded } });
   } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
-app.post('/api/login', authLimiter, async (req, res) => {
+app.post('/api/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email }).select('+password');
@@ -2867,15 +2888,15 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
     const { token, password } = req.body;
     if (!token || !password) return res.status(400).json({ message: 'Token and new password are required' });
     if (passwordProblem(password)) return res.status(400).json({ message: passwordProblem(password) });
-    const user = await User.findOne({
-      resetToken: hashToken(token),
-      resetTokenExpiry: { $gt: new Date() },
-    });
+    // Claim the token in one atomic step so two requests with the same link can't both win.
+    const user = await User.findOneAndUpdate(
+      { resetToken: hashToken(token), resetTokenExpiry: { $gt: new Date() } },
+      { $unset: { resetToken: 1, resetTokenExpiry: 1 } },
+      { new: true },
+    );
     if (!user) return res.status(400).json({ message: 'This reset link is invalid or has expired.' });
 
     user.password = await bcrypt.hash(password, await bcrypt.genSalt(10));
-    user.resetToken = undefined;
-    user.resetTokenExpiry = undefined;
     // A reset often follows a compromise: end every existing session so a stolen
     // token stops working immediately (same as a normal password change).
     user.sessionsValidFrom = new Date();
@@ -4430,10 +4451,12 @@ app.post('/api/parse-sms', auth, async (req, res) => {
 // The user forwards bank-alert emails to <token>@in.automonie.com; the inbound
 // provider POSTs them to the webhook below, and we parse them like SMS. Activated
 // once INBOUND_EMAIL_SECRET (+ DNS/MX for the inbound domain) are configured.
-const INBOUND_DOMAIN = process.env.INBOUND_EMAIL_DOMAIN || 'in.automonie.com';
+const INBOUND_DOMAIN = process.env.INBOUND_EMAIL_DOMAIN || 'automonie.app';
 // Every domain we accept forwarded mail on: the current one (shown to users) plus any
 // older ones still receiving mail during a move (INBOUND_EMAIL_LEGACY_DOMAINS, comma-separated).
-const INBOUND_DOMAINS = [INBOUND_DOMAIN, ...(process.env.INBOUND_EMAIL_LEGACY_DOMAINS || '').split(',').map((s) => s.trim()).filter(Boolean)];
+const INBOUND_DOMAINS = [INBOUND_DOMAIN, ...(process.env.INBOUND_EMAIL_LEGACY_DOMAINS || 'in.automonie.com').split(',').map((s) => s.trim()).filter(Boolean)];
+// Most forwarded mail is not from a bank: nearly always a Gmail "forward all mail" setting.
+const nonBankNudge = (u) => (u.inboundOtherMails || 0) >= 5 && (u.inboundOtherMails || 0) > (u.inboundBankMails || 0);
 const inboundExtraDomains = (process.env.INBOUND_EMAIL_EXTRA_DOMAINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const inboundActive = () => !!process.env.INBOUND_EMAIL_SECRET;
 
@@ -4441,7 +4464,7 @@ const inboundActive = () => !!process.env.INBOUND_EMAIL_SECRET;
 // we've started receiving mail for them.
 app.get('/api/inbound-email/address', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('inboundEmailToken inboundEmailLastAt inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
+    const user = await User.findById(req.user._id).select('inboundEmailToken inboundEmailLastAt inboundEmailCount inboundBankMails inboundOtherMails gmailVerifyCode gmailVerifyLink gmailVerifyAt');
     if (!user.inboundEmailToken) {
       // Generate a unique token (retry on the rare index collision).
       for (let i = 0; i < 5; i++) {
@@ -4458,6 +4481,7 @@ app.get('/api/inbound-email/address', auth, async (req, res) => {
       receiving: !!user.inboundEmailLastAt,
       lastAt: user.inboundEmailLastAt || null,
       count: user.inboundEmailCount || 0,
+      nonBankNudge: nonBankNudge(user),
       gmailVerification: gmailVerificationPayload(user),
     });
   } catch (e) { console.error('[inbound-email/address]', e.message); res.status(500).json({ message: 'Server error' }); }
@@ -4474,8 +4498,8 @@ function gmailVerificationPayload(u) {
 // and for a freshly-arrived Gmail confirmation.
 app.get('/api/inbound-email/status', auth, async (req, res) => {
   try {
-    const u = await User.findById(req.user._id).select('inboundEmailLastAt inboundEmailCount gmailVerifyCode gmailVerifyLink gmailVerifyAt');
-    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0, gmailVerification: gmailVerificationPayload(u) });
+    const u = await User.findById(req.user._id).select('inboundEmailLastAt inboundEmailCount inboundBankMails inboundOtherMails gmailVerifyCode gmailVerifyLink gmailVerifyAt');
+    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0, nonBankNudge: nonBankNudge(u), gmailVerification: gmailVerificationPayload(u) });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -4710,7 +4734,8 @@ async function ingestInboundEmail({ recipient, from, subject = '', text = '', ht
   // user's Yahoo/Gmail; the bank sits in the quoted forwarded header). Anything with
   // no recognisable bank sender is silently dropped (spec B1).
   const resolved = inboundEmail.resolveBankEmail({ subject, text, html, from }, inboundExtraDomains);
-  if (!resolved) return { ok: true, skipped: 'sender-not-allowed' };
+  if (!resolved) { User.updateOne({ _id: user._id }, { $inc: { inboundOtherMails: 1 } }).catch(() => {}); return { ok: true, skipped: 'sender-not-allowed' }; }
+  User.updateOne({ _id: user._id }, { $inc: { inboundBankMails: 1 } }).catch(() => {});
   const bankFrom = resolved.sender;
 
   // We're receiving mail for this user → light up the status regardless of parse.
@@ -4754,6 +4779,19 @@ async function ingestInboundEmail({ recipient, from, subject = '', text = '', ht
   return { ok: true, created };
 }
 
+// Ingest the emails attached to a forwarded bundle, each with its own sender and date,
+// and summarise like a statement import: how many were read, added, skipped.
+async function ingestBundle(inner, outerResult) {
+  let added = (outerResult && outerResult.created) || 0, skipped = 0, failed = 0;
+  for (const mail of inner) {
+    try {
+      const r = await ingestInboundEmail(inboundEmail.mapCloudflarePayload(mail));
+      if (r && r.created) added += r.created; else skipped += 1;
+    } catch (e) { failed += 1; console.error('[inbound-email/bundle]', e.message); }
+  }
+  return { ok: true, bundle: true, emails: inner.length, created: added, skipped, failed };
+}
+
 // Provider webhook. Provider-agnostic: normalises SendGrid / Mailgun / Postmark / SES
 // field names. Always answers 200 for accepted-but-ignored mail so the provider
 // doesn't retry; 503 until activated, 401 on a bad secret.
@@ -4783,6 +4821,12 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
     const sentAt = b.Date || b.date || (b.timestamp ? Number(b.timestamp) * 1000 : null);
 
     const result = await ingestInboundEmail({ recipient, from, subject, text, html, sentAt });
+    const attached = inboundEmail.rfc822FromJsonAttachments(b.Attachments);
+    if (attached.length) {
+      const envelope = { to: recipient, from };
+      const inner = await inboundEmail.expandBundle({ attached }, envelope);
+      if (inner.length) return res.json(await ingestBundle(inner, result));
+    }
     return res.json(result);
   } catch (e) { console.error('[inbound-email/webhook]', e.message); return res.status(500).json({ message: 'Server error' }); }
 });
@@ -4792,16 +4836,18 @@ app.post('/api/inbound-email/webhook', parseInboundBody, async (req, res) => {
 // secret header, and we parse it here, keeping the Worker inside the free-plan CPU
 // limit. The older JSON body form is still accepted. Same 503/401/200 contract as the
 // legacy webhook above, and the same ingest path once normalised.
-app.post('/api/inbound-email/cloudflare', express.raw({ type: 'message/rfc822', limit: '6mb' }), async (req, res) => {
+app.post('/api/inbound-email/cloudflare', express.raw({ type: 'message/rfc822', limit: '20mb' }), async (req, res) => {
   try {
     if (!inboundActive()) return res.status(503).json({ message: 'Email forwarding is not enabled yet.' });
     const key = req.get('x-inbound-cf-secret') || '';
     if (!inboundEmail.verifyCloudflareSecret(key, process.env.INBOUND_CF_SECRET)) return res.status(401).json({ message: 'Bad webhook key' });
 
-    const body = Buffer.isBuffer(req.body)
-      ? await inboundEmail.parseRawEmail(req.body, { to: req.get('x-envelope-to') || '', from: req.get('x-envelope-from') || '' })
-      : req.body;
+    const envelope = { to: req.get('x-envelope-to') || '', from: req.get('x-envelope-from') || '' };
+    const body = Buffer.isBuffer(req.body) ? await inboundEmail.parseRawEmail(req.body, envelope) : req.body;
     const result = await ingestInboundEmail(inboundEmail.mapCloudflarePayload(body));
+    // A forwarded bundle: every attached email is ingested as its own email.
+    const inner = await inboundEmail.expandBundle(body, envelope);
+    if (inner.length) return res.json(await ingestBundle(inner, result));
     return res.json(result);
   } catch (e) { console.error('[inbound-email/cloudflare]', e.message); return res.status(500).json({ message: 'Server error' }); }
 });

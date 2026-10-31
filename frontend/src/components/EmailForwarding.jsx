@@ -108,6 +108,10 @@ export default function EmailForwarding() {
             <div className="ef-status ef-wait"><i className="fas fa-clock"></i> Waiting for your first forwarded email…</div>
           )}
 
+          {data.nonBankNudge && (
+            <div className="ef-note"><i className="fas fa-triangle-exclamation"></i> Most of what you forward isn’t from a bank, and we ignore it. In Gmail, switch off “Forward a copy of incoming mail” and use a filter for your bank’s address only.</div>
+          )}
+
           {!data.active && (
             <div className="ef-note"><i className="fas fa-circle-info"></i> Forwarding goes live shortly: your address is reserved and won’t change.</div>
           )}
@@ -117,6 +121,8 @@ export default function EmailForwarding() {
             <ol className="ef-steps">
               {STEPS.map((s) => <li key={s.title}><strong>{s.title}.</strong> {s.body}</li>)}
             </ol>
+            <div className="ef-note"><i className="fas fa-triangle-exclamation"></i> Don’t turn on “Forward a copy of incoming mail” in Gmail. That sends all your mail, not just bank alerts. Use a filter for your bank’s address only.</div>
+            <div className="ef-note"><i className="fas fa-box-archive"></i> To bring in past alerts, search Gmail for your bank, select them, then choose Forward as attachment to your address.</div>
             <a className="ef-gmail" href="https://mail.google.com/mail/u/0/#settings/filters" target="_blank" rel="noreferrer">
               <i className="fas fa-external-link-alt"></i> Open Gmail filters
             </a>

@@ -281,7 +281,33 @@ async function parseRawEmail(raw, envelope = {}) {
     text: p.text || '',
     html: p.html || '',
     date: p.date || null,
+    // "Forward as attachment" bundles: every message/rfc822 attachment is a whole email.
+    attached: (p.attachments || [])
+      .filter((x) => /^message\/rfc822$/i.test(x.mimeType || '') && x.content)
+      .map((x) => Buffer.from(x.content)),
   };
+}
+
+const MAX_BUNDLE_EMAILS = 150;
+
+// A forwarded bundle (Gmail "Forward as attachment" on a selection of past alerts):
+// the outer mail carries each original as an attached message/rfc822. Returns the
+// attached emails, each parsed on its own so it keeps its own sender and date, with
+// the same envelope (the user's token address) as the outer mail. One level deep.
+async function expandBundle(parsed, envelope = {}) {
+  const out = [];
+  for (const raw of (parsed && parsed.attached ? parsed.attached : []).slice(0, MAX_BUNDLE_EMAILS)) {
+    try { out.push(await parseRawEmail(raw, envelope)); } catch { /* an unreadable attachment is skipped */ }
+  }
+  return out.map((x) => ({ ...x, attached: [] }));
+}
+
+// Postmark-style JSON attachments ({ ContentType, Content: base64 }) to raw buffers.
+function rfc822FromJsonAttachments(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((x) => x && /^message\/rfc822$/i.test(x.ContentType || '') && typeof x.Content === 'string')
+    .slice(0, MAX_BUNDLE_EMAILS)
+    .map((x) => Buffer.from(x.Content, 'base64'));
 }
 
 // Constant-time secret check for the Worker's `x-inbound-cf-secret` header, mirroring
@@ -299,5 +325,5 @@ module.exports = {
   extractToken, htmlToText, stripQuotedReply, emailToText, emailBodyText,
   isGmailForwardingVerification, extractGmailVerification, splitEmailAlerts,
   forwardedSender, unwrapForwarded, resolveBankEmail,
-  mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail,
+  mapCloudflarePayload, verifyCloudflareSecret, parseRawEmail, expandBundle, rfc822FromJsonAttachments, MAX_BUNDLE_EMAILS,
 };

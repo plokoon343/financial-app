@@ -21,6 +21,9 @@ export default function EmailForwarding() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [filter, setFilter] = useState(null);
+  const [filterCopied, setFilterCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const pollRef = useRef(null);
   const headers = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };
 
@@ -35,6 +38,11 @@ export default function EmailForwarding() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  // round 9 part A2: the exact filter for the banks this account has picked.
+  useEffect(() => {
+    axios.get(`${API_URL}/api/me/email-filter`, headers).then((r) => setFilter(r.data)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Poll status until the first alert lands, then flip to "receiving ✓", and pick up
   // Gmail's forwarding confirmation the moment it arrives during setup (spec 3.4).
@@ -64,6 +72,33 @@ export default function EmailForwarding() {
   const dismissVerification = async () => {
     setData((d) => ({ ...d, gmailVerification: null }));
     try { await axios.post(`${API_URL}/api/inbound-email/gmail-verification/clear`, {}, headers); } catch { /* best-effort */ }
+  };
+
+  const dismissOutlookNotice = async () => {
+    setData((d) => ({ ...d, outlookNotice: null }));
+    try { await axios.post(`${API_URL}/api/inbound-email/outlook-notice/clear`, {}, headers); } catch { /* best-effort */ }
+  };
+
+  const copyFilter = async () => {
+    if (!filter?.filter) return;
+    try { await navigator.clipboard.writeText(filter.filter); setFilterCopied(true); setTimeout(() => setFilterCopied(false), 1500); } catch { /* ignore */ }
+  };
+
+  // Gmail's own filter-import file (Settings > Filters and Blocked Addresses >
+  // Import filters), fetched with our auth header then handed to the browser as
+  // a normal file download.
+  const downloadFilter = async () => {
+    if (!filter?.addresses?.length) return;
+    setDownloading(true);
+    try {
+      const res = await axios.get(`${API_URL}/api/me/email-filter/gmail.xml`, { ...headers, responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/xml' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = 'automonie-filter.xml';
+      document.body.appendChild(a); a.click(); a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch { setError('Could not prepare the filter file.'); }
+    finally { setDownloading(false); }
   };
 
   return (
@@ -102,10 +137,44 @@ export default function EmailForwarding() {
             </div>
           )}
 
-          {data.receiving ? (
-            <div className="ef-status ef-ok"><i className="fas fa-circle-check"></i> Receiving your alerts{data.count ? `: ${data.count} imported so far` : ''}.</div>
+          {data.outlookNotice?.at && (
+            <div className="ef-verify">
+              <div className="ef-verify-head"><i className="fas fa-shield-halved"></i> Outlook sent a forwarding notice</div>
+              <p className="ef-verify-body">Check Outlook’s own Settings → Mail → Rules to confirm your forwarding rule is active. There’s no code to paste for Outlook, just a security notice that a rule was added.</p>
+              <button className="ef-verify-dismiss" onClick={dismissOutlookNotice}>Checked: dismiss</button>
+            </div>
+          )}
+
+          {filter && (
+            <div className="ef-card">
+              <h3>Your filter</h3>
+              {filter.filter ? (
+                <>
+                  <p>Built from the banks you’ve picked. Paste this into Gmail’s search bar, create a filter from it, or download a file that imports it for you.</p>
+                  <button className="ef-code" onClick={copyFilter}>
+                    <span className="ef-code-label">FILTER</span>
+                    <span className="ef-filter-val">{filter.filter} <i className="fas fa-copy"></i>{filterCopied ? ' Copied' : ''}</span>
+                  </button>
+                  <button className="ef-verify-btn ef-filter-dl" onClick={downloadFilter} disabled={downloading}>
+                    <i className="fas fa-download"></i> {downloading ? 'Preparing…' : 'Download for Gmail'}
+                  </button>
+                  <div className="ef-note"><i className="fas fa-circle-info"></i> Import at Gmail Settings → Filters and Blocked Addresses → Import filters. Confirm your Gmail forwarding address first (the confirmation step above) - a filter that forwards to an address Gmail hasn’t verified yet won’t actually forward.</div>
+                </>
+              ) : (
+                <p>We’re still learning your bank’s alert address. Forward one alert once and we’ll learn it, then your filter appears here.</p>
+              )}
+              {!!filter.missingBanks?.length && (
+                <div className="ef-note"><i className="fas fa-graduation-cap"></i> Still learning: {filter.missingBanks.map((b) => b.name).join(', ')}. Forward one alert from {filter.missingBanks.length === 1 ? 'it' : 'each'} once and we’ll add it here.</div>
+              )}
+            </div>
+          )}
+
+          {data.status === 'stale' ? (
+            <div className="ef-status ef-stale"><i className="fas fa-triangle-exclamation"></i> No email in 7 days. Check your filter is still forwarding.</div>
+          ) : data.receiving ? (
+            <div className="ef-status ef-ok"><i className="fas fa-circle-check"></i> Connected{data.count ? ` · ${data.count} imported so far` : ''}.</div>
           ) : (
-            <div className="ef-status ef-wait"><i className="fas fa-clock"></i> Waiting for your first forwarded email…</div>
+            <div className="ef-status ef-wait"><i className="fas fa-clock"></i> Waiting for your first email. Forward one bank alert now to test it.</div>
           )}
 
           {data.nonBankNudge && (
@@ -126,7 +195,7 @@ export default function EmailForwarding() {
             <a className="ef-gmail" href="https://mail.google.com/mail/u/0/#settings/filters" target="_blank" rel="noreferrer">
               <i className="fas fa-external-link-alt"></i> Open Gmail filters
             </a>
-            <p className="ef-guides"><Link to="/help#email-gmail">Full Gmail guide</Link> · <Link to="/help#email-outlook">Using Outlook or Hotmail?</Link></p>
+            <p className="ef-guides"><Link to="/help#email-gmail">Full Gmail guide</Link> · <Link to="/help#email-outlook">Using Outlook or Hotmail?</Link> · <Link to="/help#email-yahoo">Using Yahoo Mail?</Link></p>
           </div>
 
           <p className="ef-privacy"><i className="fas fa-lock" style={{ color: '#139DA0' }}></i> No password needed: we never ask for your email password. You forward bank emails yourself and can stop any time. We only accept mail from known banks, and your address is private to you.</p>
@@ -152,8 +221,12 @@ export default function EmailForwarding() {
         .ef-code-val i { font-size: 0.9rem; color: var(--accent-primary); }
         .ef-verify-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--gradient-primary, var(--accent-primary)); color: #fff; border-radius: var(--radius-full); padding: 10px 20px; font-weight: 800; text-decoration: none; }
         .ef-verify-dismiss { display: block; margin: 12px auto 0; background: none; border: none; color: var(--text-secondary); font-weight: 600; cursor: pointer; }
+        .ef-filter-val { font-size: 0.92rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 10px; word-break: break-word; }
+        .ef-filter-val i { font-size: 0.9rem; color: var(--accent-primary); flex-shrink: 0; }
+        .ef-filter-dl { display: inline-flex; border: none; cursor: pointer; }
         .ef-status { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-radius: var(--radius-md); margin-bottom: 14px; font-weight: 600; }
         .ef-ok { background: rgba(56,161,105,0.1); border: 1px solid #16a34a; color: var(--text-primary); }
+        .ef-stale { background: rgba(245,158,11,0.1); border: 1px solid #f59e0b; color: var(--text-primary); }
         .ef-wait { background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary); }
         .ef-note { display: flex; align-items: center; gap: 8px; background: var(--glass-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px 12px; color: var(--text-secondary); font-size: 0.86rem; margin-bottom: 16px; }
         .ef-guides { margin: 12px 0 0; font-size: 0.9rem; }

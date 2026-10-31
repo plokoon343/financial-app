@@ -1,9 +1,10 @@
 {
-  "_about": "How-to for each feature, shown on the Help page in the web app and the mobile app. Edit the text here; add a clip by filling videoUrl (a YouTube or other https link). Each step may also take an image (an https link to a screenshot).",
+  "_about": "How-to for each feature, grouped into the categories shown on the Help Centre (web, mobile and automonie.com/help). Edit the text here; add a clip by filling videoUrl (a YouTube or other https link). Each step may also take an image (an https link to a screenshot). 'category' must be one of the ids in backend/lib/helpContent.js CATEGORIES.",
   "sections": [
     {
       "id": "getting-started",
       "title": "Getting started",
+      "category": "getting-started",
       "summary": "Get your transactions in once, and Automonie keeps up from there.",
       "videoUrl": "",
       "steps": [
@@ -16,6 +17,7 @@
     {
       "id": "email-gmail",
       "title": "Forward bank alerts from Gmail",
+      "category": "automatic-tracking",
       "summary": "A one-time rule in Gmail sends every bank alert email to your private Automonie address. Do this on a computer, or in your phone's browser with Desktop site turned on: the Gmail app doesn't have these settings.",
       "videoUrl": "",
       "steps": [
@@ -32,6 +34,7 @@
     {
       "id": "email-outlook",
       "title": "Forward bank alerts from Outlook",
+      "category": "automatic-tracking",
       "summary": "Outlook.com, Hotmail and Live accounts use a rule. Do this on outlook.com in a browser.",
       "videoUrl": "",
       "steps": [
@@ -45,8 +48,23 @@
       ]
     },
     {
+      "id": "email-yahoo",
+      "title": "Forwarding bank alerts from Yahoo Mail",
+      "category": "automatic-tracking",
+      "summary": "Free Yahoo Mail accounts can't auto-forward. Here's what to do instead.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Yahoo removed automatic forwarding for free Mail accounts in 2021. If your Yahoo account is free, there is no filter or rule that will auto-forward your bank alerts to Automonie - Yahoo only offers it on the paid Yahoo Mail Plus plan.", "image": "" },
+        { "text": "If you're on Yahoo Mail Plus: open Settings, then More Settings, then Forwarding, turn it on, and add your Automonie address. If your bank alert emails need their own rule rather than forwarding everything, use Filters to move just those to a folder, then forward that folder's mail.", "image": "" },
+        { "text": "On a free account, forward one alert at a time: open the email, choose Forward, paste your Automonie address, and send. This works for any Yahoo account and takes a few seconds per alert.", "image": "" },
+        { "text": "For ongoing tracking without forwarding every alert by hand: turn on Automatic tracking's bank-app notifications (Android) or upload a bank statement instead - both work the same whether or not Yahoo can forward.", "image": "" },
+        { "text": "A free Microsoft (Outlook.com) or Google (Gmail) address can auto-forward at no cost, if switching your bank alerts to one of those is an option.", "image": "" }
+      ]
+    },
+    {
       "id": "notifications",
       "title": "Read bank app notifications (Android)",
+      "category": "automatic-tracking",
       "summary": "For app banks like OPay, PalmPay, Moniepoint and Kuda: payments are logged as the bank app notifies you, with nothing to forward.",
       "videoUrl": "",
       "steps": [
@@ -59,6 +77,7 @@
     {
       "id": "share",
       "title": "Share an alert to Automonie",
+      "category": "automatic-tracking",
       "summary": "Got a bank text, a notification or a receipt? Share it to Automonie and confirm it.",
       "videoUrl": "",
       "steps": [
@@ -71,6 +90,7 @@
     {
       "id": "statement",
       "title": "Upload a bank statement",
+      "category": "statements",
       "summary": "Good for bringing in history, or for any bank.",
       "videoUrl": "",
       "steps": [
@@ -83,6 +103,7 @@
     {
       "id": "action-center",
       "title": "The Action Center",
+      "category": "automatic-tracking",
       "summary": "Anything we weren't sure about waits here for a quick decision, so your numbers stay right.",
       "videoUrl": "",
       "steps": [
@@ -95,6 +116,7 @@
     {
       "id": "accounts",
       "title": "Accounts",
+      "category": "automatic-tracking",
       "summary": "Each bank account we spot, and any you add yourself.",
       "videoUrl": "",
       "steps": [
@@ -107,6 +129,7 @@
     {
       "id": "budgets",
       "title": "Budgets",
+      "category": "budgets-goals",
       "summary": "Set a monthly amount per category and see how much is left.",
       "videoUrl": "",
       "steps": [
@@ -118,6 +141,7 @@
     {
       "id": "goals",
       "title": "Goals",
+      "category": "budgets-goals",
       "summary": "Track progress towards something you're saving for. Automonie never moves money; you record what you put aside.",
       "videoUrl": "",
       "steps": [
@@ -129,6 +153,7 @@
     {
       "id": "subscriptions",
       "title": "Subscriptions and bills",
+      "category": "budgets-goals",
       "summary": "See what renews when, and get reminded before it does. Automonie never pays anything for you.",
       "videoUrl": "",
       "steps": [
@@ -140,6 +165,7 @@
     {
       "id": "people",
       "title": "People",
+      "category": "automatic-tracking",
       "summary": "Who you send money to and receive it from.",
       "videoUrl": "",
       "steps": [
@@ -150,7 +176,8 @@
     },
     {
       "id": "notifications-settings",
-      "title": "Notifications",
+      "title": "App notifications",
+      "category": "troubleshooting",
       "summary": "At most two a day, never between 10pm and 7am, and no amounts on your lock screen unless you turn them on.",
       "videoUrl": "",
       "steps": [
@@ -161,6 +188,7 @@
     {
       "id": "privacy",
       "title": "Your data and privacy",
+      "category": "privacy-security",
       "summary": "What we keep, and how to take it with you or delete it.",
       "videoUrl": "",
       "steps": [
@@ -168,6 +196,33 @@
         { "text": "Export your data from Settings at any time." },
         { "text": "Delete your account from Settings; your data is deleted with it." },
         { "text": "Read the full privacy policy at automonie.com/privacy." }
+      ]
+    },
+    {
+      "id": "plus-billing",
+      "title": "Automonie Plus and billing",
+      "category": "plus-billing",
+      "summary": "What Plus unlocks, how you're charged, and how to cancel.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Plus unlocks extra insights, exports and automations beyond the free plan. See Settings > Plus for the full list." },
+        { "text": "On the Play Store build, Plus is billed through Google Play; manage or cancel it from the Play Store's Subscriptions screen, not inside Automonie." },
+        { "text": "Where billing runs through Paystack, open Settings > Plus > Manage billing to see your next charge date or cancel." },
+        { "text": "Cancelling keeps your Plus features until the period you already paid for ends; nothing is refunded automatically for a part-used period." }
+      ]
+    },
+    {
+      "id": "troubleshooting-common",
+      "title": "Common problems",
+      "category": "troubleshooting",
+      "summary": "The most common things people write in about, and the quick fix for each.",
+      "videoUrl": "",
+      "steps": [
+        { "text": "Bank alert emails aren't arriving: check Accounts & alerts > Email alerts shows 'Connected'; if it still says 'Waiting', redo the Gmail or Outlook forwarding guide and confirm the code that appears in the app." },
+        { "text": "A statement won't import: it may be a scanned image rather than a real PDF/CSV/Excel export, or the password is wrong. Re-download it fresh from your bank and try again." },
+        { "text": "A transaction is missing or wrong: check Action Center first, it often needs one quick confirmation. Otherwise add it manually or edit it from the Transactions list." },
+        { "text": "The app is slow on first load: the free-tier server sleeps after inactivity; the first request can take up to a minute to wake it, and it's quick after that." },
+        { "text": "Still stuck? Use Contact support below; we see your app version and setup check automatically so you don't have to describe it from scratch." }
       ]
     }
   ]

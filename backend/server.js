@@ -65,6 +65,7 @@ const { cleanAiText } = require('./lib/aiOutput');
 const merchantSuggest = require('./lib/merchantSuggest');
 const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
+const helpContent = require('./lib/helpContent');
 require('dotenv').config();
 
 // Where password-reset links point (the deployed frontend).
@@ -928,15 +929,61 @@ const GLOBAL_MIN_VOTES = 5; // different users, then an admin approves it (Admin
 const GLOBAL_MIN_SHARE = 0.6;
 
 // Support tickets submitted from the Support/FAQ page; superadmins review them.
+// `source` covers the one-ticket-inbox goal (round9 B3): 'form' tickets are
+// created by the route below; 'email' and 'whatsapp' ones are logged into the
+// same inbox by an admin from those channels. `diagnostics` is only ever
+// attached with the user's consent (never transactions or message content).
 const supportTicketSchema = new mongoose.Schema({
-  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   name:    { type: String, default: '' },
   email:   { type: String, default: '' },
   subject: { type: String, required: true },
   message: { type: String, required: true },
   status:  { type: String, enum: ['open', 'resolved'], default: 'open' },
+  topic:   { type: String, default: '' },  // e.g. 'email-forwarding', 'statements', 'billing'
+  source:  { type: String, enum: ['form', 'email', 'whatsapp'], default: 'form' },
+  diagnostics: {
+    consent:      { type: Boolean, default: false },
+    appVersion:   { type: String, default: '' },
+    platform:     { type: String, default: '' },
+    phoneModel:   { type: String, default: '' },
+    osVersion:    { type: String, default: '' },
+    setupCheck:   { type: mongoose.Schema.Types.Mixed, default: null },
+    recentLogs:   { type: [String], default: [] },
+  },
 }, { timestamps: true });
+supportTicketSchema.index({ topic: 1, createdAt: -1 });
 const SupportTicket = mongoose.model('SupportTicket', supportTicketSchema);
+
+// Generic analytics events for the Help Centre and support (round9 B4). userId is
+// null for anonymous automonie.com/help traffic. Kept to a fixed event-name allow
+// list (ALLOWED_ANALYTICS_EVENTS below) so this can't become a free-form sink.
+const analyticsEventSchema = new mongoose.Schema({
+  userId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  name:       { type: String, required: true },
+  properties: { type: mongoose.Schema.Types.Mixed, default: {} },
+  platform:   { type: String, default: '' }, // 'web' | 'mobile' | 'site'
+}, { timestamps: true });
+analyticsEventSchema.index({ name: 1, createdAt: -1 });
+const AnalyticsEvent = mongoose.model('AnalyticsEvent', analyticsEventSchema);
+
+const ALLOWED_ANALYTICS_EVENTS = new Set([
+  'help_opened', 'help_article_viewed', 'help_article_helpful', 'help_search_no_result', 'support_contacted',
+]);
+const trackEvent = (name, { userId = null, properties = {}, platform = '' } = {}) => {
+  if (!ALLOWED_ANALYTICS_EVENTS.has(name)) return;
+  AnalyticsEvent.create({ userId, name, properties, platform }).catch((e) => console.error('[trackEvent]', e.message));
+};
+
+// Per-article "Did this help?" tallies, keyed by the article slug (stable across
+// the local-JSON / Sanity sources since both use the same slug).
+const helpArticleStatSchema = new mongoose.Schema({
+  slug:       { type: String, required: true, unique: true },
+  views:      { type: Number, default: 0 },
+  helpfulYes: { type: Number, default: 0 },
+  helpfulNo:  { type: Number, default: 0 },
+}, { timestamps: true });
+const HelpArticleStat = mongoose.model('HelpArticleStat', helpArticleStatSchema);
 
 // In-app notifications (app alerts).
 const notificationSchema = new mongoose.Schema({
@@ -2525,10 +2572,66 @@ app.delete('/api/me/tips', auth, async (req, res) => {
   } catch (e) { console.error('[me/tips]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// How-to for each feature (Help page). Data, so text and video links change without
-// an app release.
-const HELP = require('./data/help.json');
-app.get('/api/help', (req, res) => res.json(HELP));
+// Help Centre (round9 B2). Content comes from helpContent.js (Sanity when an owner
+// has set it up, else backend/data/help.json) - one source for the app, admin and
+// automonie.com/help. `sections` is kept alongside `categories`/`articles` so older
+// clients still on the flat shape keep working during rollout.
+app.get('/api/help', auth, async (req, res) => {
+  try {
+    const articles = await helpContent.getArticles();
+    trackEvent('help_opened', { userId: req.user._id, properties: { source: req.query.source || '' }, platform: req.query.platform || 'web' });
+    res.json({ categories: helpContent.CATEGORIES, articles, sections: articles.map((a) => ({ id: a.slug, title: a.title, summary: a.summary, videoUrl: a.videoUrl, steps: a.steps })) });
+  } catch (e) { console.error('[help]', e.message); res.status(500).json({ message: 'Could not load help.' }); }
+});
+
+// Search, with a small Nigerian-phrasing synonym map (helpContent.js). Logs
+// help_search_no_result when nothing scores, so B4's weekly report can surface
+// real gaps in the articles.
+app.get('/api/help/search', auth, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().slice(0, 200);
+    const results = q ? await helpContent.searchArticles(q) : [];
+    if (q && !results.length) trackEvent('help_search_no_result', { userId: req.user._id, properties: { query: q } });
+    res.json({ query: q, results });
+  } catch (e) { console.error('[help/search]', e.message); res.status(500).json({ message: 'Search failed.' }); }
+});
+
+// "Did this help? Yes / No" on an article.
+app.post('/api/help/:slug/vote', auth, async (req, res) => {
+  try {
+    const helpful = !!req.body.helpful;
+    const article = await helpContent.getArticleBySlug(req.params.slug);
+    if (!article) return res.status(404).json({ message: 'Article not found' });
+    await HelpArticleStat.updateOne(
+      { slug: req.params.slug },
+      { $inc: helpful ? { helpfulYes: 1 } : { helpfulNo: 1 } },
+      { upsert: true },
+    );
+    trackEvent('help_article_helpful', { userId: req.user._id, properties: { slug: req.params.slug, helpful } });
+    res.json({ ok: true });
+  } catch (e) { console.error('[help/vote]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// A single place for other screens' app events (B4): help_opened (with a `source`
+// screen name), help_article_viewed, support_contacted. Restricted to the fixed
+// event allow-list in trackEvent, so this can't become a free-form log sink.
+app.post('/api/analytics/track', auth, async (req, res) => {
+  const name = String(req.body?.name || '');
+  if (!ALLOWED_ANALYTICS_EVENTS.has(name)) return res.status(400).json({ message: 'Unknown event' });
+  trackEvent(name, { userId: req.user._id, properties: req.body?.properties || {}, platform: req.body?.platform || 'web' });
+  res.json({ ok: true });
+});
+
+// Support's "we usually reply within X hours" line, and whether WhatsApp support
+// is live, read from env so it can change without a release.
+app.get('/api/support/info', auth, (req, res) => {
+  const number = process.env.WHATSAPP_SUPPORT_NUMBER || '';
+  res.json({
+    responseHours: Number(process.env.SUPPORT_RESPONSE_HOURS || 24),
+    hours: process.env.SUPPORT_HOURS_TEXT || '9am to 9pm, every day',
+    whatsapp: number ? { enabled: true, link: `https://wa.me/${number.replace(/[^0-9]/g, '')}` } : { enabled: false, link: '' },
+  });
+});
 
 // Opt in / out of the beta testers program. Returns the beta community link on opt-in.
 app.patch('/api/me/beta', auth, async (req, res) => {
@@ -2929,15 +3032,32 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
 // --------------------------
 app.post('/api/support/tickets', sensitiveLimiter, auth, async (req, res) => {
   try {
-    const { subject, message } = req.body;
+    const { subject, message, topic } = req.body;
     if (!subject || !message) return res.status(400).json({ message: 'Subject and message are required' });
+    // Diagnostics (app version, phone model, OS, setup-check results, a handful of
+    // recent client log lines) are attached only when the user ticked consent on
+    // the form; never transactions or message content (round9 B3).
+    const d = req.body.diagnostics;
+    const diagnostics = (d && d.consent) ? {
+      consent: true,
+      appVersion: String(d.appVersion || '').slice(0, 30),
+      platform: String(d.platform || '').slice(0, 20),
+      phoneModel: String(d.phoneModel || '').slice(0, 60),
+      osVersion: String(d.osVersion || '').slice(0, 30),
+      setupCheck: d.setupCheck || null,
+      recentLogs: Array.isArray(d.recentLogs) ? d.recentLogs.slice(-20).map((l) => String(l).slice(0, 300)) : [],
+    } : { consent: false };
     const ticket = await SupportTicket.create({
       userId: req.user._id,
       name: req.user.name,
       email: req.user.email,
       subject: subject.toString().slice(0, 150),
       message: message.toString().slice(0, 4000),
+      topic: String(topic || '').slice(0, 60),
+      source: 'form',
+      diagnostics,
     });
+    trackEvent('support_contacted', { userId: req.user._id, properties: { topic: ticket.topic, source: 'form' } });
     // Notify superadmins of the new ticket (in-app).
     const admins = await User.find({ role: 'superadmin' }, { _id: 1 }).lean();
     await Promise.all(admins.map(a => createNotification(a._id, {
@@ -2962,6 +3082,66 @@ app.get('/api/admin/tickets', auth, superAdminAuth, async (req, res) => {
     const tickets = await SupportTicket.find({}).sort({ createdAt: -1 });
     res.json(tickets);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Superadmin: log a ticket that came in by email or WhatsApp, so the admin ticket
+// list is one inbox for all three channels (round9 B3). userId is left null when
+// the contact can't be matched to an account by email.
+app.post('/api/admin/tickets', auth, superAdminAuth, async (req, res) => {
+  try {
+    const { subject, message, topic, source, email, name } = req.body;
+    if (!subject || !message) return res.status(400).json({ message: 'Subject and message are required' });
+    if (!['email', 'whatsapp'].includes(source)) return res.status(400).json({ message: "source must be 'email' or 'whatsapp'" });
+    const matched = email ? await User.findOne({ email: String(email).toLowerCase() }, { _id: 1 }).lean() : null;
+    const ticket = await SupportTicket.create({
+      userId: matched ? matched._id : null,
+      name: String(name || '').slice(0, 80),
+      email: String(email || '').slice(0, 120),
+      subject: subject.toString().slice(0, 150),
+      message: message.toString().slice(0, 4000),
+      topic: String(topic || '').slice(0, 60),
+      source,
+    });
+    trackEvent('support_contacted', { userId: matched ? matched._id : null, properties: { topic: ticket.topic, source } });
+    res.status(201).json(ticket);
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Superadmin: the weekly "learn and shrink" report (round9 B4) - no-result
+// searches, "No" votes, top ticket topics, and which screens open Help most, over
+// the last N days (default 7). Computed on request rather than on a cron, since
+// nothing else in this project runs a background job server; see the brief for
+// the follow-up (a scheduled email of this) if the owner wants it pushed weekly.
+app.get('/api/admin/analytics/help-report', auth, superAdminAuth, async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const events = await AnalyticsEvent.find({ createdAt: { $gte: since } }).lean();
+    const byName = (name) => events.filter((e) => e.name === name);
+    const topCount = (list, keyFn, limit = 10) => {
+      const counts = new Map();
+      for (const item of list) {
+        const k = keyFn(item) || '(none)';
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
+      return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([key, count]) => ({ key, count }));
+    };
+    const tickets = await SupportTicket.find({ createdAt: { $gte: since } }).lean();
+    const stats = await HelpArticleStat.find({}).lean();
+    res.json({
+      since,
+      days,
+      helpOpened: byName('help_opened').length,
+      helpOpenedBySource: topCount(byName('help_opened'), (e) => e.properties?.source),
+      articleViews: byName('help_article_viewed').length,
+      noResultSearches: topCount(byName('help_search_no_result'), (e) => e.properties?.query, 25),
+      notHelpfulVotes: topCount(byName('help_article_helpful').filter((e) => e.properties?.helpful === false), (e) => e.properties?.slug),
+      supportContacted: byName('support_contacted').length,
+      topTicketTopics: topCount(tickets, (t) => t.topic),
+      ticketsBySource: topCount(tickets, (t) => t.source),
+      articlesNeedingWork: stats.filter((s) => s.helpfulNo > s.helpfulYes).map((s) => ({ slug: s.slug, helpfulYes: s.helpfulYes, helpfulNo: s.helpfulNo })),
+    });
+  } catch (e) { console.error('[admin/help-report]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Superadmin: update ticket status
@@ -4494,7 +4674,7 @@ const inboundActive = () => !!process.env.INBOUND_EMAIL_SECRET;
 // we've started receiving mail for them.
 app.get('/api/inbound-email/address', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('inboundEmailToken inboundEmailLastAt inboundEmailCount inboundBankMails inboundOtherMails gmailVerifyCode gmailVerifyLink gmailVerifyAt');
+    const user = await User.findById(req.user._id).select('inboundEmailToken inboundEmailLastAt inboundEmailCount inboundBankMails inboundOtherMails gmailVerifyCode gmailVerifyLink gmailVerifyAt outlookForwardNoticeAt');
     if (!user.inboundEmailToken) {
       // Generate a unique token (retry on the rare index collision).
       for (let i = 0; i < 5; i++) {
@@ -4513,6 +4693,7 @@ app.get('/api/inbound-email/address', auth, async (req, res) => {
       count: user.inboundEmailCount || 0,
       nonBankNudge: nonBankNudge(user),
       gmailVerification: gmailVerificationPayload(user),
+      outlookNotice: outlookNoticePayload(user),
       status: inboundStatus(user),
     });
   } catch (e) { console.error('[inbound-email/address]', e.message); res.status(500).json({ message: 'Server error' }); }
@@ -4524,13 +4705,19 @@ function gmailVerificationPayload(u) {
   if (!u || (!u.gmailVerifyCode && !u.gmailVerifyLink)) return null;
   return { code: u.gmailVerifyCode || '', link: u.gmailVerifyLink || '', at: u.gmailVerifyAt || null };
 }
+// Outlook has no code to paste (round 9 A3) - just a timestamp so the screen can
+// say "Outlook sent a forwarding notice" once, until dismissed.
+function outlookNoticePayload(u) {
+  if (!u || !u.outlookForwardNoticeAt) return null;
+  return { at: u.outlookForwardNoticeAt };
+}
 
 // Poll for the "we're receiving your alerts ✓" state (drives the test-email step),
 // and for a freshly-arrived Gmail confirmation.
 app.get('/api/inbound-email/status', auth, async (req, res) => {
   try {
-    const u = await User.findById(req.user._id).select('inboundEmailLastAt inboundEmailCount inboundBankMails inboundOtherMails gmailVerifyCode gmailVerifyLink gmailVerifyAt');
-    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0, nonBankNudge: nonBankNudge(u), gmailVerification: gmailVerificationPayload(u), status: inboundStatus(u) });
+    const u = await User.findById(req.user._id).select('inboundEmailLastAt inboundEmailCount inboundBankMails inboundOtherMails gmailVerifyCode gmailVerifyLink gmailVerifyAt outlookForwardNoticeAt');
+    res.json({ active: inboundActive(), receiving: !!u.inboundEmailLastAt, lastAt: u.inboundEmailLastAt || null, count: u.inboundEmailCount || 0, nonBankNudge: nonBankNudge(u), gmailVerification: gmailVerificationPayload(u), outlookNotice: outlookNoticePayload(u), status: inboundStatus(u) });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -4539,6 +4726,13 @@ app.get('/api/inbound-email/status', auth, async (req, res) => {
 app.post('/api/inbound-email/gmail-verification/clear', auth, async (req, res) => {
   try {
     await User.updateOne({ _id: req.user._id }, { $set: { gmailVerifyCode: '', gmailVerifyLink: '', gmailVerifyAt: null } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+// Same, for the Outlook notice (round 9 A3).
+app.post('/api/inbound-email/outlook-notice/clear', auth, async (req, res) => {
+  try {
+    await User.updateOne({ _id: req.user._id }, { $set: { outlookForwardNoticeAt: null } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -4854,9 +5048,14 @@ async function ingestInboundEmail({ recipient, from, subject = '', text = '', ht
     const dedupeKey = `bank-suggest:${user._id}:${emailBankCode}`;
     Notification.exists({ userId: user._id, dedupeKey }).then((exists) => {
       if (exists) return;
+      // No screen past onboarding lets the user edit banksUsed yet (setup.tsx
+      // bounces straight back out once onboarding is finished) - FYI only, no
+      // link to a screen that won't actually do anything useful. Flagged in the
+      // round 9 report: this notification has nowhere real to send the tap until
+      // that screen exists.
       createNotification(user._id, {
         type: 'info', title: 'Add this bank?', message: 'We read an alert from a bank that isn’t in your list yet. Add it so we keep tracking it reliably.',
-        link: '/setup', dedupeKey,
+        dedupeKey,
       }).catch(() => {});
     }).catch(() => {});
   }
@@ -8196,7 +8395,8 @@ Rules:
 - To delete or change one of the user's transactions, find it in the numbered list and call propose_delete_transaction or propose_edit_transaction with its #number. This only PROPOSES the change: the user must tap Confirm in the chat. Never say it is deleted or changed; say it is ready for them to confirm. If you can't tell which transaction they mean, ask.
 - You cannot move money, pay bills, contribute to goals, or delete or edit budgets, goals, bills or subscriptions - if asked, explain they can do that from the relevant screen.
 - Format for a small chat panel: open with one short sentence that answers the question, then at most 4 short bullet points if more detail helps. Use **bold** only for key figures or names. No headings, tables, emoji or long paragraphs. Never list your own capabilities unless the user asks what you can do; for a greeting, reply in one friendly sentence and suggest one thing to ask.
-- Give general budgeting/savings guidance, but no regulated investment, tax, or legal advice; suggest a professional for those. Be encouraging and non-judgmental.`;
+- Give general budgeting/savings guidance, but no regulated investment, tax, or legal advice; suggest a professional for those. Be encouraging and non-judgmental.
+- If the user describes something broken or missing that's specific to their account (e.g. a forwarded email never arrived, a statement won't import, a bank alert is missing) and none of your tools can fix it, say briefly that you can't verify that from here and suggest opening Support from Help, rather than guessing at a cause you can't check.`;
 
 // Tools the assistant can call, scoped to the requesting user. The create_* tools
 // write; the propose_* tools write nothing: they return a change for the user to
@@ -8420,6 +8620,8 @@ app.get('/api/features', auth, (req, res) => {
     bankLink: monoConfigured(),
     sharedExpenses: process.env.FEATURE_SHARED_EXPENSES === 'true',
     billPay: billPay.config().enabled,
+    helpCentre: true, // always on: backed by backend/data/help.json until Sanity keys are set
+    whatsappSupport: !!process.env.WHATSAPP_SUPPORT_NUMBER,
   });
 });
 
@@ -8453,6 +8655,21 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
 
     // "Ask about my money" is a Plus feature (the trial includes it).
     if (!hasFeature(req.user, 'ask-money')) return res.status(402).json(upgradeRequired('ask-money'));
+
+    // Help-first (round9 B2): a clear how-to question gets answered straight from a
+    // Help article, with its link, instead of the LLM - deterministic, free, and
+    // keeps how-to answers to content an owner has actually reviewed. Anything that
+    // doesn't read as a how-to (or has no confident match) falls through to the
+    // normal assistant below, unchanged.
+    if (helpContent.isHowToQuestion(message)) {
+      const match = await helpContent.bestMatch(message);
+      if (match) {
+        trackEvent('help_article_viewed', { userId: req.user._id, properties: { slug: match.slug, via: 'ask' } });
+        const reply = `${helpContent.condensed(match)}\n\nLearn more: /help#${match.slug}`;
+        return res.json({ configured: true, freeTier: false, reply, actions: [], changed: false, helpArticle: { slug: match.slug, title: match.title } });
+      }
+      trackEvent('help_search_no_result', { userId: req.user._id, properties: { query: message.slice(0, 200), via: 'ask' } });
+    }
 
     // Sanitise client-supplied history into a clean alternating turn list.
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-10) : [];

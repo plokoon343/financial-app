@@ -4,6 +4,7 @@ import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
 import { Link } from 'react-router-dom';
 import { startProCheckout } from '../lib/pro';
+import InfoButton from './InfoSheet';
 
 // Reusable Plus paywall (the plan stored as 'pro'). Presents the benefits and price,
 // and points students to the Student plan. Checkout is launch-gated on the server, so
@@ -44,7 +45,7 @@ export default function ProPaywall({ open, feature = 'default', onClose }) {
   return (
     <div className="pro-overlay" onClick={onClose}>
       <div className="pro-modal" onClick={(e) => e.stopPropagation()}>
-        <span className="pro-badge"><i className="fas fa-star"></i> AUTOMONIE PLUS</span>
+        <span className="pro-badge"><i className="fas fa-star"></i> AUTOMONIE PLUS <InfoButton topic="plus" /></span>
         <h3 className="pro-title">{head.title}</h3>
         <p className="pro-sub">{head.sub}</p>
         <ul className="pro-features">

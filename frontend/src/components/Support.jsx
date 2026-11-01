@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { getRecentLogs } from '../lib/logBuffer';
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
@@ -15,12 +16,21 @@ const FAQS = [
   { q: 'I forgot my password - what do I do?', a: 'On the login page click "Forgot password?", enter your email, and use the reset link we send you (valid for 1 hour).' },
 ];
 
+const TOPICS = [
+  { id: 'email-forwarding', label: 'Email forwarding / alerts' },
+  { id: 'statements', label: 'Statements' },
+  { id: 'budgets-goals', label: 'Budgets and goals' },
+  { id: 'billing', label: 'Plus and billing' },
+  { id: 'other', label: 'Something else' },
+];
+
 const Support = () => {
   const [open, setOpen] = useState(null);
-  const [form, setForm] = useState({ subject: '', message: '' });
+  const [form, setForm] = useState({ subject: '', message: '', topic: '', consent: false });
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState(null);
   const [tickets, setTickets] = useState([]);
+  const [info, setInfo] = useState(null);
 
   const flash = (text, type = 'success') => { setMessage({ text, type }); setTimeout(() => setMessage(null), 3500); };
 
@@ -30,15 +40,27 @@ const Support = () => {
       setTickets(res.data || []);
     } catch { /* non-fatal */ }
   };
-  useEffect(() => { fetchTickets(); }, []);
+  useEffect(() => {
+    fetchTickets();
+    axios.get(`${API_URL}/api/support/info`, auth()).then((r) => setInfo(r.data)).catch(() => {});
+  }, []);
 
   const submitTicket = async (e) => {
     e.preventDefault();
     if (!form.subject.trim() || !form.message.trim()) return flash('Please fill in both fields', 'error');
     setSubmitting(true);
     try {
-      await axios.post(`${API_URL}/api/support/tickets`, form, auth());
-      setForm({ subject: '', message: '' });
+      const diagnostics = form.consent ? {
+        consent: true,
+        appVersion: '',
+        platform: 'web',
+        phoneModel: '',
+        osVersion: navigator.platform || '',
+        setupCheck: null,
+        recentLogs: getRecentLogs(),
+      } : { consent: false };
+      await axios.post(`${API_URL}/api/support/tickets`, { subject: form.subject, message: form.message, topic: form.topic, diagnostics }, auth());
+      setForm({ subject: '', message: '', topic: '', consent: false });
       flash('Ticket submitted! Our team will get back to you.');
       fetchTickets();
     } catch (err) {
@@ -51,6 +73,11 @@ const Support = () => {
       <div className="section-header">
         <h2><i className="fas fa-life-ring"></i> Support &amp; FAQ</h2>
         <p>Find quick answers, or send us a message and we'll help.</p>
+        {info && (
+          <p className="sp-response-time">
+            We usually reply within {info.responseHours} hours, {info.hours}.
+          </p>
+        )}
       </div>
 
       {message && <div className={`sp-msg ${message.type}`}>{message.text}</div>}
@@ -60,9 +87,10 @@ const Support = () => {
         <h3>Contact us directly</h3>
         <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.6rem' }}>
           <li><i className="fas fa-envelope" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="mailto:superadmin@automonie.com">superadmin@automonie.com</a></li>
-          <li><i className="fas fa-phone" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="tel:+2348000000000">+234 800 000 0000</a></li>
-          <li><i className="fab fa-whatsapp" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href="https://wa.me/2348000000000" target="_blank" rel="noreferrer">Chat on WhatsApp</a></li>
-          <li><i className="fas fa-clock" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Mon-Fri, 9:00am-5:00pm WAT</li>
+          {info?.whatsapp?.enabled && (
+            <li><i className="fab fa-whatsapp" style={{ color: 'var(--accent-primary)', width: 20 }}></i> <a href={info.whatsapp.link} target="_blank" rel="noreferrer">Chat on WhatsApp</a></li>
+          )}
+          <li><i className="fas fa-clock" style={{ color: 'var(--accent-primary)', width: 20 }}></i> {info ? info.hours : 'Mon-Fri, 9:00am-5:00pm WAT'}</li>
           <li><i className="fas fa-location-dot" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Lagos, Nigeria</li>
         </ul>
       </div>
@@ -82,12 +110,20 @@ const Support = () => {
               </div>
             ))}
           </div>
+          <p className="sp-faq-more">Didn't find it? See the full <a href="/help">Help Centre</a>.</p>
         </div>
 
         {/* Ticket form + history */}
         <div className="sp-card">
           <h3>Contact support</h3>
           <form onSubmit={submitTicket}>
+            <div className="form-group">
+              <label>Topic</label>
+              <select value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })}>
+                <option value="">Choose a topic</option>
+                {TOPICS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
             <div className="form-group">
               <label>Subject</label>
               <input type="text" value={form.subject} maxLength={150}
@@ -100,6 +136,10 @@ const Support = () => {
                 onChange={e => setForm({ ...form, message: e.target.value })}
                 placeholder="Describe what's happening, and any steps to reproduce it." />
             </div>
+            <label className="sp-consent">
+              <input type="checkbox" checked={form.consent} onChange={(e) => setForm({ ...form, consent: e.target.checked })} />
+              <span>Share my app version, device and setup-check results to help diagnose this faster. Never my transactions or messages.</span>
+            </label>
             <button type="submit" className="sp-btn" disabled={submitting}>
               {submitting ? 'Submitting…' : 'Submit ticket'}
             </button>
@@ -124,6 +164,7 @@ const Support = () => {
 
       <style>{`
         .support-page { max-width: 1000px; margin: 0 auto; padding: 16px; }
+        .sp-response-time { color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px; }
         .sp-msg { padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 14px; text-align: center; }
         .sp-msg.success { background: rgba(56,161,105,0.12); color: #16a34a; }
         .sp-msg.error { background: rgba(229,62,62,0.12); color: #e53e3e; }
@@ -131,9 +172,12 @@ const Support = () => {
         @media (max-width: 800px) { .sp-grid { grid-template-columns: 1fr; } }
         .sp-card { background: var(--card-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 18px; }
         .sp-card h3 { margin: 0 0 14px; }
+        .sp-faq-more { margin: 14px 0 0; font-size: 0.85rem; color: var(--text-secondary); }
         .faq-item { border-bottom: 1px solid var(--glass-border); }
         .faq-q { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: none; border: none; color: var(--text-primary); font-weight: 600; font-size: 0.92rem; text-align: left; padding: 12px 2px; cursor: pointer; }
         .faq-a { padding: 0 2px 14px; color: var(--text-primary); opacity: 0.85; font-size: 0.88rem; line-height: 1.55; }
+        .sp-consent { display: flex; align-items: flex-start; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); margin: 10px 0 14px; cursor: pointer; }
+        .sp-consent input { margin-top: 2px; }
 
 .sp-btn { background: var(--gradient-primary); color: #fff; border: none; border-radius: var(--radius-md); padding: 11px 18px; font-weight: 600; cursor: pointer; width: 100%; }
         .sp-btn:disabled { opacity: 0.6; cursor: not-allowed; }

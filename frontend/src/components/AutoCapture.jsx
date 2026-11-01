@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import InfoButton from './InfoSheet';
 
 // Auto-capture: transactions arrive without opening Automonie. On iPhone a Shortcuts
 // automation forwards each bank SMS; on Android the app reads bank-app notifications.
@@ -55,7 +56,7 @@ export default function AutoCapture() {
       <section className="cap-card">
         <div className="cap-head">
           <div>
-            <h3><i className="fas fa-bolt" aria-hidden="true"></i> Auto-capture</h3>
+            <h3><i className="fas fa-bolt" aria-hidden="true"></i> Auto-capture <InfoButton topic="automaticTracking" /></h3>
             <p className="cap-sub">Log transactions the moment your bank alerts you, without opening Automonie.</p>
           </div>
           <span className={`cap-pill ${status?.connected ? 'on' : ''}`}>{status?.connected ? 'Connected' : 'Not set up'}</span>

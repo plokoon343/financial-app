@@ -6,6 +6,7 @@ import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categ
 import { FeatureTip } from './FeatureTip';
 import { fmtNaira as fmtMoney } from '../utils/format';
 import Select from './Select';
+import InfoButton from './InfoSheet';
 // Category slice colours, led by the brand teal.
 const SLICE_COLORS = ['#139DA0', '#1DD3A8', '#44BC7E', '#f59e0b', '#f97316', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#84cc16', '#ef4444', '#64748b'];
 
@@ -374,6 +375,7 @@ const Budget = () => {
       <div className="budget-list-container">
         <h2 className="section-title">
           <i className="fas fa-list-alt"></i> Budget Overview
+          <InfoButton topic="budgets" />
           <span className="budget-count">{budgetData.length} budget{budgetData.length !== 1 ? 's' : ''}</span>
         </h2>
         

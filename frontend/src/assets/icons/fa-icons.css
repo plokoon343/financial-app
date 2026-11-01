@@ -583,6 +583,7 @@ readers do not read off random characters that represent icons */
 .fa-bell::before { content: "\f0f3"; }
 .fa-bicycle::before { content: "\f206"; }
 .fa-bolt::before { content: "\f0e7"; }
+.fa-box-archive::before { content: "\f187"; }
 .fa-briefcase::before { content: "\f0b1"; }
 .fa-building::before { content: "\f1ad"; }
 .fa-building-columns::before { content: "\f19c"; }
@@ -690,7 +691,6 @@ readers do not read off random characters that represent icons */
 .fa-pen-to-square::before { content: "\f044"; }
 .fa-people-arrows::before { content: "\e068"; }
 .fa-percentage::before { content: "\25"; }
-.fa-phone::before { content: "\f095"; }
 .fa-piggy-bank::before { content: "\f4d3"; }
 .fa-pizza-slice::before { content: "\f818"; }
 .fa-plane::before { content: "\f072"; }

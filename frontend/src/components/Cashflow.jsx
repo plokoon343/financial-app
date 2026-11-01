@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira } from '../utils/format';
+import InfoButton from './InfoSheet';
 
 const RANGES = [30, 60, 90];
 const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
@@ -114,7 +115,9 @@ export default function Cashflow() {
         <>
           {/* Safe to spend hero */}
           <div style={{ borderRadius: 20, padding: 22, color: '#fff', background: 'var(--gradient-primary, linear-gradient(135deg,#139DA0,#0e7f82))' }}>
-            <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.6, opacity: 0.9 }}>SAFE TO SPEND TODAY</div>
+            <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.6, opacity: 0.9 }}>
+              SAFE TO SPEND TODAY <InfoButton topic="safeToSpend" style={{ color: '#fff', opacity: 0.85 }} />
+            </div>
             <div style={{ fontSize: 38, fontWeight: 800, marginTop: 4 }}>{fmtNaira(data.safeToSpend)}</div>
             <div style={{ fontSize: 13.5, opacity: 0.9, marginTop: 2 }}>
               after committed bills, before your next income (≈ day {data.payDay})

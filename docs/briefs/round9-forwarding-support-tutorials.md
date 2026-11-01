@@ -59,6 +59,8 @@ A (forwarding, ~5%), B1+B5 (~5%), B2+B3+B4 (~6%, owner reviews articles), C (~6%
 
 Part A is now **Done** on everything buildable without live Gmail/Outlook/Yahoo accounts or more real sender traffic.
 
+**Follow-up (ad hoc, owner request): "Sync data" buttons.** Mobile `384b595`, pushed. Audited every capture source for a manual "check now" action before adding anything: email forwarding had none (it only polls its own status before the first email ever arrives, then never refreshes itself again) - added a "Sync data" button re-checking `/api/inbound-email/status` and `/api/me/email-filter`, with an honest result ("Checked. N new emails imported." / "Checked. Connected." / "Checked. Nothing new."). Bank app notifications had "Test it" (a status check) but no way to force a retry of anything queued while the phone was offline - added a "Sync data" link that calls the existing `setEnabled(true)` bridge function again (already triggers a queue flush natively, so this needed no native code and no new build) and reports the queued count before/after. SMS scanning already has its own on-demand "Scan" action (an on-device read, not a server check) - left as is rather than duplicate it under the same label for a mechanically different thing. `tsc --noEmit` and `expo lint` clean on both changed files.
+
 ### B1+B5, 31 Oct 2026, Sonnet
 Full report: `docs/briefs/round9-b1-b5-report.md`. Mobile commits: `3735d37` (B1.3), `bdd8387` (B1.5), `efa2551` (B1.1), `2964280` (B1.4), all pushed. `npx tsc --noEmit` clean throughout; `npx expo lint` clean on every file this session touched.
 

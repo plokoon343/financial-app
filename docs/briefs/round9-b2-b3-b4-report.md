@@ -1,8 +1,11 @@
 # Round 9, B2 + B3 + B4: answer in context, human only when needed, learn and shrink (1 Nov 2026, Sonnet)
 
-Web commit: `d86bc6c`. Backend tests: 48/48 lib test files pass, including a new
+Web + backend commit: `d86bc6c` (+ `afd6648`, this note). Mobile commit:
+`cca5247`. Backend tests: 48/48 lib test files pass, including a new
 `backend/lib/helpContent.test.js` (13 checks). `npm --prefix frontend run build`
-clean. No mobile changes this session (web + backend only; see "What's left").
+clean. Mobile `npx tsc --noEmit` clean; `npx expo lint` could not run this
+session (see the mobile section below) - worth running once the checkout
+settles.
 
 Note: this session shared the working tree with other round9 sessions working
 on Part A and B1+B5 at the same time. One of their commits (`37a7459`, "Round 9
@@ -109,18 +112,50 @@ external-cron fix as those. The report itself is ready; an admin can open it
 any time, or an external cron could `GET` it and email the result once a
 trigger exists.
 
+## Mobile (`finpilot-mobile`, commit `cca5247`)
+
+Turned out most of B2.1's "?" buttons already existed (`InfoButton` on
+Cashflow's Safe to spend and on Budget, and a dedicated `HowTrackingSheet` for
+Automatic tracking) - this session's job there was smaller than on web:
+
+- `InfoButton` and `ScreenHeader` (`components/ui.tsx`) gained an optional
+  `helpSlug` prop: the existing (i) alert now offers a second button, "Learn
+  more", that opens `/help?section=<slug>`. Wired into Cashflow, Budget,
+  Plans (new), and Categories and rules (new, it had no "?" before).
+- `help.tsx` rebuilt around the server's new `{ categories, articles }`
+  shape: grouped by category, a search box hitting `/api/help/search`, and a
+  "Did this help?" vote footer - same shape as the web rebuild.
+- `support.tsx` gained the topic-pill picker and the consent checkbox; ticked,
+  it attaches `appVersion` (`expo-constants`), `phoneModel`/`osVersion`
+  (`expo-device`, already a dependency), two signals from the same
+  `useTracking()` hook `setup-check.tsx` uses (notifications permission,
+  email receiving), and the last 20 `console.error`/`warn` lines (new
+  `lib/logBuffer.ts`, installed once from `_layout.tsx`). Also shows the
+  response-time line and a WhatsApp pill from `/api/support/info`.
+- New `lib/analytics.ts` posts the same 5 allow-listed events the backend
+  accepts.
+
+This session's checkout was shared with at least two other round9 sessions
+working at the same time (Part A and Part C - their uncommitted
+`practice.tsx`, `sample-month.tsx`, `TourOverlay.tsx` etc. were left alone and
+not committed here). At one point `node_modules/.bin` and a couple of
+eslint's own dependencies were missing on disk, almost certainly a concurrent
+`npm install` from one of those sessions mid-run - `npx expo lint` could not
+run as a result. `npx tsc --noEmit` is clean, and the diffs were kept small
+and reviewed by hand; still, a plain `npx expo lint` is worth running once
+the install settles, before the next EAS build.
+
 ## What's left
 
-- automonie.com/help (the public, logged-out site) - this session only
-  touched the authenticated app (`frontend/`) and the backend. The content is
-  reachable (`GET /api/help` is now auth-only to track `help_opened` by user;
-  a public, unauthenticated mirror would be a small addition if the
-  automonie-web site is to read it directly, or it can query Sanity itself
-  once that's populated).
-- Mobile (`finpilot-mobile`) has none of B2/B3/B4 yet - `help.tsx`/`support.tsx`
-  still show the old flat list and plain ticket form. Needs a native build to
-  ship either way.
-- Categories screen has no "?" (see B2 above).
+- automonie.com/help (the public, logged-out site) - neither session touched
+  this; the authenticated app's `GET /api/help` tracks `help_opened` by user,
+  so a public mirror needs its own unauthenticated endpoint (or to read
+  Sanity directly, once that's populated).
+- Categories has no "?" on web (mobile's Categories and rules screen now has
+  one) - there's no single "Categories" screen in the web app to attach it to.
 - WhatsApp auto-reply text and the business number are on the owner.
 - A real weekly *push* of the B4 report needs the external-cron fix noted
   above.
+- A mobile EAS build is needed to ship any of this (JS-only changes also
+  qualify for `npm run update:beta` to existing installs, per the usual
+  pattern).

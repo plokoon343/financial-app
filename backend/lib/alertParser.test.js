@@ -37,5 +37,29 @@ for (const [label, text] of [['lines', RCPT.join('\n')], ['one line', RCPT.join(
 check('interest earned is income, not Other Income', parseAlert('Credit Alert NGN2.99 Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'Investment');
 check('owealth interest is its own category, not Investment', parseAlert('Credit Alert NGN2.99 OWealth Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'OWealth Interest');
 
+// --- A bank app's push notification is short (3 Nov 2026) -------------------
+// The context test (balance, acct, ref, value date) is shaped like a bank SMS, and
+// every SMS carries one of those words. A push from the bank's own app carries none:
+// "OPay: You have received ₦5,000.00 from Ada" is an amount and a direction and
+// nothing else. Those were all held for review instead of saved, which is what made
+// notification capture look broken to the owner while it was working.
+const push = (t) => parseAlert(t, { source: 'notification' });
+const saved = (t) => { const p = push(t); return !!p && p.kind === 'transaction' && p.amount > 0 && p.directionKnown; };
+check('push: you have received', saved('OPay\nYou have received ₦5,000.00 from ADA OKAFOR'));
+check('push: amount then received', saved('OPay\n₦5,000.00 received'));
+check('push: money received', saved('₦5,000.00\nMoney received from ADA OKAFOR'));
+check('push: has been credited', saved('OPay\nYour wallet has been credited with ₦5,000.00'));
+check('push: you sent', saved('PalmPay\nYou sent ₦2,000.00 to ADA OKAFOR'));
+check('push: direction is read right', push('OPay\nYou have received ₦5,000.00 from ADA OKAFOR').type === 'income');
+check('push: and the other way', push('PalmPay\nYou sent ₦2,000.00 to ADA OKAFOR').type === 'expense');
+// No direction word at all still waits for the owner rather than guessing.
+check('push: a bare amount is still held', push('OPay\n+₦5,000.00 from ADA OKAFOR').needsReview === true);
+// The relaxation must not let the usual junk through.
+check('push: a loan offer is still dropped', push('Get a loan of up to ₦50,000 today. Apply now!') === null);
+check('push: an OTP is still dropped', push('Your OTP is 123456 for a ₦5,000 transfer') === null);
+check('push: eligibility promo is still dropped', push('You are eligible for ₦200,000. Limited time') === null);
+// Pasted and shared text has no bank behind it, so it keeps the old caution.
+check('paste: the same words still wait for a person', parseAlert('NGN 5,000 sent to ADA OBI', { source: 'share' }).needsReview === true);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

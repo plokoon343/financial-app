@@ -43,7 +43,7 @@ function firstMoney(text, opts) {
 function parseAlert(msg, { source = 'sms', sender = '', today = new Date(), userName = '' } = {}) {
   const raw = String(msg || '').trim();
   if (!raw) return null;
-  let first = classifyAlert(raw);
+  let first = classifyAlert(raw, { source });
   if (first.kind === 'ignore') return null;
 
   // A transfer receipt names the OTHER side (a "Receiving bank" field, or just the

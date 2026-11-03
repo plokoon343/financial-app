@@ -16,6 +16,13 @@ const MOVED = rx(RULES.failedButMoved);
 const MONEY = rx(RULES.transaction.money);
 const DIRECTION = rx(RULES.transaction.direction);
 const CONTEXT = rx(RULES.transaction.context);
+// Wording that says money moved on its own, with no banking furniture around it.
+// The context test below (balance, acct, ref, value date) is shaped like a bank SMS,
+// and every SMS has one of those words. A bank APP's push notification does not:
+// "OPay: You have received ₦5,000.00 from Ada" has an amount and a direction and
+// nothing else, so it failed the test and was held for review instead of saved. That
+// is what made notification capture look broken while it was working perfectly.
+const SELF_EVIDENT = rx(RULES.transaction.selfEvident);
 const FEES = RULES.fees.map(rx);
 // "Fee: N10.75" inside a transfer alert is a detail of that transfer, not a fee alert.
 const FEE_FIELD = /\b(?:fee|charges?|vat)\s*[:=]\s*(?:ngn|naira|₦|n)?\s*\d/gi;
@@ -29,7 +36,18 @@ const BANK_RULES = new Map((RULES.banks || []).map((b) => [b.code, {
 }]));
 const BALANCE = new RegExp(RULES.shared.balance, 'gi');
 
-const looksTransactional = (raw) => DIRECTION.test(raw) && MONEY.test(raw) && CONTEXT.test(raw);
+// Sources where the alert was delivered by a bank: the bank's own app posted it, or
+// it came from the bank's sender. Self-evident wording is enough there. Text a person
+// pasted or shared has no such provenance, so it still needs the context word and
+// otherwise waits for them to confirm it, which is the behaviour those paths rely on.
+// Only the bank app's own push. A bank SMS and a forwarded bank email both carry the
+// context words anyway, so relaxing the test for them would buy nothing and would
+// weaken a guarantee those paths already rely on: text with money in it but no clear
+// banking shape waits for a person instead of being saved.
+const BANK_DELIVERED = new Set(['notification']);
+const looksTransactional = (raw, source) =>
+  MONEY.test(raw)
+  && ((BANK_DELIVERED.has(source) && SELF_EVIDENT.test(raw)) || (DIRECTION.test(raw) && CONTEXT.test(raw)));
 const firstHit = (groups, s) => {
   for (const [reason, list] of Object.entries(groups)) if (list.some((r) => r.test(s))) return reason;
   return null;
@@ -44,7 +62,7 @@ function isFeeText(text) {
 // { kind, reason }. `description` (the parsed narration) is used for the fee check
 // when the caller has it, so a fee mentioned in passing doesn't turn a transfer into
 // a fee.
-function classifyAlert(raw, { description } = {}) {
+function classifyAlert(raw, { description, source = '' } = {}) {
   const s = String(raw || '');
   if (!s.trim()) return { kind: 'ignore', reason: 'empty' };
   const always = firstHit(ALWAYS, s);
@@ -53,7 +71,7 @@ function classifyAlert(raw, { description } = {}) {
   // Only a balance in it (e.g. "OWealth update: acct bal NGN 52,000.00"): no money moved.
   const noBal = withoutBalance(s);
   if (!MONEY.test(noBal) && !DIRECTION.test(noBal)) return { kind: 'ignore', reason: 'balance_only' };
-  if (looksTransactional(s)) {
+  if (looksTransactional(s, source)) {
     return isFeeText(description != null ? description : s) ? { kind: 'fee', reason: 'fee' } : { kind: 'transaction', reason: '' };
   }
   const unless = firstHit(UNLESS, s);

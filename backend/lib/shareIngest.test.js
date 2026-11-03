@@ -48,6 +48,13 @@ eq('no amount -> null', toCandidate({ amount: 0, type: 'expense', confidence: 'l
 eq('missing parse -> null', toCandidate(null), null);
 eq('low tier for no-amount', confidenceTier({ amount: 0, confidence: 'low' }), 'low');
 
+// B6 (round 6): an own move the receipt proved, and the two dedupe keys, reach the
+// confirm sheet so it never offers to file the user's own money as spending.
+eq('own move passed through', toCandidate({ amount: 84000, type: 'expense', internal: true, description: 'Moved to OPay' }).ownMove, true);
+eq('ordinary rows are not own moves', toCandidate({ amount: 500, type: 'expense', description: 'POS PURCHASE SPAR' }).ownMove, false);
+eq('session id is the reference', toCandidate({ amount: 84000, type: 'expense', sessionId: 'S1', reference: 'S1', bankReference: 'B1' }).reference, 'S1');
+eq('and the bank reference rides along', toCandidate({ amount: 84000, type: 'expense', sessionId: 'S1', bankReference: 'B1' }).bankReference, 'B1');
+
 // guardText truncates oversized blobs, leaves normal alerts untouched.
 eq('short text untouched', guardText('Debit NGN500'), 'Debit NGN500');
 eq('oversized truncated', guardText('x'.repeat(MAX_SHARE_CHARS + 500)).length, MAX_SHARE_CHARS);

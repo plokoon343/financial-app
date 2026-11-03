@@ -19,6 +19,8 @@ const insightFeed = require('./lib/insightFeed');
 const { fingerprint, matchScore, MERGE, PROBABLE: PROBABLE_DUP } = require('./lib/dedupe');
 const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
+const { reclassifyRow, MACHINE_KINDS } = require('./lib/reclassify');
+const { COUNTED_TYPES, monthRange, periodFigures } = require('./lib/periodView');
 const { pairReversals } = require('./lib/reversals');
 const { reconcile, extractBalances } = require('./lib/reconcile');
 const { parseOpayStatement } = require('./lib/opayStatement');
@@ -40,7 +42,7 @@ const capture = require('./lib/capture');
 const compliance = require('./lib/compliance');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
-const { homeSummary } = require('./lib/homeSummary');
+const { homeSummary, safeToSpendFor } = require('./lib/homeSummary');
 const trackingSummary = require('./lib/trackingSummary');
 const promo = require('./lib/promo');
 const txnNotify = require('./lib/txnNotify');
@@ -555,6 +557,10 @@ const transactionSchema = new mongoose.Schema({
   // one explicitly (a transfer receipt - round 6, part A item 3). Used to pair the two
   // sides of a self-transfer with certainty instead of guessing from amount and time.
   reference: { type: String, default: '' },
+  // The bank's OWN reference, kept beside the shared session id (round 6, B6). The
+  // session id pairs the two banks' receipts for one transfer; this one catches the
+  // same receipt being shared twice. Either matching means it is already here.
+  bankReference: { type: String, default: '' },
   reversalPairId: { type: String, default: '' },  // links a reversal credit to the debit it cancels
   // Cash tracking (spec C4): a cash_withdrawal the user has broken down into what the
   // cash was actually spent on. The child expense rows carry cashParentId = the
@@ -4445,7 +4451,9 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
 // finalises are logged (source 'sms'), so they grow the golden corpus.
 // One alert -> one row (lib/alertParser: classify first, then the bank's patterns,
 // then the shared ones; the amount is never the balance). null = not a transaction.
-const parseOneAlert = (msg, source = 'sms', sender = '') => parseAlert(msg, { source, sender });
+// `userName` lets the own-account rule fire: a receipt whose sender and beneficiary
+// are both the user is their own money moving, not spending (round 6, B6).
+const parseOneAlert = (msg, source = 'sms', sender = '', userName = '') => parseAlert(msg, { source, sender, userName });
 
 // Tier-2 rescue for an alert the rules couldn't read (personal data: paid Gemini only).
 // The model only points at the amount by quoting it; lib/llmExtract checks the quote
@@ -4812,6 +4820,17 @@ async function linkFee(userId, fee) {
 }
 
 async function ingestAlert(user, parsed, source = 'email') {
+  // A reference the bank stated is certain, whatever the amount and time look like:
+  // the same session id or the same bank reference is the same transfer, however it
+  // reached us (round 6, B6). Checked before the fuzzy fingerprint below.
+  const refs = [...new Set([parsed.sessionId, parsed.bankReference, parsed.reference].filter(Boolean).map(String))];
+  if (refs.length) {
+    const seen = await Transaction.findOne({
+      userId: user._id,
+      $or: [{ reference: { $in: refs } }, { bankReference: { $in: refs } }],
+    }).select('_id').lean();
+    if (seen) return 0;
+  }
   const when = new Date(parsed.date);
   const gte = new Date(when.getTime() - 86400000), lte = new Date(when.getTime() + 86400000);
   const existing = await Transaction.find({ userId: user._id, date: { $gte: gte, $lte: lte } })
@@ -4836,11 +4855,16 @@ async function ingestAlert(user, parsed, source = 'email') {
   }
   const saved = await new Transaction({
     userId: user._id, date: when, description: parsed.description, amount: signed,
-    category: parsed.isFee ? 'Bank Charges' : (parsed.category || 'Other'), type: parsed.isFee ? 'expense' : (kind || parsed.type),
+    // An own move the receipt itself proved (sender and beneficiary both the user)
+    // is an internal_transfer, so it is left out of spending and income without
+    // anyone having to be asked (round 6, B6).
+    category: parsed.isFee ? 'Bank Charges' : (parsed.category || 'Other'),
+    type: parsed.isFee ? 'expense' : (parsed.internal ? 'internal_transfer' : (kind || parsed.type)),
     source, bank: eBank, importedAt: new Date(),
     bankCode: eCode, accountMask: eMask, senderKey: eSender,
     ...(parsed.confidence ? { parseConfidence: String(parsed.confidence).slice(0, 8) } : {}),
     ...(parsed.reference ? { reference: String(parsed.reference).slice(0, 60) } : {}),
+    ...(parsed.bankReference ? { bankReference: String(parsed.bankReference).slice(0, 60) } : {}),
   }).save();
   queueNewTxn(user._id, saved, source);
   if (parsed.isFee) await linkFee(user._id, saved);
@@ -4891,7 +4915,7 @@ app.post('/api/ingest/share', auth, async (req, res) => {
     const segments = inboundEmail.splitEmailAlerts(text);
     const rows = [];
     for (const seg of segments) {
-      const parsed = parseOneAlert(seg, 'share'); // deterministic only: no LLM gap-fill for amount/direction
+      const parsed = parseOneAlert(seg, 'share', '', req.user.name || ''); // deterministic only: no LLM gap-fill for amount/direction
       if (parsed && parsed.amount > 0) rows.push(parsed);
     }
     if (rows.length === 0) return res.status(422).json({ error: 'no_transaction', message: "Couldn't find a transaction here." });
@@ -5238,8 +5262,10 @@ async function actionCenterItems(userId) {
     // The three things Home used to count on the phone. They are listed here too, so the
     // Home line and this list can never disagree: Home reads its count from this function.
     Transaction.countDocuments({ userId, type: { $in: ['income', 'expense'] }, category: { $in: ['', 'Other', 'Other Income'] } }),
+    // Cash to log for the period Home and Money both show (B2): this month. The
+    // Cash screen itself still lists every withdrawal that is waiting.
     Transaction.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId), type: 'cash_withdrawal', cashAllocated: { $ne: true } } },
+      { $match: { userId: new mongoose.Types.ObjectId(userId), type: 'cash_withdrawal', cashAllocated: { $ne: true }, date: { $gte: monthRange().from } } },
       { $group: { _id: null, count: { $sum: 1 }, total: { $sum: { $abs: '$amount' } } } },
     ]),
     RecurringBill.countDocuments({ userId, status: { $ne: 'paused' }, nextDue: { $lt: todayStart } }),
@@ -5254,7 +5280,7 @@ async function actionCenterItems(userId) {
     ...detected.map((d) => ({ type: 'track_subscription', id: `detect:${d.key}`, key: d.key, name: d.name, cost: d.cost, occurrences: d.occurrences, lastSeen: d.lastSeen })),
     ...accounts.map((a) => ({ type: 'name_account', id: String(a._id), bankName: a.bankName || '', bankCode: a.bankCode, accountMask: a.accountMask, txnCount: a.txnCount || 0 })),
     ...(sortCount > 0 ? [{ type: 'sort_categories', id: 'sort', count: sortCount }] : []),
-    ...(cash && cash.total > 0 ? [{ type: 'log_cash', id: 'cash', count: cash.count, total: Math.round(cash.total) }] : []),
+    ...(cash && cash.total > 0 ? [{ type: 'log_cash', id: 'cash', count: cash.count, total: Math.round(cash.total), period: monthRange().label }] : []),
     ...(overdueBills + overdueSubs > 0 ? [{ type: 'overdue_payments', id: 'overdue', count: overdueBills + overdueSubs }] : []),
     ...senders.map((s) => ({ type: 'tag_sender', id: `sender:${s._id}`, senderKey: s._id, label: s._id === UNKNOWN_SENDER ? 'Alerts with no sender name' : s._id, sample: (s.sample || '').slice(0, 80), count: s.count, guess: s._id === UNKNOWN_SENDER ? null : guessBank(s._id) })),
   ];
@@ -5435,7 +5461,7 @@ app.delete('/api/capture/key', auth, async (req, res) => {
 // Parse a captured alert text and save it. Returns { saved, duplicate, ignored }.
 async function ingestCapturedText(user, { text, sender = '', source, day }) {
   if (await isIgnoredByUser(user._id, text)) return { saved: false, ignored: true, reason: 'yours' };
-  const parsed = parseOneAlert(text, source, sender);
+  const parsed = parseOneAlert(text, source, sender, user.name || '');
   if (!parsed) return { saved: false, ignored: true };
   if (day && parsed.dateFromText === false) parsed.date = day;
   // Not sure it's a transaction, or of its amount or direction: it waits in the
@@ -8212,7 +8238,12 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
       startingFrom: hasEntered ? 'entered' : 'this_month',
       dailyBurn: Math.round(dailyBurn),
       monthlyIncome, payDay, incomeModeled: !!monthlyIncome,
-      safeToSpend: Math.max(0, Math.round(start - committed)),
+      // With no stated income there is no honest safe-to-spend figure: the money on
+      // hand says nothing about what still has to last until the next one lands.
+      // Home has always said so; this screen used to show a number anyway, which is
+      // how Plan could say "add your monthly income" above a safe-to-spend hero
+      // (round 6, B4). null, and the client shows the money on hand instead.
+      safeToSpend: safeToSpendFor(monthlyIncome, start - committed),
       projectedEnd: series[series.length - 1].balance,
       lowest, shortfallDate,
       totals: { income: Math.round(totalIn), expense: Math.round(totalOut) },
@@ -8237,7 +8268,12 @@ app.get('/api/home/summary', auth, async (req, res) => {
     const lagos = birthday.lagosParts(now);
     const budgetMonth = `${lagos.year}-${String(lagos.month).padStart(2, '0')}`;
     const [monthTxns, bills, subs, last, unread, budgets] = await Promise.all([
-      Transaction.find({ userId, date: { $gte: monthStart }, type: { $in: ['income', 'expense'] } }).select('amount type').lean(),
+      // Every row of this month a person would see on a list, not just income and
+      // expense: Money counts cash withdrawals and the other kinds too, and Home
+      // saying "4 transactions" against Money's "6" is the B3 bug. One query, one
+      // definition (lib/periodView.COUNTED_TYPES), both screens.
+      Transaction.find({ userId, date: { $gte: monthStart }, type: { $in: COUNTED_TYPES } })
+        .select('amount type category date cashAllocated').lean(),
       RecurringBill.find({ userId, status: { $ne: 'paused' } }).lean(),
       Subscription.find({ userId, status: 'active' }).lean(),
       Transaction.findOne({ userId }).sort({ createdAt: -1 }).select('createdAt').lean(),
@@ -8246,6 +8282,9 @@ app.get('/api/home/summary', auth, async (req, res) => {
       Budget.find({ userId, month: budgetMonth }).select('category amount month').lean(),
     ]);
     const sum = (t) => monthTxns.filter((x) => x.type === t).reduce((s, x) => s + Math.abs(x.amount), 0);
+    // The figures Money shows for the same period, worked out the same way (B2/B3).
+    const period = monthRange(now);
+    const figures = periodFigures(monthTxns, period);
     // The "N things need a quick look" line comes from the same function the Action
     // Center list uses, so the count and the rows always match.
     const items = await actionCenterItemsCached(userId);
@@ -8254,7 +8293,11 @@ app.get('/api/home/summary', auth, async (req, res) => {
     const actions = {
       total: items.length, counts,
       sort: pick('sort_categories')?.count || 0,
-      cashTotal: pick('log_cash')?.total || 0,
+      // Cash to log is this month's figure, the same one Money shows, and the line
+      // says so (B2). The Cash screen still lists every withdrawal waiting.
+      cashTotal: figures.cash.total,
+      cashCount: figures.cash.count,
+      cashPeriod: period.label,
       overdue: pick('overdue_payments')?.count || 0,
     };
     res.json({
@@ -8262,8 +8305,9 @@ app.get('/api/home/summary', auth, async (req, res) => {
       ...homeSummary({
         now, monthlyIncome: req.user.monthlyIncome || 0,
         monthIncome: sum('income'), monthExpense: sum('expense'),
-        bills, subs, monthTxnCount: monthTxns.length, lastSyncAt: last?.createdAt || null,
+        bills, subs, monthTxnCount: figures.count, lastSyncAt: last?.createdAt || null,
       }),
+      periodLabel: period.label,
       actions,
     });
   } catch (e) {
@@ -9405,6 +9449,29 @@ app.post('/api/admin/backfill-global-categories', auth, superAdminAuth, async (r
     if (ops.length) await GlobalCategory.bulkWrite(ops, { ordered: false });
     res.json({ seededKeys: ops.length, fromCorrections: all.length });
   } catch (e) { console.error('[backfill-global]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// One-time (superadmin): re-run classification over rows already saved, so the
+// transactions the old rules got wrong are corrected in place (round 6, B1 - card
+// purchases such as apple.com/bill filed as "cash out, not counted as spending").
+// lib/reclassify decides each row and refuses to touch a user's own category or a
+// row they have confirmed. Answers with what WOULD change unless ?apply=1.
+app.post('/api/admin/reclassify-kinds', auth, superAdminAuth, async (req, res) => {
+  try {
+    const apply = req.query.apply === '1' || req.body?.apply === true;
+    const rows = await Transaction.find({ type: { $in: [...MACHINE_KINDS, 'expense', 'income'] } })
+      .select('type amount description category reviewedAt cashAllocated cashParentId').lean();
+    const ops = [];
+    const sample = [];
+    for (const row of rows) {
+      const set = reclassifyRow(row);
+      if (!set) continue;
+      ops.push({ updateOne: { filter: { _id: row._id }, update: { $set: set } } });
+      if (sample.length < 20) sample.push({ description: (row.description || '').slice(0, 60), from: { type: row.type, category: row.category }, to: set });
+    }
+    if (apply && ops.length) await Transaction.bulkWrite(ops, { ordered: false });
+    res.json({ scanned: rows.length, changed: ops.length, applied: apply, sample });
+  } catch (e) { console.error('[reclassify-kinds]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Re-run the channel-bank migration on demand (it only relabels banks and sets

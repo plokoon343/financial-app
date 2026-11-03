@@ -26,6 +26,12 @@ function toCandidate(parsed) {
   return {
     amount: +Number(parsed.amount).toFixed(2),
     direction,
+    // The receipt itself said both sides are the user, so this is their own money
+    // moving: the confirm sheet says so and it is left out of the totals, with no
+    // question to answer (round 6, B6).
+    ownMove: !!parsed.internal,
+    reference: parsed.sessionId || parsed.reference || null,
+    bankReference: parsed.bankReference || null,
     counterparty: (cp && cp.name) || null,
     description: parsed.description || null,
     sourceBank: parsed.bank || null,

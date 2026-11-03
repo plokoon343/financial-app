@@ -49,6 +49,19 @@ check('atm', kind('expense', 'ATM withdrawal at GTB Ikeja'), 'cash_withdrawal');
 check('cardless', kind('expense', 'Cardless withdrawal'), 'cash_withdrawal');
 check('cash out', kind('expense', 'Cash-out at agent'), 'cash_withdrawal');
 
+// --- B1 (round 6): a card purchase is never cash -----------------------------
+// The generic categoriser files every "WEB PUR" / "POS PUR" narration under the
+// ATM/POS category. Reading cash off that category turned Apple's monthly bill into
+// "cash out, not counted as spending" and left it out of spending entirely.
+check('apple bill is not cash', classifyKind({ type: 'expense', description: 'Web Pur @ -APPLE.COM/BILL 866-712-7753 CAUS', category: 'ATM/POS' }), null);
+check('itunes is not cash', classifyKind({ type: 'expense', description: 'Web Pur @ -ITUNES.COM ITUNES.COM 00I', category: 'ATM/POS' }), null);
+check('pos purchase is not cash', classifyKind({ type: 'expense', description: 'POS PUR 11 PLC FESTAC 23RD', category: 'ATM/POS' }), null);
+check('card purchase is not cash', classifyKind({ type: 'expense', description: 'CARD PUR JUMIA LAGOS', category: 'ATM/POS' }), null);
+// The ATM/POS category on its own says nothing: a real withdrawal says so in words.
+check('atm category alone is not cash', classifyKind({ type: 'expense', description: 'Payment to MERCHANT', category: 'ATM/POS' }), null);
+check('atm narration still cash', classifyKind({ type: 'expense', description: 'ATM WITHDRAWAL LAGOS', category: 'ATM/POS' }), 'cash_withdrawal');
+check('pos agent cash still cash', classifyKind({ type: 'expense', description: 'POS CASH AGENT 0012', category: 'ATM/POS' }), 'cash_withdrawal');
+
 // --- ordinary rows must stay null (the honest-number guardrail) --------------
 check('normal expense', kind('expense', 'POS purchase at SPAR'), null);
 check('normal income', kind('income', 'Salary from ACME LTD'), null);

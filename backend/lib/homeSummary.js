@@ -35,6 +35,13 @@ function billsDueThisMonth(now, bills = [], subs = []) {
   return round(total);
 }
 
+// The one rule for whether a safe-to-spend figure exists at all (round 6, B4): with
+// no stated monthly income there is no honest one, because the money on hand says
+// nothing about what still has to last until the next income lands. Shared with the
+// cashflow forecast so Home, Plan and Cashflow can never contradict each other.
+const safeToSpendFor = (monthlyIncome, available) =>
+  (monthlyIncome > 0 ? Math.max(0, round(available)) : null);
+
 function homeSummary({ now = new Date(), monthlyIncome = 0, monthIncome = 0, monthExpense = 0, bills = [], subs = [], monthTxnCount = 0, lastSyncAt = null } = {}) {
   const daysLeft = daysLeftInMonth(now);
   const billsDue = billsDueThisMonth(now, bills, subs);
@@ -43,7 +50,7 @@ function homeSummary({ now = new Date(), monthlyIncome = 0, monthIncome = 0, mon
   if (incomeSet) {
     const have = Math.max(monthlyIncome, monthIncome);
     const left = have - monthExpense - billsDue;
-    safeToSpend = Math.max(0, round(left));
+    safeToSpend = safeToSpendFor(monthlyIncome, left);
     over = left < 0 ? round(-left) : 0;
     // Nearest 50 naira reads as a daily allowance, not false precision.
     dailyAllowance = Math.round(safeToSpend / daysLeft / 50) * 50;
@@ -54,4 +61,4 @@ function homeSummary({ now = new Date(), monthlyIncome = 0, monthIncome = 0, mon
   };
 }
 
-module.exports = { homeSummary, billsDueThisMonth, daysLeftInMonth };
+module.exports = { homeSummary, billsDueThisMonth, daysLeftInMonth, safeToSpendFor };

@@ -21,7 +21,15 @@ const FAILED = /\b(failed|declined|unsuccessful|not successful|was not successfu
 const REVERSAL = /\b(reversal|reversal of|rvsl|reversed|refund(?:ed)?|charge ?back|returned)\b/;
 
 // Cash pulled at an ATM/agent: converted to cash, not yet spent on anything.
-const CASH_OUT = /\b(atm|atm withdrawal|cash wdl|cash withdrawal|cardless|cardless withdrawal|cash-?out|cash out|pos cash)\b/;
+const CASH_OUT = /\b(atm|atm withdrawal|cash wdl|cash withdrawal|cardless|cardless withdrawal|cash-?out|cash out|pos cash|cash advance)\b/;
+
+// A card purchase is never cash, however the bank abbreviates it. Nigerian banks
+// write a shop or online payment as "POS PUR", "WEB PUR", "VPOS" or "PURCHASE/POS",
+// and the generic categoriser files all of those under the ATM/POS category. Reading
+// cash off that category turned every card payment (apple.com/bill included) into
+// "cash out, not counted as spending" - round 6, B1. Cash is now decided from the
+// narration alone, and only when it does not read like a purchase.
+const CARD_PURCHASE = /\b(web ?pur|pos ?pur|card ?pur|purchase|vpos|e-?commerce|web payment|online payment)\b|\b(?:apple|itunes|google|paypal)\.com\b|apple ?com ?bill/;
 
 // Known Nigerian lending apps/products: used to recognise a disbursement received
 // (loan_in) or a repayment paid (debt_repayment) even when the alert is terse.
@@ -36,7 +44,8 @@ const DEBT_REPAY = /\b(loan repayment|debt repayment|loan deduction|loan due|rep
 // Returns an override type string for a special kind, or null to keep the row as
 // its ordinary income/expense. `type` is the row's current 'income'|'expense'.
 function classifyKind({ type, description, category } = {}) {
-  const text = `${lc(description)} ${lc(category)}`.trim();
+  const desc = lc(description);
+  const text = `${desc} ${lc(category)}`.trim();
   if (!text) return null;
 
   // A failed/declined row never happened, whichever direction it claimed.
@@ -53,7 +62,9 @@ function classifyKind({ type, description, category } = {}) {
   // expense
   // Repayment language, or a debit to a known lender, is paying down debt, not spend.
   if (DEBT_REPAY.test(text) || (LENDERS.test(text) && /\b(loan|repay|debit|deduction|due)\b/.test(text))) return 'debt_repayment';
-  if (CASH_OUT.test(text)) return 'cash_withdrawal';
+  // Cash from the narration only (never the category, which lumps card purchases in
+  // with withdrawals), and never when the narration reads like a purchase.
+  if (CASH_OUT.test(desc) && !CARD_PURCHASE.test(desc)) return 'cash_withdrawal';
   return null;
 }
 

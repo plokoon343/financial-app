@@ -142,13 +142,59 @@ const RECEIPT_LABELS = {
   // leaving) - the one field that says which way a receipt with no other direction
   // wording went.
   type: ['transaction type', 'txn type'],
+  // What the sender typed on the transfer. Often the only place a receipt names the
+  // wallet the money went to ("OPay account 801...").
+  remark: ['remark', 'remarks', 'narration'],
 };
 // Fields never read for their own value, but still a label another field's inline
 // value must stop before ("Receiver Ada Obi Account number 123 Receiving bank ...").
-const RECEIPT_STOP_ONLY = ['account number', 'account name', 'remark', 'narration', 'success'];
+const RECEIPT_STOP_ONLY = ['account number', 'account name', 'success'];
 const ALL_RECEIPT_LABELS = [...new Set([...Object.values(RECEIPT_LABELS).flat(), ...RECEIPT_STOP_ONLY])].sort((a, b) => b.length - a.length);
+const RECEIPT_LABEL_SET = new Set(ALL_RECEIPT_LABELS);
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const RECEIPT_STOP = ALL_RECEIPT_LABELS.map(escapeRe).join('|');
+
+// Some apps (Access's share sheet among them) print EVERY label first and then every
+// value underneath, instead of a label and its value together. The line after
+// "Beneficiary" is then the next label, not the name, which is how a shared receipt
+// came out titled "Transfer to Remark" with no direction (round 6, B6). When the text
+// is laid out that way, the nth label belongs to the nth value.
+const normLabel = (l) => String(l || '').toLowerCase().replace(/\s*:\s*$/, '').trim();
+const LOOKS_MONEY = /\d/;
+const LOOKS_DATE = /\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}|\d{1,2}\s*[a-z]{3}/i;
+
+function labelBlockPairs(lines) {
+  const isLabel = (l) => RECEIPT_LABEL_SET.has(normLabel(l));
+  // The longest run of consecutive label lines. A receipt that interleaves label and
+  // value has runs of one, so this never fires on the ordinary layout.
+  let best = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (!isLabel(lines[i])) continue;
+    let j = i;
+    while (j < lines.length && isLabel(lines[j])) j += 1;
+    if (j - i >= 3 && (!best || j - i > best.end - best.start)) best = { start: i, end: j };
+    i = j - 1;
+  }
+  if (!best) return null;
+  const labels = lines.slice(best.start, best.end).map(normLabel);
+  const values = lines.slice(best.end).map((l) => l.trim()).filter(Boolean);
+  // Fewer values than labels means we would be guessing which label lost its value.
+  if (values.length < labels.length) return null;
+
+  const map = new Map();
+  labels.forEach((label, k) => { if (!map.has(label)) map.set(label, values[k]); });
+
+  // Check the pairing before trusting it: an amount field that holds no digits, or a
+  // date field that holds no date, means the lines did not line up and the ordinary
+  // reader should have its turn instead.
+  for (const label of RECEIPT_LABELS.amount) {
+    if (map.has(label) && !LOOKS_MONEY.test(map.get(label))) return null;
+  }
+  for (const label of RECEIPT_LABELS.date) {
+    if (map.has(label) && !LOOKS_DATE.test(map.get(label))) return null;
+  }
+  return map;
+}
 
 function receiptValueAfter(lines, raw, label) {
   const i = lines.findIndex((l) => l.toLowerCase().replace(/:\s*$/, '') === label);
@@ -156,8 +202,11 @@ function receiptValueAfter(lines, raw, label) {
   const inline = raw.match(new RegExp('\\b' + escapeRe(label) + '\\s*[:\\-]?\\s+(.+?)(?=\\s+(?:' + RECEIPT_STOP + ')\\b|\\n|$)', 'i'));
   return inline ? inline[1].trim() : '';
 }
-function receiptField(lines, raw, field) {
+function receiptField(lines, raw, field, paired = null) {
   for (const label of RECEIPT_LABELS[field]) {
+    // A labels-then-values receipt pairs by position; everything else reads the line
+    // after the label, as before.
+    if (paired && paired.has(label)) return paired.get(label);
     const v = receiptValueAfter(lines, raw, label);
     if (v) return v;
   }
@@ -195,10 +244,11 @@ function blockStripPattern(blockLines) {
 function parseLabelledReceipt(raw) {
   const t = String(raw || '');
   const lines = t.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const senderRaw = receiptField(lines, t, 'sender');
-  const beneficiaryRaw = receiptField(lines, t, 'beneficiary');
+  const paired = labelBlockPairs(lines);
+  const senderRaw = receiptField(lines, t, 'sender', paired);
+  const beneficiaryRaw = receiptField(lines, t, 'beneficiary', paired);
   if (!senderRaw && !beneficiaryRaw) return null;
-  const type = receiptField(lines, t, 'type');
+  const type = receiptField(lines, t, 'type', paired);
   const isCredit = /\b(deposit|inward|credit)\b/i.test(type);
   const nameRaw = isCredit ? (senderRaw || beneficiaryRaw) : (beneficiaryRaw || senderRaw);
   const name = nameRaw && /[A-Za-z]{2,}/.test(nameRaw) ? cleanName(nameRaw) : '';
@@ -208,15 +258,23 @@ function parseLabelledReceipt(raw) {
     receiver: beneficiaryRaw ? cleanName(beneficiaryRaw) : '',
     receiverRaw: beneficiaryRaw,
     receiverBlock: receiptBlockAfter(lines, 'beneficiary'),
-    receivingBank: receiptField(lines, t, 'bank'),
-    amountText: receiptField(lines, t, 'amount'),
-    dateText: receiptField(lines, t, 'date'),
+    receivingBank: receiptField(lines, t, 'bank', paired),
+    amountText: receiptField(lines, t, 'amount', paired),
+    dateText: receiptField(lines, t, 'date', paired),
     // The session id (a NIP transfer's shared identifier, present on both the
     // sending and receiving bank's receipt) is what links the two sides of a
     // self-transfer; a bank's own "Transaction Reference" is usually internal to
     // that bank alone and won't match the other side's receipt.
-    reference: receiptField(lines, t, 'sessionId') || receiptField(lines, t, 'reference'),
-    status: receiptField(lines, t, 'status'),
+    reference: receiptField(lines, t, 'sessionId', paired) || receiptField(lines, t, 'reference', paired),
+    // Both keys, kept apart: the session id pairs the two banks' receipts for one
+    // transfer, the bank's own reference pairs a re-share of this same receipt
+    // (round 6, B6). Either one matching is a certain duplicate.
+    sessionId: receiptField(lines, t, 'sessionId', paired),
+    bankReference: receiptField(lines, t, 'reference', paired),
+    remark: receiptField(lines, t, 'remark', paired),
+    status: receiptField(lines, t, 'status', paired),
+    // The receipt read label-by-label rather than line-by-line.
+    paired: !!paired,
     // '' when the receipt doesn't say (e.g. plain Sender/Receiver layouts): the
     // caller falls back to its own default, same as before this function existed.
     direction: type ? (isCredit ? 'income' : 'expense') : '',

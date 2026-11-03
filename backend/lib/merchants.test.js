@@ -35,6 +35,13 @@ check('plain person transfer -> no merchant', cat('Transfer to UCHENDU JULIUS OK
 check('supermarket does not trip bare "market square" only', cat('random narration with no brand') === null);
 check('glo needs boundary (not "global")', cat('GLOBAL VENTURES LTD') === null);
 
+// --- B1 (round 6): Apple/Google billing is a subscription, not an ATM/POS row ---
+check('apple.com/bill', cat('WEB PUR APPLE.COM/BILL 866-712-7753') === 'Subscriptions');
+check('apple com bill (no punctuation)', cat('Web Pur Apple Com Bill') === 'Subscriptions');
+check('itunes.com', cat('Web Pur @ -ITUNES.COM             ITUNES.COM   00I') === 'Subscriptions');
+check('google play', cat('GOOGLE PLAY APPS') === 'Subscriptions');
+check('app store', cat('POS PUR APP STORE') === 'Subscriptions');
+
 // --- integration: categorizeTransaction applies merchants on expense, not income ---
 check('categorize: chowdeck expense -> Food', categorizeTransaction('Transfer to CHOWDECK/KOON PLO', 'expense') === 'Food');
 check('categorize: income ignores merchant layer', categorizeTransaction('OWealth Interest Earned', 'income') !== 'Savings');

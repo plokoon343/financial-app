@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/homeSummary.test.js
-const { homeSummary, billsDueThisMonth, daysLeftInMonth } = require('./homeSummary');
+const { homeSummary, billsDueThisMonth, daysLeftInMonth, safeToSpendFor } = require('./homeSummary');
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`, extra); } };
@@ -35,6 +35,15 @@ check('actual income above the stated one is used', hi.safeToSpend === 60000, hi
 
 const n = homeSummary({ now, monthIncome: 90000, monthExpense: 30000 });
 check('no stated income gives no safe-to-spend', n.incomeSet === false && n.safeToSpend === null && n.dailyAllowance === null && n.over === 0, n);
+
+// --- B4 (round 6): the one rule, shared with the cashflow forecast ----------
+// Home, Plan and Cashflow all ask this, so none of them can show a safe-to-spend
+// figure while another says the income is not set.
+check('no income: no figure, whatever is on hand', safeToSpendFor(0, 45000) === null);
+check('no income: not even when nothing is committed', safeToSpendFor(0, 0) === null);
+check('income set: the figure is the money left', safeToSpendFor(77000, 45000) === 45000);
+check('income set: never below zero', safeToSpendFor(77000, -5000) === 0);
+check('income set: rounded to whole naira', safeToSpendFor(77000, 45000.4) === 45000);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

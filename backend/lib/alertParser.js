@@ -13,6 +13,7 @@ const { detectDirection, parseLabeledAlert, parseTransferReceipt, blockStripPatt
 const { classifyAlert, isFeeText, bankRule, withoutBalance } = require('./alertClassify');
 const { fingerprintAccount, detectBank } = require('./bankDetect');
 const { categorizeTransaction } = require('./categorize');
+const { receiptOwnMove } = require('./internalTransfers');
 
 // Money in an alert: "NGN 5,000.00" / "₦5,000" / "N5000" (N only when it directly
 // precedes a digit, so the 'n' in "on"/"in" isn't mistaken for naira) / a bare 2dp
@@ -39,7 +40,7 @@ function firstMoney(text, opts) {
 
 // Parse one alert. Returns a row, or null when it isn't a transaction. A row carries
 // `kind` ('transaction' | 'fee' | 'unsure') and `needsReview` when a person should look.
-function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {}) {
+function parseAlert(msg, { source = 'sms', sender = '', today = new Date(), userName = '' } = {}) {
   const raw = String(msg || '').trim();
   if (!raw) return null;
   let first = classifyAlert(raw);
@@ -121,6 +122,11 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {
     .replace(/^(?:dr|cr|debit|credit|txn)\s*(?:alert)?\s*[:\-.]\s*/i, '')
     .replace(/[\s.:;,-]+$/, '') || 'Bank alert';
 
+  // The own-account rule (round 6, B6): a receipt whose sender AND beneficiary are
+  // both the user is their own money moving. It is an Own move, left out of spending
+  // and income, and there is nothing to ask them about it.
+  const ownMove = receiptOwnMove(receipt, userName);
+
   // Second look with the narration: a fee alert is Bank Charges, a debit.
   const kind = first.kind === 'unsure' ? 'unsure' : (isFeeText(description) ? 'fee' : 'transaction');
   const type = kind === 'fee' ? 'expense' : dir.type;
@@ -129,8 +135,17 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date() } = {
   const confidence = kind !== 'unsure' && amount != null && dir.conf === 'high' && amtConf !== 'low' ? 'high' : (amount != null && kind !== 'unsure' ? 'medium' : 'low');
   const amt = amount != null ? +Number(amount).toFixed(2) : 0;
   return {
-    date, dateFromText: !!textDate, directionKnown: dir.conf !== 'low', description, amount: amt,
-    type, category, bank, bankCode, accountMask, senderKey, reference: (receipt && receipt.reference) || null, raw,
+    date, dateFromText: !!textDate, directionKnown: dir.conf !== 'low',
+    description: ownMove ? ownMove.label : description, amount: amt,
+    type, category: ownMove ? 'Transfer' : category, bank, bankCode, accountMask, senderKey,
+    reference: (receipt && receipt.reference) || null,
+    // Both dedupe keys, when the receipt gave them: either one matching another row
+    // is the same transfer, whichever bank's receipt it came from.
+    sessionId: (receipt && receipt.sessionId) || null,
+    bankReference: (receipt && receipt.bankReference) || null,
+    // The caller saves this as an internal_transfer, so it is left out of the totals.
+    internal: !!ownMove,
+    raw,
     kind, isFee: kind === 'fee',
     // Unclear alerts and low-confidence amounts wait for a person (spec A6).
     needsReview: confidence === 'low',

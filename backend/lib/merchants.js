@@ -26,6 +26,11 @@ const MERCHANTS = [
 
   // ── Streaming & digital subscriptions ──
   [b('netflix|spotify|apple ?music|youtube ?premium|showmax|prime ?video|amazon ?prime|icloud|google ?one|canva|chatgpt|openai|anthropic|claude|adobe|microsoft ?365|office ?365|linkedin|notion|grammarly|coursera ?plus'), 'Subscriptions', 'Digital subscription'],
+  // Apple and Google bill every app, iCloud plan and subscription through one
+  // narration ("WEB PUR APPLE.COM/BILL", "Web Pur @ -ITUNES.COM"). Those are card
+  // purchases, not the ATM/POS cash the generic rail rule used to make them - round
+  // 6, B1. Which Apple service it was is asked once in the Action Center.
+  [b('apple\\.com(?:/bill)?|apple ?com ?bill|itunes(?:\\.com)?|app ?store|google ?play|play ?store'), 'Subscriptions', 'App store'],
 
   // ── Food delivery & restaurants ──
   [b('chowdeck|glovo|jumia ?food|bolt ?food|food ?court'), 'Food', 'Food delivery'],

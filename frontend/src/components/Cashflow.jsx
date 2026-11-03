@@ -115,12 +115,16 @@ export default function Cashflow() {
         <>
           {/* Safe to spend hero */}
           <div style={{ borderRadius: 20, padding: 22, color: '#fff', background: 'var(--gradient-primary, linear-gradient(135deg,#139DA0,#0e7f82))' }}>
+            {/* With no stated monthly income there is no honest safe-to-spend figure,
+                so none is shown here either (round 6, B4). */}
             <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.6, opacity: 0.9 }}>
-              SAFE TO SPEND TODAY <InfoButton topic="safeToSpend" style={{ color: '#fff', opacity: 0.85 }} />
+              {data.safeToSpend == null ? 'MONEY YOU HAVE NOW' : 'SAFE TO SPEND TODAY'} <InfoButton topic="safeToSpend" style={{ color: '#fff', opacity: 0.85 }} />
             </div>
-            <div style={{ fontSize: 38, fontWeight: 800, marginTop: 4 }}>{fmtNaira(data.safeToSpend)}</div>
+            <div style={{ fontSize: 38, fontWeight: 800, marginTop: 4 }}>{fmtNaira(data.safeToSpend == null ? data.currentBalance : data.safeToSpend)}</div>
             <div style={{ fontSize: 13.5, opacity: 0.9, marginTop: 2 }}>
-              after committed bills, before your next income (≈ day {data.payDay})
+              {data.safeToSpend == null
+                ? 'Add your monthly income to see what is safe to spend. Takes 10 seconds.'
+                : <>after committed bills, before your next income (≈ day {data.payDay})</>}
             </div>
           </div>
 

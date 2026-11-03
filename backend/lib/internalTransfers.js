@@ -105,4 +105,57 @@ function detectTransfers(txns, opts = {}) {
   return { auto, ask };
 }
 
-module.exports = { detectTransfers, scorePair, routeKey, mentionsBank, mentionsSelf, AUTO, ASK };
+// How a bank or wallet is written on screen once we recognise its token. Receipts
+// name wallets by their registered company ("OPAY DIGITAL SERVICES LIMITED"), which
+// is not what anyone calls it.
+const BANK_NAMES = [
+  [/\bopay\b|opay digital/i, 'OPay'],
+  [/\bpalmpay\b/i, 'PalmPay'],
+  [/\bmoniepoint\b|\bmonie\b/i, 'Moniepoint'],
+  [/\bkuda\b/i, 'Kuda'],
+  [/\bpaycom\b/i, 'OPay'],
+  [/\bvfd\b|\bvbank\b/i, 'VBank'],
+  [/\balat\b/i, 'ALAT'],
+  [/\bgtb(?:ank)?\b|guaranty/i, 'GTBank'],
+  [/\baccess bank\b|\baccess\b/i, 'Access'],
+  [/\bzenith\b/i, 'Zenith'],
+  [/\buba\b/i, 'UBA'],
+  [/\bfirst ?bank\b|\bfbn\b/i, 'First Bank'],
+  [/\bfcmb\b/i, 'FCMB'],
+  [/\bsterling\b/i, 'Sterling'],
+  [/\bfidelity\b/i, 'Fidelity'],
+  [/\bstanbic\b|\bibtc\b/i, 'Stanbic IBTC'],
+  [/\becobank\b/i, 'Ecobank'],
+  [/\bwema\b/i, 'Wema'],
+  [/\bprovidus\b/i, 'Providus'],
+  [/\bpolaris\b/i, 'Polaris'],
+  [/\bunion bank\b/i, 'Union'],
+];
+
+// The bank or wallet named anywhere in these pieces of a receipt, as a person would
+// write it, or '' when none is recognised.
+function bankNameIn(...parts) {
+  const text = parts.filter(Boolean).join(' ');
+  if (!text.trim()) return '';
+  for (const [re, name] of BANK_NAMES) if (re.test(text)) return name;
+  return '';
+}
+
+// The own-account rule for a transfer receipt (round 6, B6). When the sender and the
+// beneficiary are both the user, this is their own money moving between their own
+// accounts: an Own move, left out of spending, with nothing to ask them. Returns null
+// when the receipt does not say that, so the normal path and, later, the credit side
+// arriving decide it instead.
+function receiptOwnMove(receipt, userName) {
+  if (!receipt || !userName) return null;
+  const sender = receipt.sender || '';
+  const beneficiary = receipt.receiver || receipt.receiverRaw || '';
+  if (!sender || !beneficiary) return null;
+  if (!mentionsSelf(sender, userName) || !mentionsSelf(beneficiary, userName)) return null;
+  const bank = bankNameIn(receipt.receivingBank, receipt.remark, (receipt.receiverBlock || []).join(' '), beneficiary);
+  return { own: true, bank, label: bank ? `Moved to ${bank}` : 'Moved to another account of yours' };
+}
+
+module.exports = {
+  detectTransfers, scorePair, routeKey, mentionsBank, mentionsSelf, receiptOwnMove, bankNameIn, AUTO, ASK,
+};

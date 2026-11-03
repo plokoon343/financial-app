@@ -2324,7 +2324,11 @@ app.get('/health', (req, res) => res.json({ status: 'OK' }));
 app.get('/api/health', async (req, res) => {
   try {
     await mongoose.connection.db.admin().ping();
-    res.json({ status: 'OK', database: 'Connected', timestamp: new Date().toISOString() });
+    // Which commit is actually serving. Twice now a fix has been pushed and then
+    // tested against a server that had not picked it up yet, with no way to tell
+    // from outside. Render sets RENDER_GIT_COMMIT on every deploy.
+    const version = (process.env.RENDER_GIT_COMMIT || '').slice(0, 7);
+    res.json({ status: 'OK', database: 'Connected', version, timestamp: new Date().toISOString() });
   } catch { res.status(503).json({ status: 'Error', database: 'Disconnected' }); }
 });
 

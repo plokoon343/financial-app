@@ -11,7 +11,7 @@
   --gradient-secondary: linear-gradient(135deg, #1DD3A8 0%, #139DA0 100%);
   --gradient-success: var(--gradient-primary);
   --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-  --accent-primary: #0e7c7f;          /* teal, darkened for text contrast on white (round6 7.1) */
+  --accent-primary: #0c6e71;          /* teal, darkened for text contrast on white (round6 7.1; #0e7c7f read 4.43:1 on --bg-secondary, need 4.5) */
 
   /* Surfaces */
   --primary-bg: #f6f8f9;              /* page background */
@@ -39,7 +39,7 @@
   --savings-color: var(--teal);
   --success-color: #16a34a;
   --error-color: #dc2626;
-  --warning-color: #b45309;           /* round6 7.1: #d97706 -> #b45309 */
+  --warning-color: #ad4f08;           /* round6 7.1: #d97706 -> darker; #b45309 read 4.46:1 on --bg-secondary, need 4.5 */
 
   /* Depth */
   --shadow-sm: 0 2px 6px rgba(11, 14, 17, 0.06);
@@ -62,7 +62,7 @@
 
   /* Aliases used by the auth screens */
   --primary-color: var(--teal);
-  --primary-hover: #0e7c7f;           /* round6 7.1 */
+  --primary-hover: #0c6e71;           /* round6 7.1 */
   --input-bg: var(--bg-input);
   --input-border: var(--border-color);
   --input-focus: var(--teal);

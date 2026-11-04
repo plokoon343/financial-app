@@ -11,7 +11,7 @@
   --gradient-secondary: linear-gradient(135deg, #1DD3A8 0%, #139DA0 100%);
   --gradient-success: var(--gradient-primary);
   --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-  --accent-primary: #0e7f82;          /* teal, darkened for text contrast on white */
+  --accent-primary: #0e7c7f;          /* teal, darkened for text contrast on white (round6 7.1) */
 
   /* Surfaces */
   --primary-bg: #f6f8f9;              /* page background */
@@ -29,17 +29,17 @@
   /* Text */
   --text-primary: #0B0E11;
   --text-secondary: #4b5563;
-  --text-faint: #8a94a3;
+  --text-faint: #64748b;              /* round6 7.1: #94a3b8 -> #64748b (mobile's Light textFaint) */
   --text-muted: var(--text-faint);
   --text-light: #ffffff;
 
   /* Meaning */
-  --income-color: #16a34a;
+  --income-color: #047857;            /* round6 7.1: #059669 -> #047857 */
   --expense-color: #dc2626;
   --savings-color: var(--teal);
   --success-color: #16a34a;
   --error-color: #dc2626;
-  --warning-color: #d97706;
+  --warning-color: #b45309;           /* round6 7.1: #d97706 -> #b45309 */
 
   /* Depth */
   --shadow-sm: 0 2px 6px rgba(11, 14, 17, 0.06);
@@ -62,7 +62,7 @@
 
   /* Aliases used by the auth screens */
   --primary-color: var(--teal);
-  --primary-hover: #0e7f82;
+  --primary-hover: #0e7c7f;           /* round6 7.1 */
   --input-bg: var(--bg-input);
   --input-border: var(--border-color);
   --input-focus: var(--teal);
@@ -87,7 +87,7 @@
 
   --text-primary: #e6f1ee;
   --text-secondary: #9fb5b0;
-  --text-faint: #6d8a83;
+  --text-faint: #7c8696;              /* round6 7.1: #6b7280 -> #7c8696 (mobile's Dark textFaint) */
 
   --income-color: #34d399;
   --expense-color: #f87171;

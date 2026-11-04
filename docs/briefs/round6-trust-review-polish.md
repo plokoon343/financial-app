@@ -277,7 +277,7 @@ Build 13.7 to 13.12 (holds, dollar amounts, formatting, screen readers, web pari
 | Light | textFaint | #94a3b8 | #64748b (on surface only) |
 | Dark | textFaint | #6b7280 | #7c8696 |
 | Teal | textFaint | #6b7280 | #8b93a1 |
-| All | heroStart | #139DA0 | #0e7c7f, or a 20% black overlay under hero text (Plo to choose) |
+| All | heroStart | #139DA0 | Unchanged. **Decided 4 Nov by the owner:** keep the brand gradient and put a 20% black overlay under hero text instead of darkening it. |
 | Dark, Teal | heroBorder | none | white at 8% |
 | All | onPrimary on mint | white | #0B0E11 |
 

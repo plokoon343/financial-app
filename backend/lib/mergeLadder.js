@@ -123,10 +123,14 @@ const hasSource = (txn, source) => observationsOf(txn).some((o) => o.source === 
  * Decide what to do with `incoming` given the transactions already held.
  *
  * Returns { action, step, reason, target, candidates }:
- *   'drop'  a re-delivery of something already attached; add nothing.
- *   'merge' attach to `target`.
- *   'ask'   two or more could be it; the Action Center asks "Is this the same as..."
- *   'new'   money we have not seen; start a Transaction.
+ *   'drop'     a re-delivery of something already attached; add nothing.
+ *   'merge'    attach to `target`.
+ *   'ask'      two or more could be it; the Action Center asks "Is this the same as..."
+ *   'conflict' the bank's own reference says this IS `target`, but the two sources
+ *              disagree on the amount or the direction. Never merged, never counted
+ *              twice: `conflict` carries { field, values, sources } for the
+ *              "Which is right?" card (section 3.3).
+ *   'new'      money we have not seen; start a Transaction.
  */
 function mergeDecision(incoming, transactions = []) {
   const all = transactions.filter(Boolean);
@@ -145,15 +149,31 @@ function mergeDecision(incoming, transactions = []) {
   }
 
   // Step 2: the bank's own identifier. Certain, so it outranks everything below and
-  // ignores both the clock and which sources are involved. It still respects the
-  // amount and direction gate: the same reference with a different amount is a
-  // disagreement to raise, not a merge to force.
+  // ignores both the clock and which sources are involved.
+  //
+  // The same reference with a DIFFERENT amount or direction is the one case where the
+  // bank itself says two sources are describing one movement of money and the sources
+  // still disagree about what it was. That is not a merge and it is not two separate
+  // transactions either: it is the "Which is right?" card (section 3.3). Returning a
+  // plain 'new' here would lose the only evidence that a disagreement ever happened,
+  // and the two figures would sit in the ledger as if both were real.
   for (const txn of all) {
     for (const o of observationsOf(txn)) {
-      if (!comparable(incoming, o)) continue;
-      if (sharesReference(incoming, o)) {
+      if (!sharesReference(incoming, o)) continue;
+      if (comparable(incoming, o)) {
         return { action: 'merge', step: 2, reason: 'reference', target: txn, candidates: [txn] };
       }
+      const field = (incoming.direction && o.direction && incoming.direction !== o.direction) ? 'direction' : 'amount';
+      return {
+        action: 'conflict', step: 2, reason: `reference-${field}`, target: txn, candidates: [txn],
+        conflict: {
+          field,
+          values: field === 'direction'
+            ? [o.direction, incoming.direction]
+            : [o.amountKobo, incoming.amountKobo],
+          sources: [o.source, incoming.source],
+        },
+      };
     }
   }
 
@@ -206,7 +226,14 @@ function buildTransactions(observations = []) {
     const d = mergeDecision(o, txns);
     if (d.action === 'drop') { (d.target.dropped = d.target.dropped || []).push(o); continue; }
     if (d.action === 'merge') { d.target.observations.push(o); continue; }
-    txns.push({ observations: [o], askedAbout: d.action === 'ask' ? d.candidates : null });
+    // A conflict stays its own Transaction, carrying what it disagreed with. The
+    // money is real either way, so nothing is blocked; the card decides which figure
+    // survives, and until then both are visible rather than one silently chosen.
+    txns.push({
+      observations: [o],
+      askedAbout: d.action === 'ask' ? d.candidates : null,
+      conflict: d.action === 'conflict' ? { ...d.conflict, against: d.target } : null,
+    });
   }
   return txns;
 }

@@ -316,6 +316,17 @@ function run(observations) {
   // But not when the amounts differ: that is a disagreement, not a match.
   const c = obs({ source: 'statement', raw: 'row', direction: 'debit', amount: 8400, reference: 'SESSION-1', bankCode: 'access', eventTime: at('2026-10-25T10:00:00') });
   check('ladder: the same reference with a different amount does not merge', run([a, c]).count === 2);
+  // It is not two unrelated transactions either: the bank says they are one movement
+  // of money and the sources disagree about it, which is the "Which is right?" card.
+  const conflicted = mergeDecision(c, buildTransactions([a]));
+  check('ladder: and it comes back as a conflict, not as new money', conflicted.action === 'conflict', conflicted.action);
+  check('ladder: naming the field in dispute', conflicted.conflict.field === 'amount');
+  check('ladder: with both figures and both sources', conflicted.conflict.values.length === 2 && conflicted.conflict.sources.length === 2);
+  check('ladder: and the transaction it disagrees with', conflicted.target != null);
+  check('ladder: the conflict is carried onto the transaction', (run([a, c]).txns[1] || {}).conflict != null);
+  // A reference match with opposite directions is the same kind of card.
+  const flipped = obs({ source: 'statement', raw: 'row', direction: 'credit', amount: 84000, reference: 'SESSION-1', bankCode: 'access', eventTime: at('2026-10-25T10:00:00') });
+  check('ladder: opposite directions on one reference is a conflict too', mergeDecision(flipped, buildTransactions([a])).conflict.field === 'direction');
 
   // Step 3: the same balance in the same account is the same moment.
   const d1 = obs({ source: 'sms', raw: 'x', direction: 'debit', amount: 1500, balanceAfter: 42000, bankCode: 'gtb', accountMask: '6083', eventTime: at('2026-10-02T10:00:00') });

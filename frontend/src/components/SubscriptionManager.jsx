@@ -259,7 +259,7 @@ const SubscriptionManager = () => {
                   {s.status === 'cancelled' && (
                     <button className="btn-ghost" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => keepSub(s)}>Reactivate</button>
                   )}
-                  <button className="sub-del" onClick={() => deleteSub(s._id)} title="Delete"><i className="fas fa-trash"></i></button>
+                  <button className="sub-del" onClick={() => deleteSub(s._id)} title="Delete" aria-label="Delete subscription"><i className="fas fa-trash"></i></button>
                 </div>
                 {s.status === 'cancelling' && (
                   <div style={{ flexBasis: '100%', marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -330,7 +330,7 @@ const SubscriptionManager = () => {
           <div className="cancel-modal" onClick={(e) => e.stopPropagation()}>
             <div className="cancel-head">
               <h3>Cancel {cancelSub.guide.name || cancelSub.name}</h3>
-              <button className="cancel-x" onClick={() => setCancelSub(null)}><i className="fas fa-times"></i></button>
+              <button className="cancel-x" onClick={() => setCancelSub(null)} aria-label="Close"><i className="fas fa-times"></i></button>
             </div>
             <span className="cancel-method">{methodLabel(cancelSub.guide.method)}</span>
             {!cancelSub.guide.matched && (

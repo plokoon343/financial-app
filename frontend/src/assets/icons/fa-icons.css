@@ -1,7 +1,7 @@
 /*! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com
  * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)
  * Copyright 2023 Fonticons, Inc.
- * Subset to the 177 icons this app uses by scripts/build-icons.mjs. Do not edit by hand. */
+ * Subset to the 180 icons this app uses by scripts/build-icons.mjs. Do not edit by hand. */
 
 .fa {
   font-family: var(--fa-style-family, "Font Awesome 6 Free");
@@ -571,6 +571,7 @@ readers do not read off random characters that represent icons */
 .fa-android::before { content: "\f17b"; }
 .fa-apple::before { content: "\f179"; }
 .fa-arrow-down::before { content: "\f063"; }
+.fa-arrow-right::before { content: "\f061"; }
 .fa-arrow-right-arrow-left::before { content: "\f0ec"; }
 .fa-arrow-trend-down::before { content: "\e097"; }
 .fa-arrow-trend-up::before { content: "\e098"; }
@@ -628,6 +629,7 @@ readers do not read off random characters that represent icons */
 .fa-comments::before { content: "\f086"; }
 .fa-copy::before { content: "\f0c5"; }
 .fa-credit-card::before { content: "\f09d"; }
+.fa-dice::before { content: "\f522"; }
 .fa-download::before { content: "\f019"; }
 .fa-drumstick-bite::before { content: "\f6d7"; }
 .fa-dumbbell::before { content: "\f44b"; }
@@ -656,6 +658,7 @@ readers do not read off random characters that represent icons */
 .fa-google::before { content: "\f1a0"; }
 .fa-graduation-cap::before { content: "\f19d"; }
 .fa-hand-holding-dollar::before { content: "\f4c0"; }
+.fa-hand-holding-heart::before { content: "\f4be"; }
 .fa-hand-holding-usd::before { content: "\f4c0"; }
 .fa-headset::before { content: "\f590"; }
 .fa-heart::before { content: "\f004"; }

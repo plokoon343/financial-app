@@ -104,7 +104,7 @@ export default function CashTracking() {
                     <input className="cash-num" type="number" inputMode="decimal" placeholder="Amount" value={row.amount} onChange={(e) => setRow(w._id, idx, { amount: e.target.value })} />
                     <input className="cash-desc" placeholder="Note (optional)" value={row.description} onChange={(e) => setRow(w._id, idx, { description: e.target.value })} />
                     {(rows[w._id].length > 1) && (
-                      <button className="cash-x" title="Remove" onClick={() => removeRow(w._id, idx)}><i className="fas fa-times"></i></button>
+                      <button className="cash-x" title="Remove" aria-label="Remove row" onClick={() => removeRow(w._id, idx)}><i className="fas fa-times"></i></button>
                     )}
                   </div>
                 ))}

@@ -6,7 +6,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { allCategoriesFor, resolveCategoryChoice, ADD_NEW } from '../utils/categoryStore';
 import { kindMeta } from '../utils/txnKind';
-import { fmtNaira } from '../utils/format';
+import { fmtNaira, fmtNairaFull } from '../utils/format';
 import { detectSalary, salaryPromptSeen, markSalaryPromptSeen } from '../lib/insights';
 import BetaPrompt from './BetaPrompt';
 import IncomePrompt from './IncomePrompt';
@@ -764,9 +764,11 @@ const Dashboard = ({ initialImport } = {}) => {
     labelColor: '#4a5568', cardBg: 'white', cardBorder: 'rgba(0,82,204,0.1)', modalBg: 'white',
   };
 
+  // Total Income / Total Expenses / Net Balance are totals, not chart labels, so
+  // they get the full figure, never the compact "15.2K" form (round 6, 13.9).
   const formatAmount = (value) => {
     if (hideAmounts) return '••••';
-    return fmtNaira(value);
+    return fmtNairaFull(value);
   };
 
   // Deep-link support: /import-statement and /sms-import open the import modal
@@ -1014,7 +1016,7 @@ const Dashboard = ({ initialImport } = {}) => {
               {/* Modal header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <h2 style={{ color: darkMode ? '#f7fafc' : '#1a365d', margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>Transactions</h2>
-                <button onClick={() => setShowModal(false)}
+                <button onClick={() => setShowModal(false)} aria-label="Close"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#a0aec0' : '#718096', fontSize: '1.3rem' }}>
                   <i className="fas fa-xmark" aria-hidden="true"></i>
                 </button>
@@ -1259,7 +1261,7 @@ const Dashboard = ({ initialImport } = {}) => {
                   <div style={{ fontWeight: 700, color: km ? (darkMode ? '#a0aec0' : '#718096') : tx.type === 'income' ? '#16a34a' : '#e53e3e', whiteSpace: 'nowrap', fontSize: '0.92rem' }}>
                     {km ? `${km.symbol} ` : tx.type === 'income' ? '+' : '-'}{hideAmounts ? '••••' : fmtNaira(Math.abs(tx.amount))}
                   </div>
-                  <button onClick={() => deleteTransaction(tx._id || tx.id)}
+                  <button onClick={() => deleteTransaction(tx._id || tx.id)} aria-label="Delete transaction"
                     style={{ background: 'none', border: 'none', color: darkMode ? '#718096' : '#cbd5e0', cursor: 'pointer', padding: '0.25rem', borderRadius: '6px', flexShrink: 0 }}
                     onMouseEnter={e => e.currentTarget.style.color = '#e53e3e'}
                     onMouseLeave={e => e.currentTarget.style.color = darkMode ? '#718096' : '#cbd5e0'}>

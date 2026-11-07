@@ -421,6 +421,7 @@ const Budget = () => {
                       className="delete-budget-btn"
                       onClick={(e) => { e.stopPropagation(); deleteBudget(budget._id); }}
                       title="Delete budget"
+                      aria-label="Delete budget"
                     >
                       <i className="fas fa-trash"></i>
                     </button>
@@ -472,7 +473,7 @@ const Budget = () => {
           <div className="budget-modal" onClick={(e) => e.stopPropagation()}>
             <div className="budget-modal-head">
               <h3><i className="fas fa-tag"></i> {detailBudget.category}</h3>
-              <button className="budget-modal-close" onClick={() => setDetailBudget(null)} title="Close">
+              <button className="budget-modal-close" onClick={() => setDetailBudget(null)} title="Close" aria-label="Close">
                 <i className="fas fa-times"></i>
               </button>
             </div>

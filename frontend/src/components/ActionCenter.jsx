@@ -1,297 +1,351 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { useSearchParams, Link } from 'react-router-dom';
 import { API_URL } from '../config';
-import { fmtNaira } from '../utils/format';
+import { fmtNairaFull } from '../utils/format';
 import { undoable } from '../lib/undo';
-import { FeatureTip } from './FeatureTip';
+import { fillTemplate, ruleLabel, positionLabel, initials } from '../lib/actionCards';
+import { EXPENSE_CATEGORIES } from '../constants/categories';
 import Select from './Select';
-import BankPicker from './BankPicker';
 
-// Action Center: everything that needs the user's decision, in one place. Each card
-// resolves itself through the existing endpoints, then the list reloads. Removals and
-// dismissals leave the list at once and wait 5 seconds behind Undo (`later`).
+// The Action Center (round 6, Block 4; brief section 4), web half of 13.11 parity.
+//
+// WHAT CHANGED AND WHY
+// This page used to be a long list of sections - "Alerts to check", "To sort",
+// "Possible duplicates" - each with its own buttons, and the worst of it was raw bank
+// text in editable fields: the user was handed the parser's job (research section 14).
+// It is now ONE CARD AT A TIME: one question, one click, the likely answer first and
+// highlighted, nothing else on the page. Raw text sits behind "See the original
+// alert" and is never editable.
+//
+// The server decides what to ask, in what order, and what the copy is; this page
+// renders it and sends the answer back. Grouping (six payments to one shop are one
+// card), the ₦2,000 ask floor and the 14-day skip rule all live in
+// backend/lib/actionCards.js, so the phone and the web app ask exactly the same
+// questions in the same order.
+
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-const day = (d) => (d ? new Date(d).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
-const SOURCE = { email: 'Email alert', notification: 'Bank app notification', sms: 'Bank text', share: 'Shared receipt', import: 'Statement', manual: 'Added by you' };
-
-const SECTIONS = [
-  { type: 'review_alert', title: 'Alerts to check', hint: 'We weren’t sure these were transactions, so nothing was added. Save the real ones, and tell us which aren’t.' },
-  { type: 'review_transaction', title: 'Check these transactions', hint: 'We read these automatically but weren’t sure. Confirm, fix or remove each one.' },
-  { type: 'possible_duplicate', title: 'Possible duplicates', hint: 'The same amount, a day apart or less, from different places. Remove the copy or keep both.' },
-  { type: 'name_subscription', title: 'What are these subscriptions?', hint: 'Your bank printed a name we don’t recognise.' },
-  { type: 'track_subscription', title: 'Recurring charges', hint: 'These repeat every month. Track them to get renewal reminders.' },
-  { type: 'name_account', title: 'Name your accounts', hint: 'Give each account a name so you can tell them apart.' },
-  { type: 'tag_sender', title: 'Which bank sent these?', hint: 'Tell us once and every alert from this sender is sorted.' },
-];
-
-function TxnLine({ t }) {
-  return (
-    <div className="acx-txn">
-      <div className="acx-txn-main">
-        <span className="acx-txn-desc">{t.description}</span>
-        <span className="acx-meta">{day(t.date)} · {SOURCE[t.source] || t.source}{t.bank ? ` · ${t.bank}` : ''}</span>
-      </div>
-      <span className={`acx-amount ${t.type}`}>{t.type === 'income' ? '+' : '-'}{fmtNaira(t.amount)}</span>
-    </div>
-  );
-}
-
-function ReviewCard({ item, act, later }) {
-  const t = item.transaction;
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ description: t.description, amount: String(t.amount), type: t.type });
-  const save = () => act(async () => {
-    await axios.put(`${API_URL}/api/transactions/${t.id}`, { description: form.description, amount: parseFloat(form.amount), type: form.type }, auth());
-    await axios.post(`${API_URL}/api/transactions/${t.id}/reviewed`, {}, auth());
-  });
-  return (
-    <div className="acx-card">
-      {editing ? (
-        <div className="acx-edit">
-          <input id={`d-${t.id}`} aria-label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          <input id={`a-${t.id}`} aria-label="Amount" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-          <Select id={`t-${t.id}`} aria-label="Money in or out" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-            <option value="expense">Money out</option>
-            <option value="income">Money in</option>
-          </Select>
-        </div>
-      ) : <TxnLine t={t} />}
-      <div className="acx-actions">
-        {editing ? (
-          <>
-            <button type="button" className="btn-primary" onClick={save}>Save</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
-          </>
-        ) : (
-          <>
-            <button type="button" className="btn-primary" onClick={() => act(() => axios.post(`${API_URL}/api/transactions/${t.id}/reviewed`, {}, auth()))}>Looks right</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>Fix it</button>
-            <button type="button" className="btn-danger" onClick={() => later('Removed. We’ve noted it wasn’t a transaction.', () => axios.post(`${API_URL}/api/transactions/${t.id}/not-transaction`, {}, auth()))}>Not a transaction</button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// An alert held back because the rules weren't sure: nothing is in the ledger until
-// the user saves it. "Not a transaction" also drops alerts like it from now on.
-function AlertCard({ item, act, later }) {
-  const p = item.parsed || {};
-  const [form, setForm] = useState({ description: p.description || '', amount: p.amount ? String(p.amount) : '', type: p.directionKnown ? p.type : '', date: (p.date || '').slice(0, 10) });
-  const ready = Number(form.amount) > 0 && (form.type === 'income' || form.type === 'expense');
-  return (
-    <div className="acx-card">
-      <pre className="acx-raw">{item.raw}</pre>
-      <span className="acx-meta">{SOURCE[item.source] || 'Alert'}{p.bank ? ` · ${p.bank}` : ''} · we read it as below; fix anything that’s wrong</span>
-      <div className="acx-edit">
-        <input aria-label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        <input aria-label="Amount" inputMode="decimal" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d.]/g, '') })} />
-        <Select aria-label="Money in or out" value={form.type} placeholder="Money in or out?" onChange={(e) => setForm({ ...form, type: e.target.value })}>
-          <option value="expense">Money out</option>
-          <option value="income">Money in</option>
-        </Select>
-        <input aria-label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-      </div>
-      <div className="acx-actions">
-        <button type="button" className="btn-primary" disabled={!ready} onClick={() => act(() => axios.post(`${API_URL}/api/pending-alerts/${item.id}/confirm`, { ...form, amount: Number(form.amount) }, auth()))}>Save it</button>
-        <button type="button" className="btn-secondary" onClick={() => later('Got it. Alerts like this will be left out.', () => axios.post(`${API_URL}/api/pending-alerts/${item.id}/not-transaction`, {}, auth()))}>Not a transaction</button>
-      </div>
-    </div>
-  );
-}
-
-function DuplicateCard({ item, act, later }) {
-  const remove = (id) => later('Copy removed', () => axios.delete(`${API_URL}/api/transactions/${id}`, auth()));
-  return (
-    <div className="acx-card">
-      <div className="acx-pair">
-        {[item.first, item.second].map((t) => (
-          <div key={t.id} className="acx-pair-side">
-            <TxnLine t={t} />
-            <button type="button" className="btn-secondary" onClick={() => remove(t.id)}>Remove this one</button>
-          </div>
-        ))}
-      </div>
-      <div className="acx-actions">
-        <button type="button" className="btn-secondary" onClick={() => act(() => axios.post(`${API_URL}/api/action-center/keep-both`, { first: item.first.id, second: item.second.id }, auth()))}>Both are real</button>
-      </div>
-    </div>
-  );
-}
-
-function NameSubscriptionCard({ item, act, later }) {
-  const [name, setName] = useState('');
-  return (
-    <div className="acx-card">
-      <div className="acx-txn">
-        <div className="acx-txn-main">
-          <span className="acx-txn-desc">{item.name}</span>
-          <span className="acx-meta">{fmtNaira(item.cost)} a month{item.lastCharge ? ` · last charged ${day(item.lastCharge)}` : ''}</span>
-        </div>
-      </div>
-      <div className="acx-actions">
-        <input id={`s-${item.id}`} aria-label="Subscription name" placeholder="e.g. Netflix" value={name} onChange={(e) => setName(e.target.value)} />
-        <button type="button" className="btn-primary" disabled={!name.trim()} onClick={() => act(() => axios.put(`${API_URL}/api/subscriptions/${item.id}`, { name: name.trim() }, auth()))}>Save name</button>
-        <button type="button" className="btn-secondary" onClick={() => later('Removed from subscriptions', () => axios.delete(`${API_URL}/api/subscriptions/${item.id}`, auth()))}>Not a subscription</button>
-      </div>
-    </div>
-  );
-}
-
-function TrackCard({ item, act, later }) {
-  return (
-    <div className="acx-card">
-      <div className="acx-txn">
-        <div className="acx-txn-main">
-          <span className="acx-txn-desc">{item.name}</span>
-          <span className="acx-meta">About {fmtNaira(item.cost)} · seen in {item.occurrences} months</span>
-        </div>
-      </div>
-      <div className="acx-actions">
-        <button type="button" className="btn-primary" onClick={() => act(() => axios.post(`${API_URL}/api/subscriptions`, { name: item.name, cost: item.cost, frequency: 'monthly', category: 'Subscriptions', lastCharge: item.lastSeen }, auth()))}>Track it</button>
-        <button type="button" className="btn-secondary" onClick={() => later('We won’t suggest it again', () => axios.post(`${API_URL}/api/subscriptions/dismiss-detected`, { key: item.key, name: item.name }, auth()))}>Not a subscription</button>
-      </div>
-    </div>
-  );
-}
-
-function AccountCard({ item, act, later }) {
-  const [label, setLabel] = useState('');
-  return (
-    <div className="acx-card">
-      <div className="acx-txn">
-        <div className="acx-txn-main">
-          <span className="acx-txn-desc">{item.bankName || item.bankCode} {item.accountMask ? `••••${item.accountMask}` : ''}</span>
-          <span className="acx-meta">{item.txnCount} transaction{item.txnCount === 1 ? '' : 's'}</span>
-        </div>
-      </div>
-      <div className="acx-actions">
-        <input id={`n-${item.id}`} aria-label="Account name" placeholder="e.g. Salary account" value={label} onChange={(e) => setLabel(e.target.value)} />
-        <button type="button" className="btn-primary" disabled={!label.trim()} onClick={() => act(() => axios.patch(`${API_URL}/api/accounts/${item.id}`, { label: label.trim() }, auth()))}>Save</button>
-        <button type="button" className="btn-secondary" onClick={() => later('Account removed. Its transactions stay.', () => axios.delete(`${API_URL}/api/accounts/${item.id}`, auth()))}>Not mine</button>
-      </div>
-    </div>
-  );
-}
-
-function SenderCard({ item, act, later, banks, setBanks }) {
-  // Pre-select our best guess from the sender ID ("ALLWORKERS" -> Allworkers MFB).
-  const [code, setCode] = useState(item.guess?.code || '');
-  return (
-    <div className="acx-card">
-      <div className="acx-txn">
-        <div className="acx-txn-main">
-          <span className="acx-txn-desc">{item.label || item.senderKey}</span>
-          <span className="acx-meta">{item.count} alert{item.count === 1 ? '' : 's'} · e.g. “{item.sample}”</span>
-          {item.guess && code === item.guess.code && <span className="acx-meta">Looks like {item.guess.name}. Change it if that’s wrong.</span>}
-        </div>
-      </div>
-      <div className="acx-actions">
-        <BankPicker id={`b-${item.id}`} banks={banks} setBanks={setBanks} value={code} onChange={setCode} />
-        <button type="button" className="btn-primary" disabled={!code} onClick={() => act(() => axios.post(`${API_URL}/api/senders/tag`, { senderKey: item.senderKey, bankCode: code }, auth()))}>Save</button>
-        <button type="button" className="btn-secondary" onClick={() => later('We won’t ask about it again', () => axios.post(`${API_URL}/api/senders/dismiss`, { senderKey: item.senderKey }, auth()))}>Not a bank</button>
-      </div>
-    </div>
-  );
-}
-
-const CARDS = {
-  review_alert: AlertCard,
-  review_transaction: ReviewCard,
-  possible_duplicate: DuplicateCard,
-  name_subscription: NameSubscriptionCard,
-  track_subscription: TrackCard,
-  name_account: AccountCard,
-  tag_sender: SenderCard,
-};
+const money = (n) => fmtNairaFull(n);
 
 export default function ActionCenter() {
-  const [data, setData] = useState(null);
-  const [banks, setBanks] = useState([]);
+  // Money's "N need a category / Sort them" links here with ?kinds=... (brief 4.1).
+  const [params] = useSearchParams();
+  const kinds = params.get('kinds') || '';
+
+  const [cards, setCards] = useState(null);
+  const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [tally, setTally] = useState({ answered: 0, rules: 0 });
+  const [ruleOn, setRuleOn] = useState({});
+  const [cashParts, setCashParts] = useState({});
+  const [showRaw, setShowRaw] = useState(false);
+  const [pickerValue, setPickerValue] = useState('');
+  // Alerts the parser could not read. Not cards (there is no one-click question for
+  // text we could not read), but not lost either: offered at the end of the queue.
+  const [heldAlerts, setHeldAlerts] = useState(0);
 
   const load = useCallback(async () => {
-    try { const { data: d } = await axios.get(`${API_URL}/api/action-center`, auth()); setData(d); setError(''); }
-    catch { setError('Could not load your Action Center. The server may be waking up; try again.'); }
+    try {
+      const { data } = await axios.get(`${API_URL}/api/action-center/cards${kinds ? `?kinds=${encodeURIComponent(kinds)}` : ''}`, auth());
+      const list = data.cards || [];
+      setCards(list);
+      setHeldAlerts(data.heldAlerts || 0);
+      setRuleOn((prev) => {
+        const next = { ...prev };
+        for (const c of list) if (c.rule && next[c.key] === undefined) next[c.key] = c.rule.checked;
+        return next;
+      });
+      setIndex(0);
+      setError('');
+    } catch {
+      setError('Could not load your quick look.');
+      setCards([]);
+    }
+  }, [kinds]);
+
+  // Loaded once per visit, deliberately: a refetch while the user is three cards deep
+  // would move the card under their cursor.
+  useEffect(() => { load(); }, [load]);
+
+  const card = cards?.[index];
+  const total = cards?.length ?? 0;
+  const done = cards !== null && index >= total;
+
+  // Put a card back exactly where it was: that is what Undo means here.
+  const putBack = useCallback((c, at) => {
+    setCards((prev) => {
+      if (!prev) return prev;
+      const next = prev.slice();
+      next.splice(Math.min(at, next.length), 0, c);
+      return next;
+    });
+    setIndex(at);
+    setTally((t) => ({ ...t, answered: Math.max(0, t.answered - 1) }));
   }, []);
 
-  useEffect(() => {
-    load();
-    axios.get(`${API_URL}/api/banks`, auth()).then((r) => setBanks(r.data.banks || [])).catch(() => {});
-  }, [load]);
+  // The answer leaves the page at once and is sent behind an Undo. The request is
+  // never awaited before the next card shows: that is what makes this one click.
+  const answerCard = useCallback((c, a, extra = {}) => {
+    const at = cards ? Math.max(0, cards.indexOf(c)) : index;
+    const applyRule = !!(c.rule && ruleOn[c.key]);
+    const payload = {
+      key: c.key,
+      kind: c.kind,
+      answerId: a.id,
+      applyRule,
+      category: extra.category,
+      amount: c.item.amount ?? undefined,
+      amounts: extra.amounts,
+      targets: c.targets,
+    };
+    setCards((prev) => (prev ? prev.filter((x) => x.key !== c.key) : prev));
+    setTally((t) => ({ ...t, answered: t.answered + 1, rules: applyRule ? t.rules + 1 : t.rules }));
+    undoable('Saved', async () => {
+      const { data } = await axios.post(`${API_URL}/api/action-center/answer`, payload, auth());
+      // The server makes a rule on its own the second time the same answer is given
+      // for a name. The user never asked for it, so they are told it happened.
+      if (data?.rule?.made && !applyRule) setTally((t) => ({ ...t, rules: t.rules + 1 }));
+    }, () => putBack(c, at));
+  }, [cards, index, ruleOn, putBack]);
 
-  // Run an action, then refresh the list and the sidebar badge. The item leaves the
-  // list straight away; a failed call brings it back with the reload.
-  const act = async (fn, id) => {
-    if (busy) return;
-    setBusy(true);
-    if (id) setData((d) => d && { ...d, items: d.items.filter((i) => i.id !== id), total: Math.max(0, d.total - 1) });
-    try { await fn(); await load(); window.dispatchEvent(new Event('automonie:actions-changed')); }
-    catch (e) { setError(e.response?.data?.message || 'That didn’t work. Try again.'); load(); }
-    finally { setBusy(false); }
-  };
+  // Skipping moves the card down the queue. It does not answer it and it is never
+  // counted against the user.
+  const skipCard = useCallback((c) => {
+    setCards((prev) => {
+      if (!prev) return prev;
+      const rest = prev.filter((x) => x.key !== c.key);
+      rest.push({ ...c, skipped: true });
+      return rest;
+    });
+    axios.post(`${API_URL}/api/action-center/skip`, { key: c.key }, auth()).catch(() => {});
+  }, []);
 
-  // Remove or dismiss with a 5-second Undo; undoing (or a failed request) reloads the list.
-  const later = (id, message, fn) => {
-    setData((d) => d && { ...d, items: d.items.filter((i) => i.id !== id), total: Math.max(0, d.total - 1) });
-    undoable(message, async () => { await fn(); window.dispatchEvent(new Event('automonie:actions-changed')); }, load);
+  const isCash = card?.kind === 'cash';
+  const cashTiles = useMemo(() => (isCash ? (card.answers[0].tiles || []) : []), [isCash, card]);
+  const cashSum = cashTiles.reduce((n, t) => n + (Number(cashParts[`${card?.key}:${t}`]) || 0), 0);
+
+  const onAnswer = (a) => {
+    if (!card) return;
+    if (a.opensPicker) {
+      if (!pickerValue) return;
+      answerCard(card, a, { category: pickerValue });
+      setPickerValue('');
+      return;
+    }
+    if (a.isSkip) { skipCard(card); return; }
+    if (isCash && a.id === 'save') {
+      const amounts = cashTiles
+        .map((t) => ({ category: t, amount: Number(cashParts[`${card.key}:${t}`]) || 0 }))
+        .filter((x) => x.amount > 0);
+      answerCard(card, a, { amounts });
+      return;
+    }
+    answerCard(card, a);
   };
 
   return (
     <div className="acx-page">
-      <div className="acx-head">
-        <h2><i className="fas fa-list-check" aria-hidden="true"></i> Action Center</h2>
-        <p>Things we need you to look at, so your numbers stay right.</p>
-      </div>
-      <FeatureTip tipKey="screen:actions" title="Your decisions, in one place">Anything we weren’t sure about waits here. A quick yes or no keeps your numbers right, and Undo is there for five seconds.</FeatureTip>
-      {error && <div className="message error">{error}</div>}
-      {!data && !error && <div className="loading-container"><div className="loading-spinner"></div></div>}
-      {data && data.total === 0 && (
-        <div className="empty-state">
-          <div className="empty-state-icon"><i className="fas fa-circle-check" aria-hidden="true"></i></div>
-          <h3>You’re all caught up</h3>
-          <p>When we aren’t sure about something, like a transaction we couldn’t read clearly, a possible duplicate or a charge that looks like a subscription, it waits here for your decision so your numbers stay right.</p>
+      <header className="acx-head">
+        <h2>Quick look</h2>
+        <span className="acx-position">{total && !done ? positionLabel(index, total) : ''}</span>
+      </header>
+
+      {cards === null && !error && <div className="loading-container"><div className="loading-spinner"></div></div>}
+      {error && <p className="acx-error" role="alert">{error}</p>}
+
+      {cards !== null && (done || !card) && (
+        <div className="acx-done">
+          <div className="acx-burst"><i className="fas fa-check" aria-hidden="true"></i></div>
+          <h3>All sorted.</h3>
+          <p>Your numbers are up to date.</p>
+          {(tally.answered > 0 || tally.rules > 0) && (
+            <ul className="acx-summary">
+              {tally.answered > 0 && <li>Answered {tally.answered}</li>}
+              {tally.rules > 0 && <li>New rules made {tally.rules}</li>}
+            </ul>
+          )}
+          <a className="btn-primary acx-home" href="/dashboard">Back to Home</a>
+          {heldAlerts > 0 && (
+            <p className="acx-held">
+              <Link to="/alerts-to-check">
+                {heldAlerts === 1 ? '1 alert we could not read' : `${heldAlerts} alerts we could not read`}
+              </Link>
+            </p>
+          )}
         </div>
       )}
-      {data && data.total > 0 && SECTIONS.map((sec) => {
-        const items = data.items.filter((it) => it.type === sec.type);
-        if (!items.length) return null;
-        const Card = CARDS[sec.type];
-        return (
-          <section key={sec.type} className="acx-section">
-            <h3>{sec.title} <span className="acx-count">{items.length}</span></h3>
-            <p className="acx-hint">{sec.hint}</p>
-            {items.map((it) => <Card key={it.id} item={it} act={(fn) => act(fn, it.id)} later={(message, fn) => later(it.id, message, fn)} banks={banks} setBanks={setBanks} />)}
+
+      {card && !done && (
+        <>
+          {/* One segment per card, filled for the ones already answered. Past eight
+              cards it is a single bar, because nine slivers say nothing. */}
+          {total > 8 ? (
+            <div className="acx-bar" aria-label={`${index} of ${total} answered`}>
+              <span style={{ width: `${Math.min(100, Math.round((index / total) * 100))}%` }} />
+            </div>
+          ) : (
+            <div className="acx-segments" aria-label={`${index} of ${total} answered`}>
+              {Array.from({ length: total }, (_, i) => <span key={i} className={i < index ? 'on' : ''} />)}
+            </div>
+          )}
+
+          <section className="acx-card" aria-live="polite">
+            <div className="acx-item">
+              {card.item.pair ? (
+                <div className="acx-pair-circles" aria-label={`${card.item.pair.from} to ${card.item.pair.to}`}>
+                  <span className="acx-circle">{initials(card.item.pair.from)}</span>
+                  <i className="fas fa-arrow-right" aria-hidden="true"></i>
+                  <span className="acx-circle">{initials(card.item.pair.to)}</span>
+                </div>
+              ) : (
+                <span className="acx-circle">{card.item.initials}</span>
+              )}
+              <div className="acx-item-text">
+                <strong>{card.item.title}</strong>
+                {card.item.count > 1 && <span className="acx-meta">{card.item.count} payments</span>}
+              </div>
+            </div>
+
+            {card.item.amount != null && <p className="acx-amount">{money(card.item.amount)}</p>}
+            {card.item.meta && <p className="acx-meta">{card.item.meta}</p>}
+
+            <hr className="acx-divider" />
+
+            <h3 className="acx-question">{fillTemplate(card.question, card.vars, money)}</h3>
+            {card.helper && <p className="acx-helper">{fillTemplate(card.helper, card.vars, money)}</p>}
+
+            {/* The cash card is the one that is not a single click: a withdrawal
+                usually became three or four things, so it takes amounts, and
+                "Leave the rest" is a complete answer. */}
+            {isCash && (
+              <div className="acx-tiles">
+                {cashTiles.map((t) => (
+                  <label key={t} className="acx-tile">
+                    <span>{t}</span>
+                    <input
+                      type="number" min="0" step="0.01" placeholder="0"
+                      value={cashParts[`${card.key}:${t}`] || ''}
+                      onChange={(e) => setCashParts((p) => ({ ...p, [`${card.key}:${t}`]: e.target.value }))}
+                      aria-label={`Amount spent on ${t}`}
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="acx-answers">
+              {card.answers.map((a) => {
+                const label = isCash && a.id === 'save'
+                  ? fillTemplate(a.label, { sum: cashSum }, money)
+                  : fillTemplate(a.label, a.money != null ? { ...card.vars, [a.id]: a.money } : card.vars, money);
+                const disabled = (isCash && a.id === 'save' && cashSum <= 0) || (a.opensPicker && !pickerValue);
+                return (
+                  <React.Fragment key={a.id}>
+                    {a.opensPicker && (
+                      <Select
+                        aria-label="Pick a category"
+                        value={pickerValue}
+                        onChange={(e) => setPickerValue(e.target.value)}
+                        className="acx-picker"
+                      >
+                        <option value="">Something else…</option>
+                        {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </Select>
+                    )}
+                    <button
+                      type="button"
+                      className={`acx-answer${a.primary ? ' primary' : ''}`}
+                      onClick={() => onAnswer(a)}
+                      disabled={disabled}
+                    >
+                      <span>{a.opensPicker && pickerValue ? `Save as ${pickerValue}` : label}</span>
+                      {a.pill && <em className="acx-pill">{a.pill}</em>}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {/* Rule 4, offered rather than assumed: ticked by default on a grouped
+                card, because someone answering for six at once means it for the
+                seventh. */}
+            {card.rule && (
+              <label className="acx-rule">
+                <input
+                  type="checkbox"
+                  checked={!!ruleOn[card.key]}
+                  onChange={() => setRuleOn((r) => ({ ...r, [card.key]: !r[card.key] }))}
+                />
+                <span>{ruleLabel(card)}</span>
+              </label>
+            )}
+
+            {/* Raw bank text is readable, and nothing more. It is never a form. */}
+            {card.raw && (
+              <details className="acx-rawbox" open={showRaw} onToggle={(e) => setShowRaw(e.target.open)}>
+                <summary>See the original alert</summary>
+                <pre className="acx-raw">{card.raw}</pre>
+              </details>
+            )}
           </section>
-        );
-      })}
+
+          <button type="button" className="acx-skip" onClick={() => skipCard(card)}>Skip for now</button>
+          <p className="acx-footer">You can change any answer later from the transaction.</p>
+        </>
+      )}
 
       <style>{`
-        .acx-page { max-width: 820px; margin: 0 auto; padding: 16px; display: grid; gap: 18px; }
-        .acx-head h2 { display: flex; align-items: center; gap: 10px; color: var(--text-primary); }
-        .acx-head h2 i { color: var(--accent-primary); }
-        .acx-head p, .acx-hint { color: var(--text-secondary); font-size: 0.9rem; }
-        .acx-section { display: grid; gap: 10px; }
-        .acx-section h3 { display: flex; align-items: center; gap: 8px; font-size: 1.05rem; color: var(--text-primary); }
-        .acx-count { font-size: 0.75rem; font-weight: 700; background: var(--glass-bg); color: var(--text-secondary); border-radius: var(--radius-full); padding: 2px 9px; }
-        .acx-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 14px; display: grid; gap: 12px; }
-        .acx-txn { display: flex; align-items: center; gap: 12px; }
-        .acx-txn-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
-        .acx-txn-desc { color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; }
-        .acx-meta { color: var(--text-secondary); font-size: 0.8rem; }
-        .acx-raw { margin: 0 0 6px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary); font: 0.82rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }
-        .acx-amount { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .acx-amount.income { color: var(--income-color); }
-        .acx-amount.expense { color: var(--expense-color); }
-        .acx-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-        .acx-actions input, .acx-actions select, .acx-edit input, .acx-edit select { background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: var(--radius-sm); padding: 9px 11px; font: inherit; min-width: 0; }
-        .acx-actions input { flex: 1 1 180px; }
-        .acx-edit { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; }
-        .acx-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .acx-pair-side { display: grid; gap: 8px; padding: 10px; border: 1px dashed var(--border-color); border-radius: var(--radius-sm); min-width: 0; }
-        @media (max-width: 640px) { .acx-edit, .acx-pair { grid-template-columns: 1fr; } }
+        .acx-page { max-width: 640px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+        .acx-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+        .acx-head h2 { color: var(--text-primary); margin: 0; }
+        .acx-position { color: var(--text-secondary); font-size: 0.85rem; font-weight: 700; }
+        .acx-error { color: var(--expense-color); }
+        .acx-segments { display: flex; gap: 6px; }
+        .acx-segments span { flex: 1; height: 4px; border-radius: 2px; background: var(--bg-secondary); }
+        .acx-segments span.on { background: var(--accent-primary); }
+        .acx-bar { height: 4px; border-radius: 2px; background: var(--bg-secondary); overflow: hidden; }
+        .acx-bar span { display: block; height: 4px; background: var(--accent-primary); }
+
+        .acx-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 22px; padding: 22px; }
+        .acx-item { display: flex; align-items: center; gap: 12px; }
+        .acx-item-text { display: grid; gap: 2px; min-width: 0; }
+        .acx-item-text strong { color: var(--text-primary); overflow-wrap: anywhere; }
+        .acx-circle { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; background: var(--bg-secondary); color: var(--text-secondary); font-weight: 800; display: grid; place-items: center; }
+        .acx-pair-circles { display: flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+        .acx-amount { font-size: 2.3rem; font-weight: 600; color: var(--text-primary); margin: 10px 0 0; font-variant-numeric: tabular-nums; }
+        .acx-meta { color: var(--text-secondary); font-size: 0.82rem; margin: 2px 0 0; }
+        .acx-divider { border: 0; border-top: 1px solid var(--border-color); margin: 16px 0; }
+        .acx-question { font-size: 1.18rem; font-weight: 500; line-height: 1.45; color: var(--text-primary); margin: 0; }
+        .acx-helper { color: var(--text-secondary); font-size: 0.82rem; margin: 6px 0 0; }
+
+        .acx-answers { display: grid; gap: 10px; margin-top: 18px; }
+        .acx-answer { min-height: 56px; border-radius: 16px; border: 1px solid var(--border-strong, var(--border-color)); background: transparent; color: var(--text-primary); font: inherit; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; }
+        .acx-answer.primary { background: var(--accent-primary); border-color: var(--accent-primary); color: var(--on-primary, #0B0E11); }
+        .acx-answer:disabled { opacity: 0.45; cursor: not-allowed; }
+        .acx-pill { font-size: 0.68rem; font-style: normal; font-weight: 700; background: var(--bg-card); color: var(--text-secondary); border-radius: var(--radius-full); padding: 2px 8px; }
+        .acx-picker { width: 100%; background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: var(--radius-sm); padding: 9px 11px; font: inherit; }
+
+        .acx-tiles { display: grid; gap: 8px; margin-top: 16px; }
+        .acx-tile { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border-color); border-radius: 14px; padding: 8px 14px; min-height: 52px; }
+        .acx-tile span { flex: 1; color: var(--text-primary); font-weight: 600; }
+        .acx-tile input { width: 120px; text-align: right; background: transparent; border: 0; color: var(--text-primary); font: inherit; font-weight: 700; }
+
+        .acx-rule { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: var(--text-secondary); font-size: 0.88rem; cursor: pointer; }
+        .acx-rawbox { margin-top: 14px; }
+        .acx-rawbox summary { color: var(--text-secondary); font-size: 0.88rem; font-weight: 600; cursor: pointer; }
+        .acx-raw { margin: 10px 0 0; padding: 12px; border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary); font: 0.82rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+
+        .acx-skip { background: none; border: 0; color: var(--text-secondary); font: inherit; font-weight: 700; min-height: 48px; cursor: pointer; }
+        .acx-footer { color: var(--text-faint, var(--text-secondary)); font-size: 0.76rem; text-align: center; margin: 0; }
+
+        .acx-done { text-align: center; padding: 40px 20px; }
+        .acx-burst { width: 76px; height: 76px; margin: 0 auto 18px; border-radius: 50%; background: var(--accent-primary); color: var(--on-primary, #0B0E11); display: grid; place-items: center; font-size: 1.8rem; }
+        .acx-done h3 { color: var(--text-primary); margin: 0; font-size: 1.6rem; }
+        .acx-done p { color: var(--text-secondary); margin: 6px 0 0; }
+        .acx-summary { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 6px; color: var(--text-secondary); font-weight: 600; font-size: 0.88rem; }
+        .acx-home { display: inline-block; margin-top: 26px; text-decoration: none; }
+        .acx-held { margin: 16px 0 0; font-size: 0.85rem; }
+        .acx-held a { color: var(--text-secondary); }
       `}</style>
     </div>
   );

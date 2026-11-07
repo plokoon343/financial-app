@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
-import { fmtNaira } from '../utils/format';
+import { fmtNaira, fmtNairaFull } from '../utils/format';
 import { FeatureTip } from './FeatureTip';
 import Select from './Select';
 const GoalTracker = () => {
@@ -150,7 +150,7 @@ const getGoalProgress = (goal) => {
         </div>
         <div className="overview-card glass-effect">
           <div className="overview-icon total-saved"><i className="fas fa-piggy-bank"></i></div>
-          <div className="overview-content"><h3>Total Saved</h3><div className="overview-amount">{fmtNaira(totalCurrent)}</div></div>
+          <div className="overview-content"><h3>Total Saved</h3><div className="overview-amount">{fmtNairaFull(totalCurrent)}</div></div>
         </div>
         <div className="overview-card glass-effect">
           <div className="overview-icon overall-progress"><i className="fas fa-chart-line"></i></div>
@@ -232,7 +232,7 @@ const getGoalProgress = (goal) => {
                     <span className="gt-cat" style={{ color: getCategoryColor(activeGoal.category) }}>{activeGoal.category}</span>
                   </div>
                 </div>
-                <button className="goal-modal-close" onClick={() => setSelectedGoalId(null)} title="Close"><i className="fas fa-times"></i></button>
+                <button className="goal-modal-close" onClick={() => setSelectedGoalId(null)} title="Close" aria-label="Close"><i className="fas fa-times"></i></button>
               </div>
 
               <div className="progress-stats">

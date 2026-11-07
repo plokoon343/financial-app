@@ -15,8 +15,11 @@ const Sidebar = () => {
   const [actionCount, setActionCount] = useState(0);
 
   // Action Center badge: refreshed on navigation and whenever an action resolves.
+  // Counts the card QUEUE, and only priorities 1 to 3 (brief 4.5: an optional
+  // question never puts a number on a navigation item). Same counts as the screen
+  // and as Home, from one function, so the three can never disagree.
   useEffect(() => {
-    const refresh = () => axios.get(`${API_URL}/api/action-center?summary=1`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+    const refresh = () => axios.get(`${API_URL}/api/action-center/cards?summary=1`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
       .then((r) => setActionCount(r.data.total || 0)).catch(() => {});
     refresh();
     window.addEventListener('automonie:actions-changed', refresh);
@@ -74,7 +77,7 @@ const Sidebar = () => {
 
   return (
     <>
-      <button className="sidebar-hamburger" onClick={toggleSidebar}>
+      <button className="sidebar-hamburger" onClick={toggleSidebar} aria-label={isOpen ? 'Close menu' : 'Open menu'}>
         <i className="fas fa-bars" aria-hidden="true"></i>
       </button>
 
@@ -133,7 +136,7 @@ const Sidebar = () => {
             <span>Take a tour</span>
           </button>
           <div className="sidebar-actions">
-            <button className="sidebar-dark-toggle" onClick={toggleDarkMode}>
+            <button className="sidebar-dark-toggle" onClick={toggleDarkMode} aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
               <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`} aria-hidden="true"></i>
             </button>
             <button className="sidebar-logout" onClick={handleLogout}>

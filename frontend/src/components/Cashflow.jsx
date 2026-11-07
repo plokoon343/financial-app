@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
-import { fmtNaira } from '../utils/format';
+import { fmtNaira, fmtNairaFull } from '../utils/format';
 import InfoButton from './InfoSheet';
 
 const RANGES = [30, 60, 90];

@@ -51,6 +51,7 @@ function SharedExpensesRoute() {
 }
 const People = lazy(() => import('./components/People'));
 const ActionCenter = lazy(() => import('./components/ActionCenter'));
+const AlertsToCheck = lazy(() => import('./components/AlertsToCheck'));
 const NewsletterComposer = lazy(() => import('./components/NewsletterComposer'));
 const Transactions = lazy(() => import('./components/Transactions'));
 const AiAssistant = lazy(() => import('./components/AiAssistant'));
@@ -152,6 +153,9 @@ function AppContent() {
           <Route path="shared" element={<SharedExpensesRoute />} />
           <Route path="people" element={<People />} />
           <Route path="actions" element={<ActionCenter />} />
+          {/* Off the card queue on purpose: alerts we could not read have no one-click
+              question, so they are not cards (round 6, Block 4). */}
+          <Route path="alerts-to-check" element={<AlertsToCheck />} />
           <Route path="help" element={<Help />} />
           <Route path="plans" element={<Plans />} />
           <Route path="support" element={<Support />} />

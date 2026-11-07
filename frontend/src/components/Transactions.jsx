@@ -488,7 +488,7 @@ const Transactions = () => {
                 <td><input type="checkbox" checked={selected.has(t._id)} onChange={() => toggleSel(t._id)} /></td>
                 <td className="nowrap">{new Date(t.date).toLocaleDateString()}</td>
                 <td className="desc" title={t.description}>
-                  <span className="desc-cell"><TxnAvatar category={t.category} description={t.description} />{t.description}</span>
+                  <span className="desc-cell"><TxnAvatar category={t.category} description={t.description} />{t.cleanName || t.description}</span>
                   {people[links[t._id]] && (() => {
                     const p = people[links[t._id]];
                     return (

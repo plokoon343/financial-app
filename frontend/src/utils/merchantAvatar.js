@@ -83,6 +83,12 @@ const CAT = {
   Transfer: { color: '#f97316', icon: 'fas fa-right-left' },
   Savings: { color: '#22c55e', icon: 'fas fa-lock' },
   'Family & Friends': { color: '#ec4899', icon: 'fas fa-users' },
+  // round 6, Block 3 (5.1): new categories.
+  Giving: { color: '#84cc16', icon: 'fas fa-hand-holding-heart' },
+  Betting: { color: '#dc2626', icon: 'fas fa-dice' },
+  'Gifts & Events': { color: '#f472b6', icon: 'fas fa-gift' },
+  Allowance: { color: '#14b8a6', icon: 'fas fa-wallet' },
+  'Money from People': { color: '#60a5fa', icon: 'fas fa-people-arrows' },
   Salary: { color: '#10b981', icon: 'fas fa-briefcase' },
   'Salary & Wages': { color: '#10b981', icon: 'fas fa-briefcase' },
   Business: { color: '#139DA0', icon: 'fas fa-building' },

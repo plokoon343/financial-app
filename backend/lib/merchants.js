@@ -50,7 +50,11 @@ const MERCHANTS = [
   [b('jumia|konga|amazon|aliexpress|ali ?express|temu|shein|slot ?system|slot\\b|pointek|jiji|fashion ?nova'), 'Shopping', 'E-commerce'],
 
   // ── Betting & gaming ──
-  [b('bet9ja|nairabet|sportybet|sporty ?bet|1xbet|betking|merrybet|betway|msport|22bet|parimatch|football ?prediction|betnaija'), 'Entertainment', 'Betting'],
+  // round 6, Block 3 (5.1): Betting is now its own category (it used to share
+  // Entertainment). Existing rows already filed under Entertainment keep that
+  // category - no migration was run against live data this session - so this only
+  // changes classification for new transactions from here on.
+  [b('bet9ja|nairabet|sportybet|sporty ?bet|1xbet|betking|merrybet|betway|msport|22bet|parimatch|football ?prediction|betnaija'), 'Betting', 'Betting'],
   [b('cinema|filmhouse|film ?house|silverbird|genesis ?cinema|ebonylife|concert|showtime'), 'Entertainment', 'Entertainment'],
 
   // ── Savings & investing platforms ──

@@ -24,7 +24,7 @@ check('bolt ride', cat('POS/BOLT RIDES LAGOS') === 'Transport');
 check('shoprite', cat('POS PUR SHOPRITE LEKKI') === 'Groceries');
 check('nnpc fuel', cat('NNPC RETAIL FUEL') === 'Fuel');
 check('jumia shopping', cat('JUMIA NIGERIA ORDER') === 'Shopping');
-check('bet9ja', cat('BET9JA DEPOSIT') === 'Entertainment');
+check('bet9ja', cat('BET9JA DEPOSIT') === 'Betting'); // round 6, Block 3 (5.1): split out of Entertainment
 check('piggyvest savings', cat('PIGGYVEST SAVE') === 'Savings');
 check('medplus health', cat('MEDPLUS PHARMACY') === 'Healthcare');
 check('waec education', cat('WAEC RESULT CHECKER') === 'Education');

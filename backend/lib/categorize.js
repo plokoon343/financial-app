@@ -26,8 +26,12 @@ const categorizeTransaction = (description, typeOrAmount) => {
     { for: 'income',  keywords: ['sales', 'invoice', 'business income', 'customer payment'], category: 'Business' },
     // OWealth (OPay's savings pocket) interest is its own category, not Investment -
     // round 6, part B item 6. Checked before the general interest/dividend rule.
-    { for: 'income',  keywords: ['owealth interest'], category: 'OWealth Interest' },
-    { for: 'income',  keywords: ['dividend', 'interest credit', 'interest earned', 'investment return', 'maturity', 'roi'], category: 'Investment' },
+    { for: 'income',  keywords: ['owealth interest', 'owealth'], category: 'OWealth Interest' },
+    // Any credit that mentions interest IS interest (behaviour matrix row 22). The
+    // list used to need the exact phrase "interest earned", so OPay's own wording
+    // ("You earned ₦2.99 interest today") fell through to Other Income and the alert
+    // ended up in the Action Center as raw text for the user to sort out.
+    { for: 'income',  keywords: ['dividend', 'interest', 'investment return', 'maturity', 'roi'], category: 'Investment' },
     { for: 'income',  keywords: ['gift', 'present'], category: 'Gift' },
     { for: 'income',  keywords: ['refund', 'reversal', 'returned', 'chargeback'], category: 'Refund' },
 
@@ -44,7 +48,10 @@ const categorizeTransaction = (description, typeOrAmount) => {
     { for: 'expense', keywords: ['school fees', 'tuition', 'waec', 'jamb', 'neco', 'coursera', 'udemy', 'university', 'college', 'exam', 'lecture', 'textbook'], category: 'Education' },
     { for: 'expense', keywords: ['insurance', 'assurance', 'leadway', 'aiico', 'axa mansard', 'cornerstone'], category: 'Insurance' },
     { for: 'expense', keywords: ['amazon', 'jumia', 'konga', 'slot', 'purchase', 'boutique', 'fashion', 'clothing', 'shopping', 'mall', 'aliexpress', 'temu', 'shein'], category: 'Shopping' },
-    { for: 'expense', keywords: ['cinema', 'bet9ja', 'nairabet', 'sportybet', '1xbet', 'betking', 'merrybet', 'gaming', 'event', 'ticket', 'lounge', 'concert', 'movie'], category: 'Entertainment' },
+    { for: 'expense', keywords: ['cinema', 'gaming', 'event', 'ticket', 'lounge', 'concert', 'movie'], category: 'Entertainment' },
+    // round 6, Block 3 (5.1): Betting is now its own category, split out of
+    // Entertainment (merchants.js's higher-precision rule changed the same way).
+    { for: 'expense', keywords: ['bet9ja', 'nairabet', 'sportybet', '1xbet', 'betking', 'merrybet'], category: 'Betting' },
     { for: 'expense', keywords: ['piggyvest', 'cowrywise', 'risevest', 'target savings', ' ajo', 'esusu', 'thrift', 'vault'], category: 'Savings' },
     // POS / ATM. Nigerian banks abbreviate point-of-sale purchases aggressively
     // GTBank writes "POS PUR", others "PURCHASE/POS", "WEB PUR", "VPOS", so match the

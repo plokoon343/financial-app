@@ -1,0 +1,5 @@
+{
+  "_about": "Extra parser rules delivered to clients via GET /api/app-config, signed with lib/remoteRules (round 6, 13.12). These run ALONGSIDE the existing hardcoded parser (lib/alertParser, lib/alertParse) as a fallback when it finds no amount or direction - never in place of it. Bump 'version' whenever this file changes so clients know to re-fetch and re-apply. Every rule stays strictly deterministic: amount only via a regex capture group, direction only via a fixed 'direction' or a 'directionMap' of exact words written here - never AI, remote or local.",
+  "version": 1,
+  "rules": []
+}

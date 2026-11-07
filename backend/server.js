@@ -22,6 +22,14 @@ const { classifyKind } = require('./lib/txnKinds');
 const { reclassifyRow, MACHINE_KINDS } = require('./lib/reclassify');
 const { COUNTED_TYPES, monthRange, periodFigures } = require('./lib/periodView');
 const { pairReversals } = require('./lib/reversals');
+// Round 6, Block 2b (brief 3.4 to 3.6): linking, statement reconciliation and undo.
+const {
+  detectLinks, effectOfLink, feeSummary, feeTableFromEnv, moveLabel,
+  routeKeyOf, cashRemaining, LINK_COPY, KINDS: LINK_KINDS,
+} = require('./lib/txnLinks');
+const { undoOptions, planUnlink, planSplit, provenanceLines, correctionKindFor } = require('./lib/linkUndo');
+const statementRecon = require('./lib/statementRecon');
+const observationLib = require('./lib/observation');
 const { reconcile, extractBalances } = require('./lib/reconcile');
 const { parseOpayStatement } = require('./lib/opayStatement');
 const { extractStatement: llmExtractStatement } = require('./lib/llmStatement');
@@ -51,6 +59,11 @@ const studentLib = require('./lib/student');
 const welcomeEmails = require('./lib/welcomeEmails');
 const { bankMethods } = require('./lib/bankMethods');
 const { deriveCategoryKey, subscriptionKey } = require('./lib/merchantKey');
+const subscriptionSignals = require('./lib/subscriptionSignals');
+const regularPaymentsLib = require('./lib/regularPayments');
+const { electricityRhythm, dueSoon: electricityDueSoon } = require('./lib/electricityRhythm');
+const irregularIncomeLib = require('./lib/irregularIncome');
+const owedToMeLib = require('./lib/owedToMe');
 const cashflowMath = require('./lib/cashflowMath');
 const birthday = require('./lib/birthday');
 const { categorizeTransaction } = require('./lib/categorize');
@@ -65,6 +78,16 @@ const { stripText } = require('./lib/aiStrip');
 const { guardReply } = require('./lib/assistantGuard');
 const { cleanAiText } = require('./lib/aiOutput');
 const merchantSuggest = require('./lib/merchantSuggest');
+const actionCards = require('./lib/actionCards');
+const categorySuggest = require('./lib/categorySuggest');
+const { matchMerchant } = require('./lib/merchants');
+const { cleanName } = require('./lib/cleanName');
+const behaviourMatrix = require('./lib/behaviourMatrix');
+const holds = require('./lib/holds');
+const dollarAccounts = require('./lib/dollarAccounts');
+const remoteRules = require('./lib/remoteRules');
+const appVersionLib = require('./lib/appVersion');
+const moneyFormat = require('./lib/moneyFormat');
 const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
 const helpContent = require('./lib/helpContent');
@@ -372,6 +395,10 @@ const userSchema = new mongoose.Schema({
   // Birthday: day and month only, never the year. Birthday messages is a switch in Notifications.
   // Who they are, from onboarding (optional): shapes budgets and tips shown later.
   audience: { type: String, enum: ['', 'student', 'corper'], default: '' },
+  // Irregular income (13.5): 'hustling' always gets the careful lowest-of-3-months
+  // safe-to-spend treatment; '' (unset/salaried) only gets it if the ledger itself
+  // shows a >25% month-to-month swing (lib/irregularIncome.isIrregular).
+  incomeProfile: { type: String, enum: ['', 'salaried', 'hustling'], default: '' },
   birthdayDay:   { type: Number, min: 1, max: 31 },
   birthdayMonth: { type: Number, min: 1, max: 12 },
   birthdayEmails: { type: Boolean, default: true },
@@ -532,7 +559,7 @@ const transactionSchema = new mongoose.Schema({
   // non-discretionary kinds (cash_withdrawal / loan_in / debt_repayment / reversal
   // / failed) come from lib/txnKinds: all excluded from spending/income math the
   // same way (they are neither 'income' nor 'expense', so aggregations skip them).
-  type: { type: String, enum: ['income', 'expense', 'internal_transfer', 'cash_withdrawal', 'loan_in', 'debt_repayment', 'reversal', 'failed'], required: true },
+  type: { type: String, enum: ['income', 'expense', 'internal_transfer', 'cash_withdrawal', 'loan_in', 'loan_out', 'debt_repayment', 'reversal', 'failed'], required: true },
   // Origin tracking so transactions can be grouped/deleted by bank statement.
   source: { type: String, enum: ['manual', 'import', 'email', 'share', 'sms', 'notification', 'receipt'], default: 'manual' },
   // How it was paid, when known (a scanned cash receipt is 'cash').
@@ -573,8 +600,76 @@ const transactionSchema = new mongoose.Schema({
   feeFor: { type: String, default: '' },
   parseId:         { type: String, default: '' },   // ties the saved row to its parse
   dedupeGroupId:   { type: String, default: '' },   // shared with a merged auto-forward twin
+  // ── Round 6, Block 2b (brief 3.4 to 3.6): links, provenance and undo ───────
+  // Every LINK this transaction is part of, on both sides, so Transaction detail
+  // can explain itself without a second query and the user can undo any of it.
+  // `kind` is lib/txnLinks' own vocabulary; `createdBy` and `rule` are the
+  // brief's hard requirement that every link records who made it and why. The
+  // older single-purpose fields (transferPairId, reversalPairId, feeFor,
+  // cashParentId) are kept and still written: they are what the existing views
+  // read, and this array is the record of the decision behind them.
+  links: {
+    type: [new mongoose.Schema({
+      kind:      { type: String, enum: ['ownMove', 'reversal', 'refund', 'fee', 'cash'], required: true },
+      otherId:   { type: String, default: '' },     // the transaction on the other side
+      side:      { type: String, enum: ['from', 'to'], default: 'from' },
+      groupId:   { type: String, default: '' },     // shared by both sides of one link
+      createdBy: { type: String, enum: ['rule', 'user'], default: 'rule' },
+      rule:      { type: String, default: '' },     // which rule decided it
+      reason:    { type: String, default: '' },     // the words shown to the user
+      label:     { type: String, default: '' },     // e.g. "Moved to Kuda"
+      createdAt: { type: Date, default: Date.now },
+    }, { _id: true })],
+    default: [],
+  },
+  // Every OBSERVATION merged into this transaction: what each source said it saw,
+  // and by which ladder step and rule it was joined. The first entry is the record
+  // this transaction was created from. Keeping them is what makes "Not the same"
+  // an undo rather than a re-import.
+  mergedFrom: {
+    type: [new mongoose.Schema({
+      source:       { type: String, default: '' },
+      amountKobo:   { type: Number, default: 0 },
+      direction:    { type: String, enum: ['debit', 'credit', ''], default: '' },
+      eventTime:    { type: Date },
+      balanceAfterKobo: { type: Number, default: null },
+      reference:    { type: String, default: '' },
+      counterpartyRaw: { type: String, default: '' },
+      rawHash:      { type: String, default: '' },
+      raw:          { type: String, default: '' },
+      step:         { type: Number, default: null },   // which rung of the ladder joined it
+      rule:         { type: String, default: '' },
+      createdBy:    { type: String, enum: ['rule', 'user'], default: 'rule' },
+      addedAt:      { type: Date, default: Date.now },
+    }, { _id: true })],
+    default: [],
+  },
+  // An alert inside an imported statement's period that the statement itself does
+  // not show (brief 3.5, step 4). An unbacked CREDIT is the fake-alert shape, so
+  // this drives an urgent Action Center card rather than a quiet badge.
+  notOnStatement: { type: Boolean, default: false },
+  // This row was added by a statement import rather than seen as it happened.
+  addedFromStatement: { type: Boolean, default: false },
   // Set when the user confirms a low-confidence row in the Action Center.
   reviewedAt:      { type: Date },
+  // The category was the app's own best guess, never the user's answer (round 6,
+  // Block 4, rule 1: "guess first, ask last"). The row shows a Guessed dot and the
+  // totals say "Includes [n] guessed categories", so a guess is never passed off as
+  // a fact. Cleared the moment the user answers or edits the category.
+  categoryGuessed: { type: Boolean, default: false },
+  // The currency this row's `amount` is actually in, when it is not naira (13.8).
+  // A dollar-card charge keeps its own USD amount here; `amount` on an NGN row
+  // stays naira as always. heldAs.nairaAmount below is a separate, naira concept
+  // and is unaffected by this.
+  currency: { type: String, enum: ['NGN', 'USD'], default: 'NGN' },
+  // Set when a final charge replaced a hold (13.7): the hold's own amount, raw text
+  // and time, shown greyed on Transaction detail only. Never counted on its own -
+  // the hold itself was never a Transaction, so there is nothing else to exclude.
+  heldAs: {
+    amount:    { type: Number, default: null },
+    raw:       { type: String, default: '' },
+    eventTime: { type: Date, default: null },
+  },
 }, { timestamps: true });
 
 // Confirmed self-transfer routes (a pair of the user's own banks). Once a user
@@ -600,6 +695,27 @@ transactionSchema.pre('validate', function setChannel() {
 });
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
+// A hold the bank has not settled yet (13.7): "we reserved this much", not "this
+// moved". Deliberately NOT a Transaction - keeping it in its own collection is
+// what makes "a hold never counts toward any total" true by construction, instead
+// of depending on every aggregation remembering to filter pending rows out.
+// Resolved one of two ways: a matching final charge arrives within 7 days (its
+// heldAs is copied onto that Transaction and this row is deleted - lib/holds), or
+// nothing does, and the sweep in the hourly cron deletes it unseen.
+const holdObservationSchema = new mongoose.Schema({
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  amount:      { type: Number, required: true },
+  description: { type: String, default: '' },
+  raw:         { type: String, default: '' },
+  bank:        { type: String, default: '' },
+  bankCode:    { type: String, default: '' },
+  accountMask: { type: String, default: '' },
+  eventTime:   { type: Date, required: true },
+  source:      { type: String, default: 'sms' },
+}, { timestamps: true });
+holdObservationSchema.index({ userId: 1, eventTime: -1 });
+const HoldObservation = mongoose.model('HoldObservation', holdObservationSchema);
+
 // A distinct bank account the user has been seen transacting on (spec Addendum A,
 // slice 2). Keyed by (bankCode, accountMask); created the first time a transaction
 // fingerprints to a new pair, so the app can prompt "name this account" and later
@@ -619,6 +735,11 @@ const userAccountSchema = new mongoose.Schema({
   hidden:      { type: Boolean, default: false },   // user dismissed the naming prompt
   active:      { type: Boolean, default: true },     // false = deactivated (hidden from switcher + 'all' views, reversible)
   deleted:     { type: Boolean, default: false },    // user deleted it; kept so later alerts and imports don't bring it back
+  // Dollar card account (round 6, 13.8): its own currency. Funding it from naira is
+  // an internal_transfer; spending on it is Spending in dollars. Naira totals only
+  // ever include a dollar charge at the real rate the user paid for THOSE dollars -
+  // never a guessed or market rate (lib/dollarAccounts.effectiveRate).
+  currency:    { type: String, enum: ['NGN', 'USD'], default: 'NGN' },
 }, { timestamps: true });
 userAccountSchema.index({ userId: 1, bankCode: 1, accountMask: 1 }, { unique: true });
 userAccountSchema.pre('validate', function noChannelBank() {
@@ -651,6 +772,26 @@ const contactSchema = new mongoose.Schema({
 }, { timestamps: true });
 contactSchema.index({ userId: 1, key: 1 }, { unique: true });
 const Contact = mongoose.model('Contact', contactSchema);
+
+// Owed to me (13.6): "I lent this" on a transfer, or "Split this" on a bill. The
+// lent transaction itself is marked loan_out (Debt, out of spending totals - the
+// same idea as loan_in, just the other direction); this collection is only the
+// running balance and who it's with.
+const owedToMeSchema = new mongoose.Schema({
+  userId:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  transactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', required: true },
+  person:        { type: String, required: true },
+  contactKey:    { type: String, default: '' },
+  amount:        { type: Number, required: true, min: 0 },
+  repaid:        { type: Number, default: 0, min: 0 },
+  status:        { type: String, enum: ['open', 'settled', 'written_off'], default: 'open' },
+  lentAt:        { type: Date, required: true },
+  // The synthetic Gifts/Family & Friends expense row created on "Forget it" (O3),
+  // dated lentAt, so write-off is traceable and undoable the way cash-split rows are.
+  writeOffTxnId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', default: null },
+}, { timestamps: true });
+owedToMeSchema.index({ userId: 1, status: 1 });
+const OwedToMe = mongoose.model('OwedToMe', owedToMeSchema);
 
 // Learn-unknown-senders flywheel (spec Addendum A, slice 3). A sender ID the parser
 // couldn't map to a bank becomes an UnknownSender (one global doc per senderKey). As
@@ -921,11 +1062,9 @@ const ReconLog = mongoose.model('ReconLog', reconLogSchema);
 // categories (Transfer, Savings, Family & Friends), income, and the catch-alls are
 // excluded - a transfer key can be someone's name, which must never be shared. A
 // vote threshold on top of this means a one-off personal key can't reach consensus.
-const GLOBAL_ELIGIBLE_CATEGORIES = new Set([
-  'Food', 'Groceries', 'Transport', 'Fuel', 'Housing', 'Utilities', 'Airtime & Data',
-  'Shopping', 'Healthcare', 'Entertainment', 'Subscriptions', 'Education', 'Insurance',
-  'Bank Charges', 'ATM/POS',
-]);
+// round 6, Block 3: derived from constants/categories.js, the one catalogue, instead
+// of typed out a second time here - same membership, confirmed by categories.test.js.
+const GLOBAL_ELIGIBLE_CATEGORIES = new Set(require('./constants/categories').GLOBAL_ELIGIBLE);
 const globalEligible = (c) => GLOBAL_ELIGIBLE_CATEGORIES.has(c);
 // Category names hold spaces/&//, which are awkward as Mongo field keys - slug them.
 const catSlug = (c) => c.replace(/[^a-z0-9]+/gi, '_');
@@ -1172,7 +1311,11 @@ const subscriptionSchema = new mongoose.Schema({
   // 'cancelling' = the user started the assisted cancel flow; we watch the ledger to
   // confirm the charge actually stops (C1). cancelRequestedAt is the verification
   // baseline: any matching charge dated after it means the cancellation didn't take.
-  status:    { type: String, enum: ['active', 'cancelling', 'cancelled'], default: 'active' },
+  // 'stopped' = we noticed it: two missed cycles in a row with no new charge, so we
+  // moved it ourselves (13.12/section 12 edge cases). 'cancelled' is the user's own
+  // "I cancelled this" / assisted-cancel confirmation. Both read-only going forward
+  // except that either can go back to 'active' if a charge resumes.
+  status:    { type: String, enum: ['active', 'cancelling', 'cancelled', 'stopped'], default: 'active' },
   cancelRequestedAt: { type: Date },
   nextPayment: { type: Date },
   // Auto-linking: when a transaction is recognised as a subscription (import, email,
@@ -1187,12 +1330,70 @@ const subscriptionSchema = new mongoose.Schema({
   // nudge. No money moves: this only powers a "renews soon" notification.
   renewalDay:       { type: Number, min: 1, max: 31 },
   remindDaysBefore: { type: Number, default: 3, min: 0, max: 30 },
+  // "Renews tomorrow" switch (6.1/12's alert table). null = use the computed
+  // default (on for yearly or NGN 5,000+); an explicit true/false is the user's
+  // own choice from "Remind me before it renews" on the detail screen.
+  remindRenewal:    { type: Boolean, default: null },
   // Auto-detected from a charge we couldn't name (e.g. 'N FLX' we don't know): the
   // user is asked what it is. Cleared once they rename it.
   needsName: { type: Boolean, default: false },
+  // Short charge history (last 8), newest first, so GET /api/subscriptions can work
+  // out "Price up", "Charged twice" and renewal badges without re-scanning every
+  // transaction. A charge that matches an earlier one's amount within 3 days and has
+  // a matching reversal in between replaces that entry instead of adding a new one
+  // (a failed-then-retried charge is one charge, not two - section 12 edge cases).
+  recentCharges: {
+    type: [{ amount: Number, date: Date, description: String }],
+    default: [],
+  },
+  // 13.3: a recurring charge to a person/business that isn't a subscription (rent,
+  // school fees, ajo, family support) rides in this same collection (storage reuse,
+  // not a second catalogue), but is kept out of GET /api/subscriptions and the
+  // Subscriptions row in Coming up - it gets its own GET /api/regular-payments and
+  // its own Coming up row instead.
+  isRegularPayment: { type: Boolean, default: false },
 }, { timestamps: true });
 subscriptionSchema.index({ userId: 1, sourceKey: 1 });
 const Subscription = mongoose.model('Subscription', subscriptionSchema);
+
+// A card the user tapped "Skip for now" on (round 6, Block 4, rule 6). Skipping is
+// never punished: the card drops to the back of the queue and, if it is only a
+// category question, after 14 days it resolves to the best guess and leaves. One row
+// per card key, rewritten each time it is skipped again.
+const actionSkipSchema = new mongoose.Schema({
+  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  cardKey: { type: String, required: true },
+  at:      { type: Date, default: Date.now },
+}, { timestamps: true });
+actionSkipSchema.index({ userId: 1, cardKey: 1 }, { unique: true });
+const ActionSkip = mongoose.model('ActionSkip', actionSkipSchema);
+
+// A card the user has already answered. Card keys are deterministic (`own_move:<id>`,
+// `grouped_category:<merchant key>`), so one row per key is all it takes to make sure
+// a question is asked once and never again, for every card type at once, without a
+// separate "asked" flag on each model the questions come from.
+const actionAnswerSchema = new mongoose.Schema({
+  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  cardKey:  { type: String, required: true },
+  kind:     { type: String, default: '' },
+  answerId: { type: String, default: '' },
+  at:       { type: Date, default: Date.now },
+}, { timestamps: true });
+actionAnswerSchema.index({ userId: 1, cardKey: 1 }, { unique: true });
+const ActionAnswer = mongoose.model('ActionAnswer', actionAnswerSchema);
+
+// How many times this user has given the same answer about the same subject (round 6,
+// Block 4, rule 4: "the same answer twice for a name creates a rule automatically").
+// The user never has to ask for a rule, and the second answer is what proves it was
+// not a slip. `subject` is a merchant key, a contact key or a sender key.
+const answerTallySchema = new mongoose.Schema({
+  userId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  subject: { type: String, required: true },
+  answer:  { type: String, required: true },
+  count:   { type: Number, default: 0 },
+}, { timestamps: true });
+answerTallySchema.index({ userId: 1, subject: 1, answer: 1 }, { unique: true });
+const AnswerTally = mongoose.model('AnswerTally', answerTallySchema);
 
 // Detections the user dismissed as "not a subscription", so /detect stops resurfacing
 // them. Keyed by the same merchant signature the detector groups on.
@@ -1914,7 +2115,7 @@ async function mergeDuplicateSubscriptions(userId) {
 // keyed by the merchant signature. Never clobbers a user's edits: only auto-detected
 // rows are kept current from the ledger, and a service the user said is not a
 // subscription is never re-added. Fire-and-forget safe.
-async function maybeLinkSubscription(userId, { description, amount, category, date }) {
+async function maybeLinkSubscription(userId, { description, amount, category, date, bankName }) {
   if ((category || '').toString().trim().toLowerCase() !== 'subscriptions') return;
   const cost = Math.abs(Number(amount) || 0);
   if (!(cost > 0)) return;
@@ -1931,6 +2132,22 @@ async function maybeLinkSubscription(userId, { description, amount, category, da
     if (existing) {
       const patch = { lastCharge: when };
       if (existing.autoDetected) patch.cost = Math.round(cost); // keep auto ones current; respect edits
+      const history = Array.isArray(existing.recentCharges) ? existing.recentCharges.slice() : [];
+      const last = history[0];
+      // A failed-then-retried charge (same amount, within 3 days, a reversal sits
+      // between them) is one charge: replace the earlier entry rather than add a
+      // new one, so it never reads as "Charged twice" (S6).
+      let reversedRetry = false;
+      if (last && Math.round(Math.abs(last.amount)) === Math.round(cost) && Math.abs(when - new Date(last.date)) <= 3 * 86400000) {
+        reversedRetry = await Transaction.exists({
+          userId, type: 'reversal', amount: { $gte: cost - 0.5, $lte: cost + 0.5 },
+          date: { $gte: last.date, $lte: when },
+          ...(bankName ? { bank: bankName } : {}),
+        });
+      }
+      const entry = { amount: cost, date: when, description: (description || '').toString().slice(0, 80) };
+      patch.recentCharges = (reversedRetry ? history.slice(1) : history).slice(0, 7);
+      patch.recentCharges.unshift(entry);
       await Subscription.updateOne({ _id: existing._id }, { $set: patch });
       return;
     }
@@ -1938,6 +2155,7 @@ async function maybeLinkSubscription(userId, { description, amount, category, da
     await new Subscription({
       userId, name, cost: Math.round(cost), frequency: 'monthly', category: 'Subscriptions',
       status: 'active', autoDetected: true, sourceKey: key, lastCharge: when, needsName: !brand,
+      recentCharges: [{ amount: cost, date: when, description: (description || '').toString().slice(0, 80) }],
     }).save();
   } catch (e) { if (e && e.code !== 11000) console.error('[maybeLinkSubscription]', e.message); }
 }
@@ -2332,6 +2550,25 @@ app.get('/api/health', async (req, res) => {
   } catch { res.status(503).json({ status: 'Error', database: 'Disconnected' }); }
 });
 
+// Minimum/recommended app version and the signed remote parser rules (13.12).
+// Public: a client checks this before signing in, including on a build too old
+// to hold a valid session. Config values are env-driven so a version bump or a
+// new parser rule ships without a server redeploy; APP_MIN_VERSION unset means
+// nothing is ever blocked (never fail closed on a missing env var).
+const REMOTE_PARSER_RULES = require('./data/remoteParserRules.json');
+const rulesSigningSecret = () => process.env.RULES_SIGNING_SECRET || JWT_SECRET;
+app.get('/api/app-config', (req, res) => {
+  const minVersion = process.env.APP_MIN_VERSION || '';
+  const recommendedVersion = process.env.APP_RECOMMENDED_VERSION || '';
+  const catalogueVersion = Number(process.env.CATALOGUE_VERSION) || 1;
+  const payload = remoteRules.buildSignedPayload({
+    rulesVersion: REMOTE_PARSER_RULES.version || 1,
+    catalogueVersion,
+    rules: REMOTE_PARSER_RULES.rules || [],
+  }, rulesSigningSecret());
+  res.json({ minVersion, recommendedVersion, ...payload });
+});
+
 // Auth
 app.post('/api/register', authLimiter, async (req, res) => {
   try {
@@ -2560,6 +2797,7 @@ app.get('/api/me', auth, async (req, res) => {
     twoFactorEnabled: !!u.twoFactorEnabled,
     onboarded: !!u.onboarded, lastLogin: u.lastLogin || null,
     birthdayDay: u.birthdayDay || null, birthdayMonth: u.birthdayMonth || null, birthdayEmails: u.birthdayEmails !== false, audience: u.audience || '',
+    incomeProfile: u.incomeProfile || '',
     trainingOptOut: !!u.trainingOptOut,
     seenTips: u.seenTips || [],
   });
@@ -2730,7 +2968,7 @@ app.get('/api/billing/status', auth, async (req, res) => {
 // Update profile / onboarding fields
 app.put('/api/me', auth, async (req, res) => {
   try {
-    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, onboarded, twoFactorEnabled, birthdayDay, birthdayMonth, birthdayEmails, audience } = req.body;
+    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, onboarded, twoFactorEnabled, birthdayDay, birthdayMonth, birthdayEmails, audience, incomeProfile } = req.body;
     const u = req.user;
     // Birthday: both numbers together, a real date, or both empty to clear it.
     let birthdayChanged = false;
@@ -2745,6 +2983,7 @@ app.put('/api/me', auth, async (req, res) => {
     }
     if (birthdayEmails !== undefined) u.birthdayEmails = !!birthdayEmails;
     if (audience !== undefined) u.audience = ['student', 'corper'].includes(audience) ? audience : '';
+    if (incomeProfile !== undefined) u.incomeProfile = ['salaried', 'hustling'].includes(incomeProfile) ? incomeProfile : '';
     if (name !== undefined && name.trim()) u.name = name.trim();
     if (phone !== undefined) u.phone = phone.toString().slice(0, 20);
     if (monthlyIncome !== undefined) u.monthlyIncome = Math.max(0, parseFloat(monthlyIncome) || 0);
@@ -2754,7 +2993,7 @@ app.put('/api/me', auth, async (req, res) => {
     if (onboarded !== undefined) u.onboarded = !!onboarded;
     await u.save();
     if (birthdayChanged || birthdayEmails !== undefined) syncBirthdayToBrevo(u).catch(() => {});
-    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, twoFactorEnabled: u.twoFactorEnabled, onboarded: u.onboarded, birthdayDay: u.birthdayDay || null, birthdayMonth: u.birthdayMonth || null, birthdayEmails: u.birthdayEmails !== false, audience: u.audience || '' });
+    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, twoFactorEnabled: u.twoFactorEnabled, onboarded: u.onboarded, birthdayDay: u.birthdayDay || null, birthdayMonth: u.birthdayMonth || null, birthdayEmails: u.birthdayEmails !== false, audience: u.audience || '', incomeProfile: u.incomeProfile || '' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -3264,6 +3503,12 @@ app.get('/api/transactions', auth, async (req, res) => {
     // lean(): plain objects, no Mongoose document wrapping, which is most of the cost of returning
     // thousands of rows. The JSON the apps receive is the same.
     const transactions = await Transaction.find(query).sort({ [sortField]: sortOrder }).lean();
+    // round 6, Block 3 (5.3/5.4): a clean name alongside the raw description, so a
+    // client can stop showing "VAT"-as-raw-narration, "POS PUR 11 PLC FESTAC 23RD..."
+    // etc. (5.4) without needing its own copy of the match order. Additive only -
+    // `description` is unchanged and still the source for Transaction detail's
+    // "Original alert" (rule 4).
+    for (const t of transactions) t.cleanName = cleanName({ raw: t.description, type: t.type }).name;
     res.json(transactions);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -3306,7 +3551,7 @@ app.post('/api/transactions', auth, async (req, res) => {
   await transaction.save();
   rememberCategory(req.user._id, transaction.category, transaction.type === 'income' ? 'income' : 'expense');
   if (shared && bCode) { try { await touchUserAccount(req.user._id, { bankCode: bCode, bankName: bank || '', accountMask: bMask }, transaction.date); } catch { /* non-fatal */ } }
-  await maybeLinkSubscription(req.user._id, { description: transaction.description, amount: transaction.amount, category: transaction.category, date: transaction.date });
+  await maybeLinkSubscription(req.user._id, { description: transaction.description, amount: transaction.amount, category: transaction.category, date: transaction.date, bankName: bank });
   if (transaction.type === 'expense') {
     checkBudgetAlert(req.user._id, transaction.category, new Date(transaction.date).toISOString().slice(0, 7));
   }
@@ -4774,11 +5019,23 @@ const PendingAlert = mongoose.model('PendingAlert', pendingAlertSchema);
 // anonymised merchant key and the values, never the alert text.
 const correctionEventSchema = new mongoose.Schema({
   userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  kind:        { type: String, enum: ['category', 'merchant', 'direction', 'amount', 'not_transaction', 'confirmed'], required: true },
+  // Round 6, Block 2b adds the link and merge undos (brief 3.6): every undo is a
+  // correction, so the categoriser and the global consensus layer learn from a
+  // wrong link the same way they learn from a wrong category.
+  kind: {
+    type: String,
+    enum: ['category', 'merchant', 'direction', 'amount', 'not_transaction', 'confirmed',
+      'own_move', 'reversal', 'refund', 'fee', 'cash', 'link', 'merge'],
+    required: true,
+  },
   merchantKey: { type: String, default: '' },
   from:        { type: String, default: '' },
   to:          { type: String, default: '' },
   bankCode:    { type: String, default: '' },
+  // Who made the correction and what it overruled: 'rule' means the app had decided
+  // this for them, which is the signal worth learning from.
+  madeBy:      { type: String, enum: ['user', 'rule'], default: 'user' },
+  undoOf:      { type: String, enum: ['rule', 'user', ''], default: '' },
   createdAt:   { type: Date, default: Date.now, expires: 400 * 86400 },
 });
 correctionEventSchema.index({ createdAt: -1, kind: 1 });
@@ -4794,9 +5051,12 @@ async function holdForReview(userId, parsed, raw, source, reason) {
   try { await PendingAlert.create({ userId, source, raw: String(raw || '').slice(0, 1000), parsed: slimParsed(parsed), reason }); }
   catch (e) { console.error('[review-stack]', e.message); }
 }
-function logCorrection(userId, kind, { description = '', from = '', to = '', bankCode = '' } = {}) {
-  return CorrectionEvent.create({ userId, kind, merchantKey: deriveCategoryKey(description) || '', from: String(from).slice(0, 60), to: String(to).slice(0, 60), bankCode: String(bankCode || '').slice(0, 24) })
-    .catch((e) => console.error('[correction-log]', e.message));
+function logCorrection(userId, kind, { description = '', from = '', to = '', bankCode = '', madeBy = 'user', undoOf = '' } = {}) {
+  return CorrectionEvent.create({
+    userId, kind, merchantKey: deriveCategoryKey(description) || '',
+    from: String(from).slice(0, 60), to: String(to).slice(0, 60),
+    bankCode: String(bankCode || '').slice(0, 24), madeBy, undoOf,
+  }).catch((e) => console.error('[correction-log]', e.message));
 }
 async function isIgnoredByUser(userId, text) {
   const shape = alertShape(text);
@@ -4823,25 +5083,74 @@ async function linkFee(userId, fee) {
   } catch (e) { console.error('[link-fee]', e.message); }
 }
 
+// Record one more source on a transaction we already hold (brief 3.1 and 3.2): what
+// this source said it saw, and which rung of the ladder joined it. Keeping it is
+// what makes a merge explainable on Transaction detail and undoable from there.
+// Idempotent on the raw text, so the same delivery twice adds one entry, not two.
+async function attachObservation(userId, txnId, parsed, source, how) {
+  try {
+    const h = how || {};
+    const obs = observationLib.makeObservation({
+      source: source === 'import' ? 'statement' : source,
+      direction: parsed.type === 'income' ? 'credit' : 'debit',
+      amount: Math.abs(Number(parsed.amount) || 0),
+      eventTime: parsed.date,
+      balanceAfter: parsed.balance != null && parsed.balance !== '' ? parsed.balance : null,
+      reference: parsed.reference || parsed.sessionId || '',
+      bankReference: parsed.bankReference || '',
+      counterpartyRaw: parsed.description || '',
+      bank: parsed.bank || '', bankCode: parsed.bankCode || '', accountMask: parsed.accountMask || '',
+      raw: parsed.raw || '',
+    });
+    await Transaction.updateOne(
+      { _id: txnId, userId, 'mergedFrom.rawHash': { $ne: obs.rawHash || '__none__' } },
+      { $push: { mergedFrom: {
+        source: obs.source, amountKobo: obs.amountKobo, direction: obs.direction,
+        eventTime: new Date(obs.eventTime), balanceAfterKobo: obs.balanceAfterKobo,
+        reference: obs.reference || '', counterpartyRaw: (obs.counterpartyRaw || '').slice(0, 200),
+        rawHash: obs.rawHash || '', step: h.step != null ? h.step : null,
+        rule: h.rule || '', createdBy: 'rule', addedAt: new Date(),
+      } } },
+    );
+  } catch (e) { console.error('[attach-observation]', e.message); }
+}
+
 async function ingestAlert(user, parsed, source = 'email') {
+  // A hold the bank has not settled yet (13.7) is never a Transaction: record it
+  // separately and stop here. It is replaced when a matching final charge arrives
+  // (below) or dropped unseen after 7 days (the hourly cron's expireOldHolds).
+  if (holds.isHoldText(parsed.raw || parsed.description)) {
+    await new HoldObservation({
+      userId: user._id, amount: Math.abs(Number(parsed.amount) || 0),
+      description: parsed.description || '', raw: (parsed.raw || '').toString().slice(0, 1000),
+      bank: parsed.bank || '', bankCode: (parsed.bankCode || '').toString().toLowerCase().slice(0, 24),
+      accountMask: (parsed.accountMask || '').toString().replace(/\D/g, '').slice(0, 4),
+      eventTime: new Date(parsed.date), source,
+    }).save();
+    return 0;
+  }
   // A reference the bank stated is certain, whatever the amount and time look like:
   // the same session id or the same bank reference is the same transfer, however it
   // reached us (round 6, B6). Checked before the fuzzy fingerprint below.
   const refs = [...new Set([parsed.sessionId, parsed.bankReference, parsed.reference].filter(Boolean).map(String))];
+  const when = new Date(parsed.date);
   if (refs.length) {
     const seen = await Transaction.findOne({
       userId: user._id,
       $or: [{ reference: { $in: refs } }, { bankReference: { $in: refs } }],
     }).select('_id').lean();
-    if (seen) return 0;
+    // Brief 3.2, step 2: the same reference is a MERGE, not a drop. The alert still
+    // happened, and recording it as another source on the transaction it matched is
+    // what lets detail say where this came from and lets "Not the same" undo it.
+    // Dropping it silently, as this did, threw that evidence away.
+    if (seen) { await attachObservation(user._id, seen._id, parsed, source, { step: 2, rule: 'reference' }); return 0; }
   }
-  const when = new Date(parsed.date);
   const gte = new Date(when.getTime() - 86400000), lte = new Date(when.getTime() + 86400000);
   const existing = await Transaction.find({ userId: user._id, date: { $gte: gte, $lte: lte } })
     .select('amount type date bank description').lean();
   const fp = fingerprint({ amount: parsed.amount, type: parsed.type, date: parsed.date, bank: parsed.bank, description: parsed.description });
-  const dup = existing.some((e) => matchScore(fp, fingerprint({ amount: e.amount, type: e.type, date: new Date(e.date).toISOString().slice(0, 10), bank: e.bank, description: e.description })) >= MERGE);
-  if (dup) return 0;
+  const dupOf = existing.find((e) => matchScore(fp, fingerprint({ amount: e.amount, type: e.type, date: new Date(e.date).toISOString().slice(0, 10), bank: e.bank, description: e.description })) >= MERGE);
+  if (dupOf) { await attachObservation(user._id, dupOf._id, parsed, source, { step: 4, rule: 'window' }); return 0; }
   const signed = parsed.type === 'income' ? Math.abs(parsed.amount) : -Math.abs(parsed.amount);
   const kind = classifyKind({ type: parsed.type, description: parsed.description, category: parsed.category });
   let eCode = (parsed.bankCode || '').toString().toLowerCase().slice(0, 24);
@@ -4857,6 +5166,22 @@ async function ingestAlert(user, parsed, source = 'email') {
     const st = await resolveAccountStamp(user._id, eCode, eMask);
     if (st.merged) { eCode = st.bankCode; eMask = st.accountMask; eBank = st.bankName || eBank; }
   }
+  // A final charge may be settling an earlier hold (13.7): same account, the
+  // hold's amount or a little less, within 7 days. One match is resolved here;
+  // ties are never guessed at, so only an exact single candidate is taken.
+  let heldAs = null;
+  const holdCandidates = await HoldObservation.find({
+    userId: user._id, eventTime: { $gte: new Date(when.getTime() - holds.HOLD_WINDOW_DAYS * 86400000) },
+  }).lean();
+  const holdMatches = holdCandidates.filter((h) => holds.matchesFinal(
+    { amount: h.amount, bankCode: h.bankCode, accountMask: h.accountMask, eventTime: h.eventTime },
+    { amount: parsed.amount, bankCode: eCode, accountMask: eMask, eventTime: when },
+  ));
+  if (holdMatches.length === 1) {
+    const h = holdMatches[0];
+    heldAs = { amount: h.amount, raw: h.raw, eventTime: h.eventTime };
+    await HoldObservation.deleteOne({ _id: h._id });
+  }
   const saved = await new Transaction({
     userId: user._id, date: when, description: parsed.description, amount: signed,
     // An own move the receipt itself proved (sender and beneficiary both the user)
@@ -4869,11 +5194,37 @@ async function ingestAlert(user, parsed, source = 'email') {
     ...(parsed.confidence ? { parseConfidence: String(parsed.confidence).slice(0, 8) } : {}),
     ...(parsed.reference ? { reference: String(parsed.reference).slice(0, 60) } : {}),
     ...(parsed.bankReference ? { bankReference: String(parsed.bankReference).slice(0, 60) } : {}),
+    ...(heldAs ? { heldAs } : {}),
+    // The observation this transaction was built from (brief 3.1), so a second
+    // source arriving later has something to attach to and detail can always say
+    // where this came from.
+    mergedFrom: [(() => {
+      const o = observationLib.makeObservation({
+        source, direction: parsed.type === 'income' ? 'credit' : 'debit',
+        amount: Math.abs(Number(parsed.amount) || 0), eventTime: when,
+        balanceAfter: parsed.balance != null && parsed.balance !== '' ? parsed.balance : null,
+        reference: parsed.reference || parsed.sessionId || '', bankReference: parsed.bankReference || '',
+        counterpartyRaw: parsed.description || '', bank: eBank, bankCode: eCode, accountMask: eMask,
+        raw: parsed.raw || '',
+      });
+      return {
+        source: o.source, amountKobo: o.amountKobo, direction: o.direction,
+        eventTime: new Date(o.eventTime), balanceAfterKobo: o.balanceAfterKobo,
+        reference: o.reference || '', counterpartyRaw: (o.counterpartyRaw || '').slice(0, 200),
+        rawHash: o.rawHash || '', step: null, rule: 'first_source', createdBy: 'rule', addedAt: new Date(),
+      };
+    })()],
   }).save();
   queueNewTxn(user._id, saved, source);
   if (parsed.isFee) await linkFee(user._id, saved);
   await touchUserAccount(user._id, { bankCode: eCode, bankName: eBank, accountMask: eMask }, when);
   await maybeLinkSubscription(user._id, { description: parsed.description, amount: parsed.amount, category: parsed.category, date: when, bankName: eBank });
+  // Brief 3.4: the pair that the field note in this brief is about. A debit at one
+  // of the user's accounts and a credit at another, minutes apart, is one movement
+  // of money and has to be linked as it arrives, not left as two unrelated rows.
+  // Only a short window needs re-checking when a single alert lands.
+  try { await detectAndApplyLinks(user._id, { since: new Date(when.getTime() - 95 * 86400000) }); }
+  catch (e) { console.error('[ingest/links]', e.message); }
   return 1;
 }
 
@@ -5250,7 +5601,7 @@ async function actionCenterItems(userId) {
   const kept = new Set(keptRows.map((k) => k.pairKey));
   const notSenders = await dismissedSenderKeys(userId);
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const [pending, lowConf, dupes, unnamedSubs, detected, accounts, senders, sortCount, cashRows, overdueBills, overdueSubs] = await Promise.all([
+  const [pending, lowConf, dupes, unnamedSubs, detected, accounts, senders, sortCount, cashRows, overdueBills, overdueSubs, notOnStatement] = await Promise.all([
     PendingAlert.find({ userId }).sort({ createdAt: -1 }).limit(30).lean(),
     // Anything saved without the user seeing it that the rules weren't sure about.
     Transaction.find({ userId, reviewedAt: { $exists: false }, $or: [{ parseConfidence: 'low' }, { parseConfidence: 'medium', source: { $in: ['email', 'notification', 'sms'] } }] }).sort({ date: -1 }).limit(30).lean(),
@@ -5274,9 +5625,22 @@ async function actionCenterItems(userId) {
     ]),
     RecurringBill.countDocuments({ userId, status: { $ne: 'paused' }, nextDue: { $lt: todayStart } }),
     Subscription.countDocuments({ userId, status: 'active', nextPayment: { $lt: todayStart } }),
+    // Brief 3.5, step 4: an alert inside an imported statement's period that the
+    // statement itself does not show. For a CREDIT that is the known fake-alert
+    // shape, so it is listed first and asks the user to check with their bank.
+    Transaction.find({ userId, notOnStatement: true, reviewedAt: { $exists: false } })
+      .sort({ date: -1 }).limit(10).lean(),
   ]);
   const cash = cashRows[0];
   const items = [
+    // Urgent first: an alert the bank's own statement does not back up.
+    ...notOnStatement.map((t) => ({
+      type: 'not_on_statement', id: String(t._id), transaction: slimTxn(t),
+      urgent: t.type === 'income' || t.amount >= 0,
+      question: (t.type === 'income' || t.amount >= 0)
+        ? 'This credit alert is not on your statement. Check it with your bank before you spend it.'
+        : 'This alert is not on your statement.',
+    })),
     ...pending.map((p) => ({ type: 'review_alert', id: String(p._id), source: p.source, raw: (p.raw || '').slice(0, 400), parsed: p.parsed || {}, createdAt: p.createdAt })),
     ...lowConf.map((t) => ({ type: 'review_transaction', id: String(t._id), transaction: slimTxn(t) })),
     ...dupes.map(({ a, b, score }) => ({ type: 'possible_duplicate', id: pairKeyOf(a._id, b._id), score, first: slimTxn(a), second: slimTxn(b) })),
@@ -5383,6 +5747,660 @@ app.post('/api/action-center/keep-both', auth, async (req, res) => {
     await KeptPair.updateOne({ userId: req.user._id, pairKey: pairKeyOf(first, second) }, { $setOnInsert: { userId: req.user._id, pairKey: pairKeyOf(first, second) } }, { upsert: true });
     res.json({ ok: true });
   } catch (e) { if (e && e.code === 11000) return res.json({ ok: true }); res.status(500).json({ message: 'Server error' }); }
+});
+
+
+// ─── Action Center, as cards (round 6, Block 4) ─────────────────────────────────
+// The screen above this one was a long page of sections, each with its own buttons,
+// and the worst of it was raw alert text in editable fields: the user was handed the
+// parser's job (research section 14). What follows builds the SAME waiting work as a
+// queue of cards, one question each, and `lib/actionCards` decides the order, the
+// grouping, the copy and which questions are worth asking at all.
+//
+// Everything that cannot be answered in one tap is deliberately NOT a card. Naming a
+// subscription, for instance, needs typing, so it stays on the Subscriptions screen.
+
+const APPLE_BILLING = /\bapple(?:\s*\.?com)?(?:\s*\/?\s*bill)?\b|\bitunes\b|\bapp\s?store\b/i;
+
+// "[Day date] · [time] · [source]" (brief 4.2). One line, in that order, so the user
+// can place a transaction without opening it.
+const CARD_SOURCE = { email: 'Email alert', notification: 'Bank app', sms: 'Bank text', share: 'Shared receipt', import: 'Statement', receipt: 'Receipt', manual: 'Added by you' };
+function cardMeta(t) {
+  const d = new Date(t.date);
+  const day = d.toLocaleDateString('en-NG', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' });
+  // The date alone is all a statement row carries; inventing a time would be a lie,
+  // so the time is only shown when the row came from something that had one.
+  const timed = t.source && t.source !== 'import' && t.source !== 'manual';
+  const time = timed ? d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Lagos' }) : '';
+  return [day, time, CARD_SOURCE[t.source] || ''].filter(Boolean).join(' · ');
+}
+
+// The clean name to put on a card. Never the raw narration (rule 4 of this round).
+// round 6, Block 3 (5.3): this used to be its own small match order; it is now
+// lib/cleanName.js's one match order (user rule -> learned merchant -> catalogue ->
+// counterparty -> strip -> "Card payment"), the same function the Money list and
+// Transaction detail read, so a merchant is never named one way on a card and
+// another way everywhere else. A user's own merchant renames are not wired in here
+// yet - there is no per-user merchant-rename store to read from yet - so this call
+// site gets the catalogue/strip/fallback behaviour live today, and the explicit-
+// rename step (5.3's "the user's own rule") the moment that store exists.
+function cardName(t) {
+  return cleanName({ raw: t.description, type: t.type }).name;
+}
+
+/**
+ * Everything waiting, in the shape lib/actionCards.build() reads.
+ *
+ * One scan of recent transactions feeds most of the question types, rather than a
+ * query each: the questions all look at the same rows from different angles, and the
+ * Action Center is opened often enough that the difference matters.
+ */
+async function actionCardInput(user) {
+  const userId = user._id;
+  const range = monthRange();
+  const since = new Date(Date.now() - 180 * 86400000);
+
+  const keptRows = await KeptPair.find({ userId }, { pairKey: 1 }).lean();
+  const kept = new Set(keptRows.map((k) => k.pairKey));
+  const notSenders = await dismissedSenderKeys(userId);
+
+  const [rows, dupes, cashRows, senders, accounts, contacts, detected, learnedRows, answered, routes] = await Promise.all([
+    Transaction.find({ userId, date: { $gte: since } },
+      { date: 1, description: 1, amount: 1, type: 1, category: 1, categoryGuessed: 1, bank: 1, bankCode: 1,
+        accountMask: 1, source: 1, senderKey: 1, reviewedAt: 1, reference: 1, links: 1, notOnStatement: 1,
+        cashParentId: 1, cashAllocated: 1 })
+      .sort({ date: -1 }).limit(600).lean(),
+    findPossibleDuplicates(userId, kept),
+    Transaction.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(userId), type: 'cash_withdrawal', cashAllocated: { $ne: true }, date: { $gte: range.from } } },
+      { $group: { _id: null, count: { $sum: 1 }, total: { $sum: { $abs: '$amount' } }, ids: { $push: '$_id' } } },
+    ]),
+    Transaction.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(userId), senderKey: { $type: 'string', $ne: '', $nin: notSenders } } },
+      { $group: { _id: '$senderKey', count: { $sum: 1 }, sample: { $first: '$description' } } },
+      { $sort: { count: -1 } }, { $limit: 10 },
+    ]),
+    UserAccount.find({ userId, hidden: { $ne: true }, active: { $ne: false }, deleted: { $ne: true } }, { label: 1, bankName: 1, bankCode: 1, accountMask: 1 }).sort({ txnCount: -1 }).limit(8).lean(),
+    Contact.find({ userId, relationship: 'unknown', sentCount: { $gte: 1 } }, { key: 1, name: 1, sentTotal: 1, sentCount: 1, lastSeen: 1 }).sort({ sentTotal: -1 }).limit(10).lean(),
+    detectSubscriptions(userId).catch(() => []),
+    LearnedCategory.find({ userId }, { key: 1, category: 1 }).lean(),
+    ActionAnswer.find({ userId }, { cardKey: 1 }).lean(),
+    TransferRoute.find({ userId }, { routeKey: 1 }).lean(),
+  ]);
+
+  const answeredKeys = new Set(answered.map((a) => a.cardKey));
+  const learned = new Map(learnedRows.map((r) => [r.key, r.category]));
+  const popular = categorySuggest.popularCategories(rows);
+
+  // The approved global consensus for the merchant keys we are about to ask about.
+  const unsorted = rows.filter((t) => t.type === 'expense' && categorySuggest.isCatchAll(t.category) && !t.categoryGuessed);
+  const keys = [...new Set(unsorted.map((t) => deriveCategoryKey(t.description)).filter(Boolean))];
+  const consensus = new Map();
+  if (keys.length) {
+    const docs = await GlobalCategory.find({ key: { $in: keys }, status: 'approved' }, { key: 1, approvedCategory: 1 }).lean();
+    for (const d of docs) if (d.approvedCategory) consensus.set(d.key, d.approvedCategory);
+  }
+
+  const input = {
+    not_on_statement: [],
+    // No producer yet. A field conflict is resolved at merge time by lib/fieldWinners
+    // and lib/statementRecon.fieldConflictCard builds the card, but nothing persists
+    // the losing observation yet, so there is nothing to read back here. The card
+    // type, its copy and its tests are ready for when there is.
+    sources_disagree: [],
+    refund_match: [],
+    goal: [],               // no producer yet: needs savings-pocket detection
+    own_move: [],
+    same_as: [],
+    income: [],
+    loan: [],
+    ajo: [],
+    regular_payment: [],
+    category: [],
+    cash: [],
+    who_is_this: [],
+    subscription: [],
+    apple_service: [],
+    which_account: [],
+  };
+
+  // ── Category questions, and the Apple one that is a category question in disguise
+  for (const t of unsorted) {
+    const key = deriveCategoryKey(t.description);
+    const base = {
+      id: String(t._id), txnId: String(t._id), name: cardName(t), amount: Math.abs(t.amount),
+      meta: cardMeta(t), merchantKey: key || null, direction: 'expense',
+    };
+    if (APPLE_BILLING.test(t.description)) {
+      input.apple_service.push({ ...base, title: 'Apple' });
+      continue;
+    }
+    input.category.push({
+      ...base,
+      suggestions: categorySuggest.suggest({
+        ruleGuess: categorizeTransaction(t.description, 'expense'),
+        learned: key ? learned.get(key) : '',
+        global: key ? consensus.get(key) : '',
+        popular,
+      }),
+    });
+  }
+
+  // ── Own moves and refunds: the linker's own questions.
+  // detectAndApplyLinks (Block 2) already saves what the rules are sure about and
+  // returns, deliberately unapplied, "a pair the rules cannot vouch for". Those are
+  // exactly the cards this screen exists for, so they are read from the same rules
+  // rather than guessed at again here. detectLinks is the pure half: no writes on a
+  // screen open.
+  const byId = new Map(rows.map((t) => [String(t._id), t]));
+  const { ask: linkAsks } = detectLinks(rows, {
+    userName: user.name || '',
+    routeKeys: new Set(routes.map((r) => r.routeKey)),
+    feeTable: feeTableFromEnv(process.env),
+  });
+  const pairedIds = new Set();
+  for (const a of linkAsks) {
+    if (a.kind === 'ownMove') {
+      const debit = byId.get(String(a.fromId));
+      const credit = byId.get(String(a.toId));
+      if (!debit) continue;
+      pairedIds.add(String(a.fromId));
+      input.own_move.push({
+        id: String(a.fromId), txnId: String(a.fromId),
+        name: cardName(debit), amount: Math.abs(debit.amount), meta: cardMeta(debit),
+        title: a.label || cardName(debit),
+        // "Bank A → Bank B" circles (brief 4.2): the two accounts, named.
+        pair: credit ? { from: debit.bank || cardName(debit), to: credit.bank || cardName(credit) } : null,
+        otherId: credit ? String(a.toId) : null,
+        routeKey: a.routeKey || null,
+      });
+    }
+    if (a.kind === 'refund_which') {
+      const credit = byId.get(String(a.creditId));
+      if (!credit) continue;
+      input.refund_match.push({
+        id: String(a.creditId), txnId: String(a.creditId),
+        name: cardName(credit), amount: Math.abs(credit.amount), meta: cardMeta(credit),
+        candidates: (a.choices || []).map((c) => ({
+          id: String(c.transactionId),
+          label: `${cardName(c)} on ${new Date(c.date).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })}`,
+        })),
+      });
+    }
+  }
+
+  // The one-sided case the pair rule cannot see: a debit that names the user or an
+  // untracked wallet with no credit anywhere to pair it with (behaviour matrix rows 3
+  // and 5). Rows the pair rule already asked about, and rows that are already linked,
+  // are left alone so the same movement is never two questions.
+  const trackedWallets = accounts.map((a) => a.bankName || a.bankCode).filter(Boolean);
+  for (const t of rows) {
+    if (t.type !== 'expense') continue;
+    const key = String(t._id);
+    if (pairedIds.has(key)) continue;
+    if ((t.links || []).some((l) => l.kind === 'ownMove')) continue;
+    const verdict = behaviourMatrix.classify(
+      { direction: 'debit', amountKobo: Math.round(Math.abs(t.amount) * 100), description: t.description, counterpartyClean: cardName(t), category: t.category },
+      { userName: user.name || '', trackedWallets },
+    );
+    if (!verdict.ask || verdict.ask.type !== 'ownMove') continue;
+    input.own_move.push({
+      id: key, txnId: key, name: cardName(t), amount: Math.abs(t.amount),
+      meta: cardMeta(t), title: verdict.shownAs || cardName(t),
+      pair: t.bank ? { from: t.bank, to: cardName(t) } : null,
+    });
+  }
+
+  // ── Not on your statement (brief 3.5 step 4): an alert inside an imported
+  // statement's period that the statement itself does not show. An unbacked CREDIT is
+  // the fake-alert shape, which is why this is the one card that pushes.
+  for (const t of rows) {
+    if (!t.notOnStatement || t.type !== 'income') continue;
+    input.not_on_statement.push({
+      id: String(t._id), txnId: String(t._id), name: cardName(t),
+      amount: Math.abs(t.amount), bank: t.bank || 'bank', meta: cardMeta(t),
+    });
+  }
+
+  // ── Credits that change what the app says someone can spend: a loan is not income,
+  // and an allowance that repeats IS income and turns safe-to-spend on (B4).
+  const credits = rows.filter((t) => t.type === 'income');
+  for (const t of credits) {
+    const verdict = behaviourMatrix.classify(
+      { direction: 'credit', amountKobo: Math.round(Math.abs(t.amount) * 100), description: t.description, counterpartyClean: cardName(t), category: t.category },
+      { userName: user.name || '' },
+    );
+    if (verdict.ask && verdict.ask.type === 'loan') {
+      input.loan.push({ id: String(t._id), txnId: String(t._id), name: cardName(t), amount: Math.abs(t.amount), meta: cardMeta(t) });
+    }
+  }
+  // Income is asked once, about the sender, not once per payment: a repeating credit
+  // from one name across two or more months, and only while no income is set.
+  if (!(user.monthlyIncome > 0)) {
+    const bySender = new Map();
+    for (const t of credits) {
+      const key = deriveCategoryKey(t.description) || cardName(t).toLowerCase();
+      if (!key) continue;
+      const g = bySender.get(key) || { key, rows: [], months: new Set() };
+      g.rows.push(t);
+      g.months.add(new Date(t.date).toISOString().slice(0, 7));
+      bySender.set(key, g);
+    }
+    const best = [...bySender.values()].filter((g) => g.months.size >= 2)
+      .sort((a, b) => Math.abs(b.rows[0].amount) - Math.abs(a.rows[0].amount))[0];
+    if (best) {
+      input.income.push({
+        id: best.key, name: cardName(best.rows[0]), amount: Math.abs(best.rows[0].amount),
+        months: best.months.size, meta: cardMeta(best.rows[0]), txnIds: best.rows.map((r) => String(r._id)),
+      });
+    }
+  }
+
+  // ── Ajo: the same amount sent to the same person twice. Savings, not spending, and
+  // the single most common thing a Nigerian budgeting app files wrongly.
+  const byPerson = new Map();
+  for (const t of rows) {
+    if (t.type !== 'expense') continue;
+    const cp = extractCounterparty(t.description);
+    if (!cp || !cp.name) continue;
+    const k = `${contactKey(cp)}|${Math.abs(t.amount)}`;
+    if (!byPerson.has(k)) byPerson.set(k, { name: cp.name, contactKey: contactKey(cp), amount: Math.abs(t.amount), rows: [] });
+    byPerson.get(k).rows.push(t);
+  }
+  for (const g of byPerson.values()) {
+    if (g.rows.length < 2) continue;
+    input.ajo.push({ id: `${g.contactKey}:${g.amount}`, name: g.name, amount: g.amount, meta: cardMeta(g.rows[0]), txnIds: g.rows.map((r) => String(r._id)), contactKey: g.contactKey });
+  }
+
+  // ── Duplicates: "Is this the same as ...?" (brief 4.3 priority 2)
+  for (const { a, b } of dupes) {
+    input.same_as.push({
+      id: pairKeyOf(a._id, b._id), firstId: String(a._id), secondId: String(b._id),
+      title: cardName(b), name: cardName(b), amount: Math.abs(a.amount), direction: a.type,
+      time: new Date(a.date).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Lagos' }),
+      meta: cardMeta(b),
+    });
+  }
+
+  // ── Cash: one card for the period's unlogged withdrawals, with the tiles it offers.
+  const cashRow = cashRows[0];
+  if (cashRow && cashRow.total > 0) {
+    input.cash.push({
+      id: 'cash', amount: Math.round(cashRow.total), count: cashRow.count,
+      txnIds: (cashRow.ids || []).map(String), period: range.label,
+      meta: range.label, tiles: CASH_TILES,
+    });
+  }
+
+  // ── Recurring charges. A known brand is a subscription question; anything else is
+  // a regular payment (rent, school fees, a monthly transfer home), which is a
+  // different question with a different answer (13.3).
+  for (const d of detected) {
+    const item = { id: d.key, detectionKey: d.key, name: d.name, amount: d.cost, months: d.occurrences, lastSeen: d.lastSeen, meta: `About ${d.occurrences} months` };
+    if (brandFor(d.name)) input.subscription.push(item);
+    else input.regular_payment.push(item);
+  }
+
+  // ── Who is this? Asked once per person, and it is what turns a wall of "Transfer"
+  // rows into Family, Friends and Work.
+  for (const c of contacts) {
+    input.who_is_this.push({ id: c.key, contactKey: c.key, name: c.name || 'This person', amount: c.sentCount > 1 ? null : c.sentTotal, meta: c.sentCount > 1 ? `${c.sentCount} transfers` : '' });
+  }
+
+  // ── Which account? One answer files every future alert from the same sender.
+  const accountAnswers = accounts.map((a) => ({ id: String(a._id), label: a.label || a.bankName || a.bankCode }));
+  for (const s of senders) {
+    const guess = s._id === UNKNOWN_SENDER ? null : guessBank(s._id);
+    const ordered = guess ? [...accountAnswers].sort((x, y) => (y.label === guess.name ? 1 : 0) - (x.label === guess.name ? 1 : 0)) : accountAnswers;
+    input.which_account.push({
+      id: s._id, senderKey: s._id,
+      label: s._id === UNKNOWN_SENDER ? 'Alerts with no sender name' : s._id,
+      count: s.count, sample: (s.sample || '').slice(0, 200),
+      accounts: ordered, guessed: !!guess, meta: `${s.count} alert${s.count === 1 ? '' : 's'}`,
+    });
+  }
+
+  // A question is asked once. Everything already answered is dropped here, by card
+  // key, so no producer above needs its own "asked" flag.
+  for (const kind of Object.keys(input)) {
+    input[kind] = input[kind].filter((it) => {
+      const key = `${kind}:${it.merchantKey || it.detectionKey || it.contactKey || it.senderKey || it.id}`;
+      return !answeredKeys.has(key);
+    });
+  }
+  return input;
+}
+
+// The category tiles the cash card offers, with the amount field each one takes.
+// Everyday cash, in the order a withdrawal usually goes.
+const CASH_TILES = ['Food', 'Transport', 'Groceries', 'Airtime & Data', 'Family & Friends', 'Other'];
+
+// Build the queue: the input above, the user's skips, and the module's own rules.
+async function actionCardQueue(user, { kinds = null } = {}) {
+  const [input, skipRows] = await Promise.all([
+    actionCardInput(user),
+    ActionSkip.find({ userId: user._id }, { cardKey: 1, at: 1 }).lean(),
+  ]);
+  const skips = Object.fromEntries(skipRows.map((r) => [r.cardKey, r.at]));
+  const built = actionCards.build(input, { skips, kinds });
+  // Rule 1 and rule 6: anything the module decided not to ask about is filed as its
+  // best guess and MARKED, so a guess is never passed off as the user's answer. Done
+  // here rather than on the next write, because the row has to read "Guessed" the
+  // moment it stops being a question.
+  if (built.autoResolve.length) applyGuesses(user._id, built.autoResolve).catch((e) => console.error('[action-cards/guess]', e.message));
+  return built;
+}
+
+// File the guesses: set the category only where the user has not chosen one, and mark
+// the row as guessed. Never touches a row the user has answered or edited.
+async function applyGuesses(userId, resolutions) {
+  const ops = [];
+  for (const r of resolutions) {
+    if (!r.category) continue;
+    for (const id of r.txnIds || []) {
+      ops.push({
+        updateOne: {
+          filter: { _id: id, userId, category: { $in: ['', 'Other', 'Other Income'] } },
+          update: { $set: { category: r.category, categoryGuessed: true } },
+        },
+      });
+    }
+  }
+  if (ops.length) await Transaction.bulkWrite(ops, { ordered: false });
+}
+
+// Home asks for these counts on every open, and building the queue runs the linker
+// over six months of rows. A short per-user memo keeps repeated opens cheap; the
+// Action Center screen itself always builds a fresh queue, and any answer clears the
+// memo, so Home is never more than a few seconds behind the screen.
+const cardMemo = new Map();
+const CARD_MEMO_MS = 20000;
+async function actionCardQueueCached(user) {
+  const key = String(user._id);
+  const hit = cardMemo.get(key);
+  if (hit && Date.now() - hit.at < CARD_MEMO_MS) return hit.built;
+  const built = await actionCardQueue(user);
+  if (cardMemo.size > 2000) cardMemo.clear();
+  cardMemo.set(key, { at: Date.now(), built });
+  return built;
+}
+
+// The queue. `?kinds=category,grouped_category` is how Money's "N need a category
+// [Sort them]" opens it filtered (brief 4.1).
+app.get('/api/action-center/cards', auth, async (req, res) => {
+  try {
+    const kinds = String(req.query.kinds || '').split(',').map((k) => k.trim()).filter(Boolean);
+    // ?summary=1 is the badge: the counts without the cards. It reads the same memo
+    // Home does, so a badge and a Home line are never two different numbers.
+    if (req.query.summary === '1') {
+      const built = await actionCardQueueCached(req.user);
+      const b = built.counts.byPriority;
+      return res.json({
+        counts: built.counts,
+        // Priority 4 never shows a badge (brief 4.5): "Who is Ada?" is not something
+        // to put a number on a navigation item for.
+        total: b[1] + b[2] + b[3],
+        badge: actionCards.interruptions(built.counts).badge,
+      });
+    }
+    const { cards, counts, segments } = await actionCardQueue(req.user, { kinds: kinds.length ? kinds : null });
+    const heldAlerts = await PendingAlert.countDocuments({ userId: req.user._id });
+    res.json({
+      cards, counts, segments,
+      // Not part of the queue, and not a card: the count is here only so the end of
+      // the queue can offer the way in to them.
+      heldAlerts,
+      period: monthRange().label,
+      home: actionCards.homeLine(counts, monthRange().label),
+      interruptions: actionCards.interruptions(counts),
+    });
+  } catch (e) { console.error('[action-center/cards]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// One answer. The card carries what it acts on, so this route only has to do what the
+// answer means and record that the question is settled.
+//   { key, kind, answerId, applyRule, category, amounts }
+app.post('/api/action-center/answer', auth, async (req, res) => {
+  try {
+    const { key = '', kind = '', answerId = '', applyRule = false, category = '', amounts = null, targets = {} } = req.body || {};
+    if (!key || !kind || !answerId) return res.status(400).json({ message: 'Missing the answer.' });
+    if (!actionCards.KINDS.includes(kind)) return res.status(400).json({ message: 'Unknown question.' });
+
+    const userId = req.user._id;
+    const own = async (ids) => {
+      const list = (Array.isArray(ids) ? ids : []).filter((id) => mongoose.isValidObjectId(id));
+      if (!list.length) return [];
+      const rows = await Transaction.find({ _id: { $in: list }, userId }, { _id: 1, description: 1, category: 1 }).lean();
+      return rows;
+    };
+    const txnIds = Array.isArray(targets.txnIds) ? targets.txnIds : [];
+    let rule = null;
+
+    switch (kind) {
+      case 'category':
+      case 'grouped_category':
+      case 'apple_service': {
+        // "Something else" is not an answer, it is a request for the picker, so the
+        // client sends the chosen category back with it.
+        const chosen = answerId.startsWith('cat:') ? answerId.slice(4) : (answerId === 'other' ? String(category || '') : APPLE_CATEGORY[answerId] || String(category || ''));
+        if (!chosen) return res.status(400).json({ message: 'Pick a category.' });
+        const rows = await own(txnIds);
+        if (!rows.length) return res.status(404).json({ message: 'Already handled.' });
+        await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { category: chosen, categoryGuessed: false, reviewedAt: new Date() } });
+        await logCorrection(userId, 'category', { description: rows[0].description, from: rows[0].category, to: chosen });
+        // Rule 4: the second same answer for a name makes the rule, and the user is
+        // told, not asked. A ticked box on the card makes it on the first answer.
+        rule = await tallyAnswer(userId, targets.merchantKey || deriveCategoryKey(rows[0].description), `cat:${chosen}`, { force: !!applyRule });
+        if (rule) await learnCategories(userId, rows.map((r) => ({ description: r.description, category: chosen })));
+        break;
+      }
+      case 'own_move': {
+        const rows = await own(txnIds);
+        if (!rows.length) return res.status(404).json({ message: 'Already handled.' });
+        if (answerId === 'mine') {
+          // An own move is neither income nor spending: that is the whole point of
+          // giving it its own type rather than a category.
+          await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { type: 'internal_transfer', reviewedAt: new Date() } });
+          rule = await tallyAnswer(userId, targets.merchantKey || deriveCategoryKey(rows[0].description), 'own_move:mine', { force: !!applyRule });
+        } else {
+          await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { reviewedAt: new Date() } });
+        }
+        break;
+      }
+      case 'same_as': {
+        const [first, second] = txnIds;
+        if (answerId === 'same') {
+          // Brief 3.6: the merge has to be undoable, and deleting the copy outright
+          // (which is what this did) made that impossible, whatever the old comment
+          // claimed. The copy's evidence moves onto the transaction that is kept, so
+          // "Not the same" on detail can split it back out.
+          const copy = await Transaction.findOne({ _id: second, userId })
+            .select('mergedFrom source channel amount type date description bank bankCode accountMask reference').lean();
+          if (copy) {
+            const carried = (copy.mergedFrom && copy.mergedFrom.length ? copy.mergedFrom : [{
+              source: statementRecon.observationSourceOf(copy),
+              amountKobo: Math.round(Math.abs(copy.amount) * 100),
+              direction: copy.amount >= 0 ? 'credit' : 'debit',
+              eventTime: copy.date, counterpartyRaw: copy.description || '',
+              reference: copy.reference || '', rawHash: '',
+            }]).map((s) => Object.assign({}, s, {
+              _id: undefined, step: 5, rule: 'same_as_confirmed_by_user',
+              createdBy: 'user', addedAt: new Date(),
+            }));
+            await Transaction.updateOne({ _id: first, userId }, { $push: { mergedFrom: { $each: carried } } });
+            await Transaction.deleteOne({ _id: second, userId });
+            await logCorrection(userId, 'merge', {
+              description: copy.description || '', from: 'two_transactions', to: 'merged',
+              bankCode: copy.bankCode || '', madeBy: 'user', undoOf: 'rule',
+            });
+          }
+        } else if (first && second) {
+          await KeptPair.updateOne({ userId, pairKey: pairKeyOf(first, second) }, { $setOnInsert: { userId, pairKey: pairKeyOf(first, second) } }, { upsert: true });
+        }
+        break;
+      }
+      case 'income': {
+        if (answerId === 'yes') {
+          const rows = await own(txnIds);
+          const amount = Math.abs(Number(req.body.amount) || 0);
+          if (amount > 0) await User.updateOne({ _id: userId }, { $set: { monthlyIncome: amount } });
+          if (rows.length) await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { category: 'Salary', categoryGuessed: false } });
+        }
+        break;
+      }
+      case 'loan': {
+        const rows = await own(txnIds);
+        if (answerId === 'loan' && rows.length) {
+          // Borrowed money is not income. 'loan_in' is counted in neither total.
+          await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { type: 'loan_in', reviewedAt: new Date() } });
+        } else if (rows.length) {
+          await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { reviewedAt: new Date() } });
+        }
+        break;
+      }
+      case 'ajo': {
+        const rows = await own(txnIds);
+        if (answerId === 'ajo' && rows.length) {
+          await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { category: 'Savings', categoryGuessed: false } });
+          if (targets.contactKey) await Contact.updateOne({ userId, key: targets.contactKey }, { $set: { category: 'Savings' } });
+          rule = { made: true, label: 'ajo' };
+        }
+        break;
+      }
+      case 'who_is_this': {
+        if (answerId === 'skip') break;
+        const map = { family: 'family', friend: 'friend', work: 'business' };
+        if (targets.contactKey && map[answerId]) await Contact.updateOne({ userId, key: targets.contactKey }, { $set: { relationship: map[answerId] } });
+        break;
+      }
+      case 'subscription':
+      case 'regular_payment': {
+        if (answerId === 'yes') {
+          await Subscription.updateOne(
+            { userId, sourceKey: targets.detectionKey || subscriptionKey(targets.name || '') },
+            { $setOnInsert: { userId, name: targets.name || 'Subscription', cost: Math.abs(Number(targets.amount) || 0), frequency: 'monthly', category: kind === 'subscription' ? 'Subscriptions' : 'Housing', lastCharge: targets.lastSeen || null, sourceKey: targets.detectionKey || subscriptionKey(targets.name || ''), isRegularPayment: kind === 'regular_payment' } },
+            { upsert: true },
+          );
+        } else if (targets.detectionKey) {
+          await DismissedDetection.updateOne({ userId, key: targets.detectionKey }, { $setOnInsert: { userId, key: targets.detectionKey, name: targets.name || '' } }, { upsert: true });
+        }
+        break;
+      }
+      case 'which_account': {
+        if (answerId.startsWith('account:')) {
+          const account = await UserAccount.findOne({ _id: answerId.slice(8), userId }, { bankCode: 1, bankName: 1 }).lean();
+          if (!account) return res.status(404).json({ message: 'Account not found.' });
+          await SenderTag.updateOne({ userId, senderKey: targets.senderKey }, { $set: { bankCode: account.bankCode, bankName: account.bankName } }, { upsert: true });
+          // The answer applies to every alert that sender has ever sent (rule 4).
+          await Transaction.updateMany({ userId, senderKey: targets.senderKey }, { $set: { bank: account.bankName || '', bankCode: account.bankCode, senderKey: '' } });
+          rule = { made: true, label: targets.senderKey };
+        } else if (answerId === 'cash') {
+          await Transaction.updateMany({ userId, senderKey: targets.senderKey }, { $set: { paymentMethod: 'cash', senderKey: '' } });
+        }
+        break;
+      }
+      case 'cash': {
+        // The one card that is not a single tap: a withdrawal usually became three or
+        // four different things, so the answer is a set of category/amount pairs, and
+        // "Leave the rest" is a complete answer.
+        const parts = Array.isArray(amounts) ? amounts.filter((a) => a && a.category && Number(a.amount) > 0) : [];
+        if (answerId === 'save' && parts.length) {
+          const parent = (await Transaction.findOne({ _id: txnIds[0], userId }, { date: 1 }).lean()) || null;
+          if (!parent) return res.status(404).json({ message: 'Already handled.' });
+          // The spending is dated to the withdrawal, not to the moment the user
+          // answered: the money left the account that day, and dating it today would
+          // move spending into the wrong month every time someone logs late.
+          const docs = parts.map((p) => ({
+            userId, date: parent.date, description: `Cash: ${p.category}`, amount: -Math.abs(Number(p.amount)),
+            category: p.category, type: 'expense', source: 'manual', paymentMethod: 'cash', cashParentId: String(parent._id),
+          }));
+          await Transaction.insertMany(docs);
+        }
+        // Either answer stops the app asking about these withdrawals again.
+        if (txnIds.length) await Transaction.updateMany({ _id: { $in: txnIds }, userId }, { $set: { cashAllocated: true } });
+        break;
+      }
+      default:
+        // not_on_statement, sources_disagree, refund_match and goal have no producer
+        // yet (they need the Observation model from Block 2), so an answer to one can
+        // only arrive from a client built against a future server. Record it rather
+        // than failing, so nothing is lost.
+        break;
+    }
+
+    await ActionAnswer.updateOne({ userId, cardKey: key }, { $set: { kind, answerId, at: new Date() } }, { upsert: true });
+    await ActionSkip.deleteOne({ userId, cardKey: key });
+    actionMemo.delete(String(userId));
+    cardMemo.delete(String(userId));
+    res.json({ ok: true, rule: rule || null });
+  } catch (e) { console.error('[action-center/answer]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Which Apple service maps to which category. "An app" is a one-off purchase, not a
+// subscription, which is the distinction the card exists to make.
+const APPLE_CATEGORY = { icloud: 'Subscriptions', music: 'Subscriptions', app: 'Shopping' };
+
+/**
+ * Count an answer and make the rule on the second one (rule 4).
+ * Returns { made, label } when a rule now exists, else null, so the client can show
+ * "Done. We'll do this every time. Change".
+ */
+async function tallyAnswer(userId, subject, answer, { force = false } = {}) {
+  if (!subject) return null;
+  const row = await AnswerTally.findOneAndUpdate(
+    { userId, subject, answer },
+    { $inc: { count: 1 } },
+    { upsert: true, new: true },
+  );
+  if (force || row.count >= 2) return { made: true, label: subject, count: row.count };
+  return null;
+}
+
+// Alerts the parser could not read. They are deliberately NOT cards: we do not know
+// the amount or even whether money moved, so there is no one-tap question to ask
+// (research section 14 names raw editable fields inside the Action Center as a rule
+// break). They cannot be dropped either - one of them may be a real transaction - so
+// they have their own screen, reached from the end of the queue.
+app.get('/api/pending-alerts', auth, async (req, res) => {
+  try {
+    const rows = await PendingAlert.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(50).lean();
+    res.json({
+      total: rows.length,
+      items: rows.map((p) => ({ id: String(p._id), source: p.source, raw: (p.raw || '').slice(0, 400), parsed: p.parsed || {}, createdAt: p.createdAt })),
+    });
+  } catch (e) { console.error('[pending-alerts]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// "Skip for now". The card drops to the back of the queue; a category question that
+// stays skipped for 14 days resolves to its best guess and leaves (rule 6). Skipping
+// is never punished and never counted against the user.
+app.post('/api/action-center/skip', auth, async (req, res) => {
+  try {
+    const key = String(req.body?.key || '');
+    if (!key) return res.status(400).json({ message: 'Missing the card.' });
+    await ActionSkip.updateOne({ userId: req.user._id, cardKey: key }, { $set: { at: new Date() } }, { upsert: true });
+    cardMemo.delete(String(req.user._id));
+    res.json({ ok: true });
+  } catch (e) { console.error('[action-center/skip]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Undo (brief 4.4: every answer shows "Saved. Undo" for 10 seconds). Reopening the
+// question is what undo means here: the row's own change is reversed by the client
+// calling this and then answering differently, or from Transaction detail.
+app.post('/api/action-center/reopen', auth, async (req, res) => {
+  try {
+    const key = String(req.body?.key || '');
+    if (!key) return res.status(400).json({ message: 'Missing the card.' });
+    const gone = await ActionAnswer.findOneAndDelete({ userId: req.user._id, cardKey: key });
+    if (gone && gone.answerId) {
+      // The tally must not remember an answer that was taken back, or two undone
+      // taps would quietly make a rule.
+      await AnswerTally.updateOne({ userId: req.user._id, subject: key.split(':').slice(1).join(':'), answer: gone.answerId }, { $inc: { count: -1 } });
+    }
+    actionMemo.delete(String(req.user._id));
+    cardMemo.delete(String(req.user._id));
+    res.json({ ok: true });
+  } catch (e) { console.error('[action-center/reopen]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // ─── Background capture ─────────────────────────────────────────────────────────
@@ -5574,6 +6592,15 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     // The channel (statement upload, or alerts scanned / pasted) is metadata; older
     // apps send it as the bank ("SMS"), which must never become a bank name.
     const channel = channelFor({ channel: req.body.channel, source: 'import', bank });
+    // The balances the preview step read off the statement, so the balance gate
+    // (brief 3.5, step 1) can run here too rather than only in the preview. A client
+    // that sends neither is not failed: the gate says plainly it could not check.
+    const num = (v) => (v == null || v === '' || isNaN(Number(v)) ? null : Number(v));
+    const opening = num(req.body.openingBalance);
+    const closing = num(req.body.closingBalance);
+    // Which of the user's accounts this file covers, when the preview resolved it.
+    const batchBankCode = (req.body.bankCode || '').toString().toLowerCase().slice(0, 24);
+    const batchAccountMask = (req.body.accountMask || '').toString().replace(/\D/g, '').slice(0, 4);
     let valid = transactions.filter(t => t.date && t.amount && t.description && t.type);
     if (valid.length === 0) return res.status(400).json({ message: 'All transactions are missing required fields' });
     // Alert rows carry their text: anything that isn't a transaction (OTP, promo,
@@ -5601,28 +6628,95 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     //     drop only near-certain duplicates (matchScore >= 85, amount exact +
     //     direction mandatory). Ambiguous rows are kept, so a real transaction is
     //     never deleted. This is what makes SMS + statement + Mono not triple-count.
+    //
+    // Round 6, brief 3.5 changes what layer 2 does. It used to DROP a row that
+    // matched something already saved, which kept the count right and threw the
+    // evidence away: the statement's own record of a transaction we had only ever
+    // seen by SMS was lost, and nothing said why the row had vanished. Now a
+    // matched row is RECONCILED, as another source on the transaction it matched,
+    // with the ladder step and rule that joined them recorded so the user can see
+    // it on Transaction detail and undo it. Only genuinely new rows are inserted.
     const keyOf = (d, amt, desc) => `${new Date(d).toISOString().slice(0, 10)}|${Math.round(Math.abs(amt))}|${(desc || '').trim().toLowerCase()}`;
-    const isoDay = (d) => new Date(d).toISOString().slice(0, 10);
     const times = valid.map(t => +new Date(t.date)).filter(n => !isNaN(n));
-    let existingFps = [];
+    // Intra-batch exact repeats collapse first, exactly as before.
+    const seen = new Set();
+    const oncePerBatch = [];
+    for (const t of valid) {
+      const k = keyOf(t.date, t.amount, t.description);
+      if (seen.has(k)) continue;
+      seen.add(k); oncePerBatch.push(t);
+    }
+
+    let existingRows = [];
     if (times.length) {
       const gte = new Date(Math.min(...times) - 86400000);
       const lte = new Date(Math.max(...times) + 86400000);
-      const existing = await Transaction.find({ userId: req.user._id, date: { $gte: gte, $lte: lte } })
-        .select('date amount description type bank').lean();
-      existingFps = existing.map(e => fingerprint({ amount: e.amount, type: e.type, date: isoDay(e.date), bank: e.bank, description: e.description }));
+      existingRows = await Transaction.find({ userId: req.user._id, date: { $gte: gte, $lte: lte } })
+        .select('date amount description type bank bankCode accountMask source channel reference bankReference category').lean();
     }
-    const seen = new Set();
-    const fresh = [];
-    for (const t of valid) {
-      const k = keyOf(t.date, t.amount, t.description);
-      if (seen.has(k)) continue;                                            // intra-batch exact repeat
-      const fp = fingerprint({ amount: t.amount, type: t.type, date: isoDay(t.date), bank: t.bank || bankLabel, description: t.description });
-      if (existingFps.some(efp => matchScore(fp, efp) >= MERGE)) continue;  // cross-source duplicate already on file
-      seen.add(k); fresh.push(t);
+    // The hybrid parser has already produced the rows and the balances; this only
+    // decides what matches what, and it asks the merge ladder, not a second opinion.
+    const recon = statementRecon.reconcileStatement({
+      parsed: { transactions: oncePerBatch, openingBalance: opening, closingBalance: closing },
+      existing: existingRows,
+      bank: bankLabel, bankCode: batchBankCode, accountMask: batchAccountMask,
+      importedAt,
+    });
+    // A file that does not add up is not imported at all: the gap is named and the
+    // user is offered another file (brief 3.5, step 1). Rows we know to be wrong are
+    // worse than no rows.
+    if (recon.rejected) {
+      try { await ReconLog.create({ userId: req.user._id, bank: bankLabel, source: channel || 'statement', checked: true, ok: false, difference: recon.gate.reconcile.difference, rows: oncePerBatch.length }); } catch { /* logging only */ }
+      return res.status(422).json({
+        message: recon.gate.detail, count: 0, skipped: 0, rejected: true,
+        action: recon.gate.action || 'Try another file',
+        reconcile: recon.gate.reconcile,
+      });
     }
-    const skipped = valid.length - fresh.length;
-    if (fresh.length === 0) return res.json({ message: `Skipped ${skipped} duplicate(s) - nothing new to import.`, count: 0, skipped, summary: { added: 0, needsReview: 0, duplicates: skipped, fees: 0, notTransactions, transfers: 0 } });
+
+    // Attach each matched row to the transaction it matched, as another source.
+    let reconciled = 0;
+    for (const m of recon.matched) {
+      if (m.dropped) continue;                                   // the same row twice in one file
+      try {
+        const obs = statementRecon.rowObservation(Object.assign({}, m.row, { _rowIndex: 0 }), { bank: bankLabel, bankCode: batchBankCode, accountMask: batchAccountMask, importedAt });
+        const added = await Transaction.updateOne(
+          { _id: m.transactionId, userId: req.user._id, 'mergedFrom.rawHash': { $ne: obs.rawHash || '__none__' } },
+          { $push: { mergedFrom: {
+            source: 'statement', amountKobo: obs.amountKobo, direction: obs.direction,
+            eventTime: new Date(obs.eventTime), balanceAfterKobo: obs.balanceAfterKobo,
+            reference: obs.reference || '', counterpartyRaw: obs.counterpartyRaw || '',
+            rawHash: obs.rawHash || '', step: m.step, rule: m.rule, createdBy: 'rule',
+            addedAt: importedAt,
+          } } },
+        );
+        if (added.modifiedCount) reconciled++;
+      } catch (e) { console.error('[import/reconcile-row]', e.message); }
+    }
+
+    // An alert inside the period that the statement does not show. An unbacked
+    // CREDIT is the fake-alert shape, so this is the urgent card, not a badge.
+    if (recon.missing.length) {
+      try {
+        await Transaction.updateMany(
+          { _id: { $in: recon.missing.map((m) => m.transactionId) }, userId: req.user._id },
+          { $set: { notOnStatement: true } },
+        );
+      } catch (e) { console.error('[import/not-on-statement]', e.message); }
+    }
+
+    const fresh = recon.added;
+    const skipped = oncePerBatch.length - fresh.length;
+    if (fresh.length === 0) {
+      const msg = reconciled
+        ? `Nothing new: ${reconciled} row(s) matched transactions you already had.`
+        : `Skipped ${skipped} duplicate(s) - nothing new to import.`;
+      return res.json({
+        message: msg, count: 0, skipped, reconciled,
+        notOnStatement: recon.missing.length, needsLook: recon.ask,
+        summary: { added: 0, needsReview: 0, duplicates: skipped, reconciled, fees: 0, notTransactions, transfers: 0 },
+      });
+    }
 
     // Learn-unknown-senders (Addendum A slice 3): for rows the parser couldn't map
     // to a bank but that carry a sender ID, try the learning layer (the user's own
@@ -5694,7 +6788,24 @@ app.post('/api/import-transactions', auth, async (req, res) => {
         accountMask: (t.accountMask || '').toString().replace(/\D/g, '').slice(0, 4),
         senderKey: (t.senderKey || '').toString().slice(0, 24), // unresolved sender (slice 3)
         // Rows the parser flagged stay in the ledger but wait in the Action Center for a look.
-        ...(t.needsReview ? { parseConfidence: 'low' } : {}),
+        ...(t.needsReview || t._needsReview ? { parseConfidence: 'low' } : {}),
+        // Brief 3.5, step 3: a row nothing matched is new money, and the list says
+        // where it came from rather than leaving the user to work it out.
+        ...(channel === 'statement' || channel === 'import' ? { addedFromStatement: true } : {}),
+        // The observation this row was created from, so the merge that may later
+        // attach a second source has a first source to attach to, and splitting it
+        // back apart stays possible (brief 3.1 and 3.6).
+        mergedFrom: [{
+          source: channel === 'sms' ? 'sms' : 'statement',
+          amountKobo: Math.round(Math.abs(Number(t.amount) || 0) * 100),
+          direction: t.type === 'income' ? 'credit' : 'debit',
+          eventTime: new Date(t.date),
+          balanceAfterKobo: t.balance != null && t.balance !== '' && !isNaN(Number(t.balance)) ? Math.round(Number(t.balance) * 100) : null,
+          reference: (t.reference || '').toString().slice(0, 64),
+          counterpartyRaw: (t.description || '').toString().slice(0, 200),
+          rawHash: '',
+          step: null, rule: 'added_from_statement', createdBy: 'rule', addedAt: importedAt,
+        }],
       });
     });
     const inserted = await Transaction.insertMany(docs, { ordered: false });
@@ -5741,6 +6852,15 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     // be present). Never let a reconcile error fail the import.
     let transfersFound = 0;
     try { transfersFound = (await reconcileTransfers(req.user._id)).classified; } catch (e) { console.error('[import/reconcile]', e.message); }
+    // Run every linking rule over the fresh picture (brief 3.4): the charges on a
+    // transfer, a reversal, a refund, a move between the user's own accounts, and
+    // the cash already logged. The pairs the rules cannot vouch for come back as
+    // questions rather than being decided quietly.
+    let linksFound = 0, linkAsk = [];
+    try {
+      const r = await detectAndApplyLinks(req.user._id, {});
+      linksFound = r.applied.length; linkAsk = r.ask;
+    } catch (e) { console.error('[import/links]', e.message); }
     // Capture training data from this review (accepted + edited rows that carry
     // `_parse` metadata). Fire-and-forget: never blocks or fails the import.
     logParseCorrections(req.user, valid);
@@ -5754,18 +6874,29 @@ app.post('/api/import-transactions', auth, async (req, res) => {
     }
     // The import summary: "42 transactions added, 3 need a quick look, 2 duplicates
     // skipped, 5 fees found".
-    const needsReview = fresh.filter((t) => t.needsReview).length;
+    const needsReview = fresh.filter((t) => t.needsReview || t._needsReview).length;
     const feesFound = fresh.filter((t) => t.isFee || t.category === 'Bank Charges').length;
     const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
     const parts = [`${plural(inserted.length, 'transaction', 'transactions')} added`];
+    // Brief 3.5: a row that matched something we already had is RECONCILED, not
+    // skipped, and the summary says so. "2 duplicates skipped" was never the truth.
+    if (reconciled) parts.push(`${plural(reconciled, 'row', 'rows')} matched what you already had`);
     if (needsReview) parts.push(`${needsReview} need${needsReview === 1 ? 's' : ''} a quick look`);
-    if (skipped) parts.push(`${plural(skipped, 'duplicate', 'duplicates')} skipped`);
+    if (skipped > reconciled) parts.push(`${plural(skipped - reconciled, 'duplicate', 'duplicates')} skipped`);
     if (feesFound) parts.push(`${plural(feesFound, 'fee', 'fees')} found`);
+    if (recon.missing.length) parts.push(`${plural(recon.missing.length, 'alert is', 'alerts are')} not on your statement`);
     if (notTransactions) parts.push(`${plural(notTransactions, 'message', 'messages')} that weren't transactions left out`);
     return res.json({
       message: parts.join(', ') + '.',
-      count: inserted.length, skipped, transfersFound,
-      summary: { added: inserted.length, needsReview, duplicates: skipped, fees: feesFound, notTransactions, transfers: transfersFound },
+      count: inserted.length, skipped, transfersFound, reconciled,
+      linksFound, needsLook: (recon.ask || []).concat(linkAsk),
+      notOnStatement: recon.missing,
+      verified: recon.gate.verified, checkedDetail: recon.gate.detail,
+      summary: {
+        added: inserted.length, needsReview, duplicates: Math.max(0, skipped - reconciled),
+        reconciled, fees: feesFound, notTransactions, transfers: transfersFound,
+        links: linksFound, notOnStatement: recon.missing.length,
+      },
     });
   } catch (error) {
     if (error.result) return res.json({ message: `Imported ${error.result.nInserted} transaction(s).`, count: error.result.nInserted });
@@ -5932,6 +7063,78 @@ app.post('/api/accounts/:id/restore', auth, async (req, res) => {
   } catch (e) { console.error('[accounts/restore]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// A dollar card funding (13.8): the naira actually paid for the dollars actually
+// received, on one specific top-up. This is the ONLY source of a conversion rate
+// anywhere in the app for that account - never a market or guessed rate. Recorded
+// by hand for now: automatically deriving it from an own-move link (debit NGN,
+// credit USD, section 3.4) is real surface area in server.js another session is
+// mid-edit on, and is left for whichever session builds that link.
+const dollarFundingSchema = new mongoose.Schema({
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  accountId:   { type: mongoose.Schema.Types.ObjectId, ref: 'UserAccount', required: true },
+  nairaAmount: { type: Number, required: true, min: 0 },
+  usdAmount:   { type: Number, required: true, min: 0 },
+  date:        { type: Date, required: true },
+}, { timestamps: true });
+dollarFundingSchema.index({ userId: 1, accountId: 1, date: -1 });
+const DollarFunding = mongoose.model('DollarFunding', dollarFundingSchema);
+
+async function requireDollarAccount(req, res) {
+  const acct = await UserAccount.findOne({ _id: req.params.id, userId: req.user._id, currency: 'USD' });
+  if (!acct) res.status(404).json({ message: 'Dollar account not found' });
+  return acct;
+}
+
+app.post('/api/dollar-accounts/:id/fundings', auth, async (req, res) => {
+  try {
+    const acct = await requireDollarAccount(req, res);
+    if (!acct) return;
+    const nairaAmount = Number(req.body?.nairaAmount);
+    const usdAmount = Number(req.body?.usdAmount);
+    if (!(nairaAmount > 0) || !(usdAmount > 0)) return res.status(400).json({ message: 'Enter both the naira paid and the dollars received.' });
+    const date = req.body?.date ? new Date(req.body.date) : new Date();
+    const funding = await new DollarFunding({ userId: req.user._id, accountId: acct._id, nairaAmount, usdAmount, date }).save();
+    res.json({ ok: true, funding, rate: dollarAccounts.effectiveRate([{ nairaAmount, usdAmount, date }]) });
+  } catch (e) { console.error('[dollar-accounts/fundings]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.get('/api/dollar-accounts/:id/fundings', auth, async (req, res) => {
+  try {
+    const acct = await requireDollarAccount(req, res);
+    if (!acct) return;
+    const fundings = await DollarFunding.find({ userId: req.user._id, accountId: acct._id }).sort({ date: -1 }).lean();
+    res.json({ fundings, rate: dollarAccounts.effectiveRate(fundings) });
+  } catch (e) { console.error('[dollar-accounts/fundings]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Naira total for this dollar account's spending this period, at the real rate
+// only - a charge with no known-rate funding stays out of the naira figure and is
+// reported back separately (13.8). Query: ?month=YYYY-MM, defaults to this month.
+app.get('/api/dollar-accounts/:id/totals', auth, async (req, res) => {
+  try {
+    const acct = await requireDollarAccount(req, res);
+    if (!acct) return;
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : new Date().toISOString().slice(0, 7);
+    const from = new Date(`${month}-01T00:00:00.000Z`);
+    const to = new Date(from.getFullYear(), from.getUTCMonth() + 1, 1);
+    const [fundings, charges] = await Promise.all([
+      DollarFunding.find({ userId: req.user._id, accountId: acct._id }).lean(),
+      Transaction.find({
+        userId: req.user._id, currency: 'USD', type: 'expense',
+        bankCode: acct.bankCode, accountMask: acct.accountMask,
+        date: { $gte: from, $lt: to },
+      }).select('amount description date').lean(),
+    ]);
+    const entries = charges.map((c) => ({ usdAmount: Math.abs(c.amount), fundings }));
+    const totals = dollarAccounts.totalsWithDollar(entries);
+    const rows = charges.map((c) => ({
+      description: c.description, date: c.date,
+      ...dollarAccounts.describeDollarCharge(Math.abs(c.amount), fundings),
+    }));
+    res.json({ month, rate: dollarAccounts.effectiveRate(fundings), rows, ...totals });
+  } catch (e) { console.error('[dollar-accounts/totals]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // --------------------------
 // People & Family ledger
 // --------------------------
@@ -6039,6 +7242,108 @@ app.post('/api/contacts/rebuild', auth, async (req, res) => {
     const count = await rebuildContacts(req.user._id, req.user.name);
     res.json({ ok: true, contacts: count });
   } catch (e) { console.error('[contacts/rebuild]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// --------------------------
+// Owed to me (13.6): "I lent this" on any transfer to a person. Lent money is Debt,
+// not spending - the transfer itself is marked loan_out so it drops out of the
+// spending total the same way loan_in already drops out of the income total.
+// --------------------------
+const owedOut = (r) => ({
+  id: r._id, transactionId: r.transactionId, person: r.person, contactKey: r.contactKey || '',
+  amount: Math.round(r.amount), repaid: Math.round(r.repaid || 0),
+  remaining: Math.round(Math.max(0, r.amount - (r.repaid || 0))),
+  status: r.status, lentAt: r.lentAt,
+});
+
+app.get('/api/owed-to-me', auth, async (req, res) => {
+  try {
+    const rows = await OwedToMe.find({ userId: req.user._id }).sort({ lentAt: -1 }).lean();
+    const open = rows.filter((r) => r.status === 'open');
+    const people = new Set(open.map((r) => r.contactKey || r.person));
+    res.json({
+      records: rows.map(owedOut),
+      totalOwed: Math.round(open.reduce((s, r) => s + Math.max(0, r.amount - (r.repaid || 0)), 0)),
+      peopleCount: people.size,
+    });
+  } catch (e) { console.error('[owed-to-me/list]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// "I lent this" on a transfer: the transfer is Debt (loan_out), not spending.
+app.post('/api/owed-to-me', auth, async (req, res) => {
+  try {
+    const { transactionId, person, amount } = req.body || {};
+    const t = await Transaction.findOne({ _id: transactionId, userId: req.user._id });
+    if (!t) return res.status(404).json({ message: 'Transaction not found' });
+    const cp = extractCounterparty(t.description);
+    const lentAmount = Math.abs(Number(amount) || t.amount);
+    const rec = owedToMeLib.lendRecord({ transactionId: t._id, person: (person || cp?.name || 'Someone').toString().trim().slice(0, 80), amount: lentAmount, date: t.date });
+    const row = await OwedToMe.create({ userId: req.user._id, ...rec, contactKey: cp ? contactKey(cp) : '' });
+    t.type = 'loan_out';
+    t.reviewedAt = new Date();
+    await t.save();
+    res.status(201).json(owedOut(row));
+  } catch (e) { console.error('[owed-to-me/create]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// "Split this" on a bill: the user's own share stays spending (the transaction is
+// untouched); everyone else's share becomes a receivable, same as a direct lend,
+// without a transaction of their own to point at (there isn't one - they didn't
+// pay anything yet). A lighter record than a real lend: no transactionId to mark
+// loan_out, since splitting doesn't reduce what the user themself spent.
+app.post('/api/owed-to-me/split', auth, async (req, res) => {
+  try {
+    const { transactionId, shares } = req.body || {};
+    const t = await Transaction.findOne({ _id: transactionId, userId: req.user._id });
+    if (!t) return res.status(404).json({ message: 'Transaction not found' });
+    const list = Array.isArray(shares) ? shares.filter((s) => s && s.person && Number(s.amount) > 0) : [];
+    if (!list.length) return res.status(400).json({ message: 'Give at least one share.' });
+    const rows = await OwedToMe.insertMany(list.map((s) => ({
+      userId: req.user._id, transactionId: t._id,
+      person: s.person.toString().trim().slice(0, 80), contactKey: '',
+      amount: Math.round(Number(s.amount)), repaid: 0, status: 'open', lentAt: t.date,
+    })));
+    res.status(201).json(rows.map(owedOut));
+  } catch (e) { console.error('[owed-to-me/split]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// A credit that looks like a payback (within 90 days, <= what's owed) is suggested
+// client-side from this same list; this route applies it (one tap), full or partial.
+app.post('/api/owed-to-me/:id/payback', auth, async (req, res) => {
+  try {
+    const row = await OwedToMe.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!row) return res.status(404).json({ message: 'Not found' });
+    const { amount, creditTransactionId } = req.body || {};
+    const result = owedToMeLib.applyPayback(row, Number(amount) || 0);
+    row.repaid = result.repaid;
+    row.status = result.status;
+    await row.save();
+    if (creditTransactionId) {
+      await Transaction.updateOne({ _id: creditTransactionId, userId: req.user._id }, { $set: { type: 'debt_repayment', reviewedAt: new Date() } });
+    }
+    res.json(owedOut(row));
+  } catch (e) { console.error('[owed-to-me/payback]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// "Forget it": the remainder becomes spending, dated the original lend date, under
+// the closest category this app actually has to "Gifts and events" - Family &
+// Friends (constants/categories.js has no Gifts/events category to invent one).
+app.post('/api/owed-to-me/:id/write-off', auth, async (req, res) => {
+  try {
+    const row = await OwedToMe.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!row) return res.status(404).json({ message: 'Not found' });
+    const result = owedToMeLib.writeOff(row);
+    if (result.remaining > 0) {
+      const txn = await Transaction.create({
+        userId: req.user._id, date: row.lentAt, description: `Forgiven: ${row.person}`,
+        amount: -Math.abs(result.remaining), type: 'expense', category: 'Family & Friends', source: 'manual',
+      });
+      row.writeOffTxnId = txn._id;
+    }
+    row.status = result.status;
+    await row.save();
+    res.json(owedOut(row));
+  } catch (e) { console.error('[owed-to-me/write-off]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // --------------------------
@@ -6375,7 +7680,7 @@ app.get('/api/subscriptions', auth, async (req, res) => {
   try {
     const uid = req.user._id;
     try { await mergeDuplicateSubscriptions(uid); } catch (e) { console.error('[subs/merge]', e.message); }
-    const subs = await Subscription.find({ userId: uid }).sort({ createdAt: -1 }).lean();
+    const subs = await Subscription.find({ userId: uid, isRegularPayment: { $ne: true } }).sort({ createdAt: -1 }).lean();
     const cancelling = subs.filter((s) => s.status === 'cancelling' && s.cancelRequestedAt);
     let txns = [];
     if (cancelling.length) {
@@ -6397,12 +7702,39 @@ app.get('/api/subscriptions', auth, async (req, res) => {
       }
       // Ready-computed next renewal date so clients don't re-implement the date math.
       const nextRenewal = s.status === 'active' ? computeNextRenewal(s) : null;
-      return { ...s, guide, cancelCheck, nextRenewal };
+      // Badges (6.1): price up/down, charged twice, renews tomorrow default, not
+      // charged this month. recentCharges is newest-first; [0] is the current charge.
+      const history = Array.isArray(s.recentCharges) ? s.recentCharges : [];
+      let priceChange = null;
+      if (history.length >= 2) {
+        const [curr, prev] = history;
+        const currPlan = subscriptionSignals.planFromNarration(curr.description);
+        const prevPlan = subscriptionSignals.planFromNarration(prev.description);
+        if (currPlan && prevPlan && subscriptionSignals.isPlanRename(prevPlan, currPlan, curr.date)) {
+          priceChange = { type: 'renamed', to: currPlan };
+        } else {
+          priceChange = subscriptionSignals.priceChangeBadge(prev.amount, curr.amount);
+        }
+      }
+      const chargedTwiceThisMonth = history.length >= 2 && subscriptionSignals.chargedTwice(
+        history.filter((h) => new Date(h.date).toISOString().slice(0, 7) === new Date().toISOString().slice(0, 7)).map((h) => h.date),
+      );
+      const renewsTomorrow = s.status === 'active' && nextRenewal
+        && new Date(nextRenewal).toDateString() === new Date(Date.now() + 86400000).toDateString()
+        && subscriptionSignals.effectiveRemindRenewal(s);
+      const notChargedThisMonth = s.status === 'active' && subscriptionSignals.notChargedThisMonth(s);
+      return { ...s, guide, cancelCheck, nextRenewal, priceChange, chargedTwice: chargedTwiceThisMonth, renewsTomorrow, notChargedThisMonth };
     });
-    // Persist confirmed cancellations so we stop re-checking them.
+    // Persist confirmed cancellations, and move anything two cycles overdue to
+    // Stopped automatically (section 12 edge cases: "two missed cycles... Stopped").
+    const stop = out.filter((s) => s.status === 'active' && subscriptionSignals.shouldStop(s)).map((s) => s._id);
     if (promote.length) {
       try { await Subscription.updateMany({ _id: { $in: promote }, userId: uid }, { $set: { status: 'cancelled' } }); } catch (e) { console.error('[subs/promote]', e.message); }
       for (const s of out) if (promote.some((id) => String(id) === String(s._id))) s.status = 'cancelled';
+    }
+    if (stop.length) {
+      try { await Subscription.updateMany({ _id: { $in: stop }, userId: uid, status: 'active' }, { $set: { status: 'stopped' } }); } catch (e) { console.error('[subs/stop]', e.message); }
+      for (const s of out) if (stop.some((id) => String(id) === String(s._id))) s.status = 'stopped';
     }
     res.json(out); // array shape preserved; clients gate on plan / billing status
   } catch (e) { console.error('[subscriptions]', e.message); res.status(500).json({ message: 'Server error' }); }
@@ -6465,6 +7797,76 @@ app.get('/api/subscriptions/detect', auth, async (req, res) => {
   try { res.json(await detectSubscriptions(req.user._id)); }
   catch (e) { console.error('[subscriptions/detect]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
+
+// Regular payments (13.3): rent, school fees, ajo, family support, loan repayments -
+// recurring charges to a person or business that are not a known subscription
+// brand. Stored in the same Subscription collection (isRegularPayment: true) so
+// there is one detector and one "track this" upsert path, not a second catalogue,
+// but kept out of GET /api/subscriptions and its Coming-up row.
+app.get('/api/regular-payments/detect', auth, async (req, res) => {
+  try {
+    const all = await detectSubscriptions(req.user._id);
+    res.json(all.filter((d) => !brandFor(d.name)));
+  } catch (e) { console.error('[regular-payments/detect]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.get('/api/regular-payments', auth, async (req, res) => {
+  try {
+    const now = new Date();
+    const rows = await Subscription.find({ userId: req.user._id, isRegularPayment: true }).sort({ createdAt: -1 }).lean();
+    const out = rows.map((r) => ({
+      ...r,
+      // "Not paid yet this month" (in-app only, never a push) once the expected date
+      // is more than 5 days past.
+      missed: r.status === 'active' && regularPaymentsLib.missedBadge(r.nextPayment, now),
+      // Big yearly/termly payments show a monthly tracking line ("About NGN X a
+      // month gets you there"); monthly ones have nothing to track toward.
+      trackingPerMonth: r.frequency === 'yearly' ? regularPaymentsLib.trackingLine(r.cost, r.frequency) : null,
+      reminderLeadDays: regularPaymentsLib.reminderLeadDays(r.frequency),
+    }));
+    res.json(out);
+  } catch (e) { console.error('[regular-payments/list]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+// Added by hand: "Rent, NGN 600,000, every year, next on 1 March."
+app.post('/api/regular-payments', auth, async (req, res) => {
+  try {
+    const { name, amount, frequency, nextDue, category } = req.body;
+    if (!name || !amount) return res.status(400).json({ message: 'Name and amount required' });
+    const freq = frequency === 'yearly' ? 'yearly' : 'monthly';
+    const nextPayment = nextDue ? new Date(nextDue) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const renewalDay = !isNaN(nextPayment) ? nextPayment.getDate() : undefined;
+    const row = new Subscription({
+      userId: req.user._id, name, cost: parseFloat(amount), frequency: freq,
+      category: category || 'Housing', status: 'active', nextPayment, renewalDay,
+      isRegularPayment: true,
+    });
+    await row.save();
+    res.status(201).json(row);
+  } catch (e) { console.error('[regular-payments/create]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.put('/api/regular-payments/:id', auth, async (req, res) => {
+  try {
+    const row = await Subscription.findOne({ _id: req.params.id, userId: req.user._id, isRegularPayment: true });
+    if (!row) return res.status(404).json({ message: 'Not found' });
+    const { name, amount, frequency, status, nextDue, remindDaysBefore } = req.body;
+    if (name !== undefined) row.name = name;
+    if (amount !== undefined) row.cost = parseFloat(amount);
+    if (frequency !== undefined) row.frequency = frequency === 'yearly' ? 'yearly' : 'monthly';
+    if (status !== undefined) row.status = status;
+    if (nextDue !== undefined) { const d = new Date(nextDue); if (!isNaN(d)) { row.nextPayment = d; row.renewalDay = d.getDate(); } }
+    if (remindDaysBefore !== undefined) row.remindDaysBefore = Math.max(0, Math.min(30, Number(remindDaysBefore) || 0));
+    await row.save();
+    res.json(row);
+  } catch (e) { console.error('[regular-payments/update]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.delete('/api/regular-payments/:id', auth, async (req, res) => {
+  try {
+    const row = await Subscription.findOneAndDelete({ _id: req.params.id, userId: req.user._id, isRegularPayment: true });
+    const key = row && (row.sourceKey || subscriptionKey(row.name));
+    if (key) await DismissedDetection.updateOne({ userId: req.user._id, key }, { $setOnInsert: { userId: req.user._id, key } }, { upsert: true }).catch(() => {});
+    res.json({ message: 'Deleted' });
+  } catch (e) { console.error('[regular-payments/delete]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 app.post('/api/subscriptions', auth, async (req, res) => {
   try {
     const { name, cost, frequency, category, remindDaysBefore } = req.body;
@@ -6499,13 +7901,14 @@ app.put('/api/subscriptions/:id', auth, async (req, res) => {
   try {
     const sub = await Subscription.findOne({ _id: req.params.id, userId: req.user._id });
     if (!sub) return res.status(404).json({ message: 'Not found' });
-    const { name, cost, frequency, category, status, renewalDay, remindDaysBefore } = req.body;
+    const { name, cost, frequency, category, status, renewalDay, remindDaysBefore, remindRenewal } = req.body;
     if (name !== undefined) { sub.name = name; sub.needsName = false; }
     if (cost !== undefined) sub.cost = parseFloat(cost);
     if (frequency !== undefined) sub.frequency = frequency;
     if (category !== undefined) sub.category = category;
     if (status !== undefined) sub.status = status;
     if (remindDaysBefore !== undefined) sub.remindDaysBefore = Math.max(0, Math.min(30, Number(remindDaysBefore) || 0));
+    if (remindRenewal !== undefined) sub.remindRenewal = remindRenewal === null ? null : !!remindRenewal;
     if (renewalDay !== undefined) {
       const rd = Number(renewalDay);
       sub.renewalDay = rd >= 1 && rd <= 31 ? rd : undefined;
@@ -7876,7 +9279,7 @@ async function nudgeSnapshot(u, now) {
     Transaction.find({ userId: u._id, date: { $gte: since } }, { date: 1, amount: 1, type: 1, category: 1, description: 1 }).lean(),
     Budget.find({ userId: u._id, month: nudges.lagos(now).monthKey }, { category: 1, amount: 1 }).lean(),
     RecurringBill.find({ userId: u._id, status: 'active' }, { name: 1, nextDue: 1 }).lean(),
-    Subscription.find({ userId: u._id, status: 'active' }).lean(),
+    Subscription.find({ userId: u._id, status: 'active' }, { name: 1, frequency: 1, cost: 1, remindRenewal: 1, renewalDay: 1, lastCharge: 1 }).lean(),
     Goal.find({ userId: u._id }, { name: 1, target: 1, current: 1, notifiedMilestone: 1 }).lean(),
     Transaction.countDocuments({ userId: u._id, parseConfidence: 'low', reviewedAt: { $exists: false } }),
     Subscription.countDocuments({ userId: u._id, needsName: true, status: { $ne: 'cancelled' } }),
@@ -7887,7 +9290,10 @@ async function nudgeSnapshot(u, now) {
     budgets,
     goals: goals.map((g) => ({ id: String(g._id), name: g.name, target: g.target, current: g.current, notifiedMilestone: g.notifiedMilestone || 0 })),
     bills: bills.map((b) => ({ id: String(b._id), name: b.name, nextDue: b.nextDue })),
-    subs: subs.map((s) => ({ id: String(s._id), name: s.name, nextRenewal: computeNextRenewal(s, now) })).filter((s) => s.nextRenewal),
+    // Only subs whose "renews tomorrow" alert is actually on (default: yearly or
+    // NGN 5,000+; an explicit user choice overrides it) ever reach a push.
+    subs: subs.filter((s) => subscriptionSignals.effectiveRemindRenewal(s))
+      .map((s) => ({ id: String(s._id), name: s.name, nextRenewal: computeNextRenewal(s, now) })).filter((s) => s.nextRenewal),
     reviewPending: lowConf + unnamed,
   };
 }
@@ -8020,6 +9426,15 @@ async function runBirthdayEmails(now = new Date()) {
   return { sent };
 }
 
+// A hold past its 7-day window with nothing to replace it is dropped silently
+// (13.7): it is deleted unseen, never shown, never counted. Run hourly alongside
+// the other sweeps - holds are few and this is a cheap scan.
+async function expireOldHolds(now = new Date()) {
+  const cutoff = new Date(now.getTime() - holds.HOLD_WINDOW_DAYS * 86400000);
+  const r = await HoldObservation.deleteMany({ eventTime: { $lt: cutoff } });
+  return { dropped: r.deletedCount || 0 };
+}
+
 // Hourly, from an external scheduler (cron-job.org / Render cron) holding CRON_SECRET.
 // /api/cron/insights is the old daily job's address, kept so an existing schedule works.
 app.post(['/api/cron/nudges', '/api/cron/insights'], async (req, res) => {
@@ -8035,6 +9450,7 @@ app.post(['/api/cron/nudges', '/api/cron/insights'], async (req, res) => {
   runWeeklyInsightPush(at).then((r) => r && r.sent && console.log('[weekly-insight]', r)).catch((e) => console.error('[weekly-insight]', e.message));
   runNudgesJob(at).then((r) => console.log('[cron/nudges]', r)).catch((e) => console.error('[cron/nudges]', e.message));
   maybeSendWeeklyReport(new Date()).then((r) => r && console.log('[weekly-report]', r)).catch((e) => console.error('[weekly-report]', e.message));
+  expireOldHolds(at).then((r) => r.dropped && console.log('[holds/expire]', r)).catch((e) => console.error('[holds/expire]', e.message));
 });
 
 // Stopgap in-process run every hour while the server is awake; the limits and the
@@ -8271,7 +9687,11 @@ app.get('/api/home/summary', auth, async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lagos = birthday.lagosParts(now);
     const budgetMonth = `${lagos.year}-${String(lagos.month).padStart(2, '0')}`;
-    const [monthTxns, bills, subs, last, unread, budgets] = await Promise.all([
+    // Irregular income (13.5): last 3 full calendar months' income, used only to
+    // decide whether this user's income is irregular and, if so, what to plan on.
+    // A window, not a hard cutoff, since months vary in length.
+    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    const [monthTxns, bills, subs, last, unread, budgets, incomeHistory] = await Promise.all([
       // Every row of this month a person would see on a list, not just income and
       // expense: Money counts cash withdrawals and the other kinds too, and Home
       // saying "4 transactions" against Money's "6" is the B3 bug. One query, one
@@ -8284,6 +9704,8 @@ app.get('/api/home/summary', auth, async (req, res) => {
       // Bell count and this month's budgets ride along, so Home needs one request, not three.
       Notification.countDocuments({ userId, read: false }),
       Budget.find({ userId, month: budgetMonth }).select('category amount month').lean(),
+      Transaction.find({ userId, type: 'income', date: { $gte: threeMonthsAgo, $lt: monthStart } })
+        .select('amount date').lean(),
     ]);
     const sum = (t) => monthTxns.filter((x) => x.type === t).reduce((s, x) => s + Math.abs(x.amount), 0);
     // The figures Money shows for the same period, worked out the same way (B2/B3).
@@ -8294,9 +9716,19 @@ app.get('/api/home/summary', auth, async (req, res) => {
     const items = await actionCenterItemsCached(userId);
     const counts = items.reduce((m, it) => { m[it.type] = (m[it.type] || 0) + 1; return m; }, {});
     const pick = (t) => items.find((i) => i.type === t) || null;
+    // Round 6, Block 4: the line on Home is the CARD queue's own count, not a second
+    // tally of a different list. `cards` is how many questions there are, `things` is
+    // how many transactions those questions are about (a grouped card standing for
+    // six payments counts six), and `line` is the copy itself, built by the same
+    // module the screen uses, so the two can never word it differently.
+    const queue = await actionCardQueueCached(req.user).catch(() => null);
     const actions = {
       total: items.length, counts,
-      sort: pick('sort_categories')?.count || 0,
+      cards: queue ? queue.counts.total : 0,
+      things: queue ? queue.counts.things : 0,
+      urgent: queue ? queue.counts.urgent : 0,
+      line: queue ? actionCards.homeLine(queue.counts, period.label) : null,
+      sort: queue ? queue.counts.toSort : (pick('sort_categories')?.count || 0),
       // Cash to log is this month's figure, the same one Money shows, and the line
       // says so (B2). The Cash screen still lists every withdrawal waiting.
       cashTotal: figures.cash.total,
@@ -8304,13 +9736,36 @@ app.get('/api/home/summary', auth, async (req, res) => {
       cashPeriod: period.label,
       overdue: pick('overdue_payments')?.count || 0,
     };
+    // Group the 3-month window into calendar-month totals for lib/irregularIncome.
+    const monthTotals = new Map();
+    for (const t of incomeHistory) {
+      const key = new Date(t.date).toISOString().slice(0, 7);
+      monthTotals.set(key, (monthTotals.get(key) || 0) + Math.abs(t.amount));
+    }
+    const months = [...monthTotals.entries()].sort().map(([key, total]) => ({ key, total }));
+    const incomeIrregular = irregularIncomeLib.isIrregular(months, req.user.incomeProfile);
+    // ?incomeBasis=average|custom&customIncome=N - the one-tap switch off the
+    // default "lowest of 3" (13.5). Stateless: the client resends its choice.
+    const basisOverride = req.query.incomeBasis === 'custom' && Number(req.query.customIncome) > 0
+      ? Number(req.query.customIncome)
+      : req.query.incomeBasis === 'average' ? irregularIncomeLib.averageAmount(months) : null;
+    const planning = incomeIrregular ? irregularIncomeLib.planningAmount(months, basisOverride) : null;
+    // With no stated income at all AND irregular income with nothing to plan on
+    // (basis 'none'), fall through to the honest "no income set" null path -
+    // homeSummary already handles monthlyIncome <= 0 that way.
+    const effectiveMonthlyIncome = incomeIrregular && planning && planning.amount > 0
+      ? planning.amount
+      : (req.user.monthlyIncome || 0);
     res.json({
       unread, budgets,
       ...homeSummary({
-        now, monthlyIncome: req.user.monthlyIncome || 0,
+        now, monthlyIncome: effectiveMonthlyIncome,
         monthIncome: sum('income'), monthExpense: sum('expense'),
         bills, subs, monthTxnCount: figures.count, lastSyncAt: last?.createdAt || null,
       }),
+      incomeIrregular,
+      planningBasis: planning?.basis || null,
+      monthIncomeSoFar: incomeIrregular ? Math.round(sum('income')) : null,
       periodLabel: period.label,
       actions,
     });
@@ -8318,6 +9773,22 @@ app.get('/api/home/summary', auth, async (req, res) => {
     console.error('[home/summary]', e.message);
     res.status(500).json({ message: 'Server error' });
   }
+});
+
+// Prepaid electricity (13.4): no due date, so Automonie learns the rhythm instead -
+// the median interval and amount of the last 6 purchases, once there have been at
+// least 3. Tokens themselves never show here (existing rule); this is purely the
+// "usually every N days" Coming-up line.
+app.get('/api/electricity/rhythm', auth, async (req, res) => {
+  try {
+    const rows = await Transaction.find({ userId: req.user._id, type: 'expense', category: 'Utilities' })
+      .select('amount date description').sort({ date: -1 }).limit(60).lean();
+    const purchases = rows
+      .filter((t) => matchMerchant(t.description)?.merchant === 'Electricity')
+      .map((t) => ({ date: t.date, amount: Math.abs(t.amount) }));
+    const rhythm = electricityRhythm(purchases);
+    res.json({ rhythm, dueSoon: rhythm ? electricityDueSoon(rhythm) : false, purchaseCount: purchases.length });
+  } catch (e) { console.error('[electricity/rhythm]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // --------------------------
@@ -9269,6 +10740,313 @@ app.post('/api/transactions/:id/unmark-transfer', auth, async (req, res) => {
     await restore(txn);
     res.json({ ok: true, restored: 1 });
   } catch (e) { console.error('[unmark-transfer]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// ── Round 6, Block 2b: linking, provenance and undo (brief 3.4 to 3.6) ─────────
+//
+// Linking ties two transactions together without pretending they are one record:
+// a move between the user's own accounts, a reversal, a refund, the bank charge on
+// a transfer, or the cash spending broken out of a withdrawal. Every link stores
+// who made it and which rule, and every link and every merge can be undone from
+// Transaction detail, with the undo written back as a correction so the
+// categoriser and the global consensus layer learn from it.
+
+// Both sides of one link share a groupId, so undoing it from either side finds the
+// other without a scan.
+function linkSides(groupId, kind, a, b, meta) {
+  const m = meta || {};
+  const base = {
+    kind, groupId, createdBy: m.createdBy || 'rule', rule: m.rule || '',
+    reason: m.reason || '', label: m.label || '', createdAt: new Date(),
+  };
+  return {
+    onFrom: Object.assign({}, base, { otherId: String(b), side: 'from' }),
+    onTo: Object.assign({}, base, { otherId: String(a), side: 'to' }),
+  };
+}
+
+// Write one detected link onto both of its transactions, and apply the effect the
+// link forces (an own move leaves the totals, a reversal cancels, and so on).
+// Idempotent: a link already recorded between the same pair and kind is left alone.
+async function applyLink(userId, l) {
+  const [from, to] = await Promise.all([
+    Transaction.findOne({ _id: l.fromId, userId }),
+    Transaction.findOne({ _id: l.toId, userId }),
+  ]);
+  if (!from || !to) return null;
+  const already = (from.links || []).some((x) => x.kind === l.kind && String(x.otherId) === String(to._id));
+  if (already) return null;
+
+  const groupId = new mongoose.Types.ObjectId().toString();
+  const { onFrom, onTo } = linkSides(groupId, l.kind, from._id, to._id, l);
+  from.links.push(onFrom);
+  to.links.push(onTo);
+
+  const fromEffect = effectOfLink(l.kind, 'from');
+  const toEffect = effectOfLink(l.kind, 'to');
+  if (fromEffect) Object.assign(from, fromEffect.type ? { type: fromEffect.type } : {}, fromEffect.category ? { category: fromEffect.category } : {});
+  if (toEffect) Object.assign(to, toEffect.type ? { type: toEffect.type } : {}, toEffect.category ? { category: toEffect.category } : {});
+
+  // Keep the single-purpose fields the existing views already read, so nothing
+  // downstream has to change for a link to show up where it always has.
+  if (l.kind === 'ownMove') { from.transferPairId = groupId; to.transferPairId = groupId; }
+  if (l.kind === 'reversal') { from.reversalPairId = String(to._id); to.reversalPairId = String(from._id); }
+  if (l.kind === 'fee') from.feeFor = String(to._id);
+  if (l.kind === 'cash') { from.cashParentId = String(to._id); to.cashAllocated = true; }
+
+  await Promise.all([from.save(), to.save()]);
+  return { groupId, kind: l.kind, fromId: String(from._id), toId: String(to._id), rule: l.rule, createdBy: onFrom.createdBy };
+}
+
+// Run every linking rule over a window of the user's transactions and save what the
+// rules are sure about. The `ask` pairs are returned, not applied: a pair the rules
+// cannot vouch for is a question for the Action Center, never a silent decision.
+async function detectAndApplyLinks(userId, opts) {
+  const o = opts || {};
+  const since = o.since || new Date(Date.now() - 120 * 86400000);   // a refund reaches back 90 days
+  const [rows, user, routes] = await Promise.all([
+    Transaction.find({ userId, date: { $gte: since } })
+      .select('type amount date bank bankCode accountMask description category reference cashParentId cashAllocated links')
+      .lean(),
+    User.findById(userId).select('name').lean(),
+    TransferRoute.find({ userId }).select('routeKey').lean(),
+  ]);
+  if (rows.length < 2) return { applied: [], ask: [] };
+  const { links, ask } = detectLinks(rows, {
+    userName: (user && user.name) || '',
+    routeKeys: new Set(routes.map((r) => r.routeKey)),
+    feeTable: feeTableFromEnv(process.env),
+  });
+  const applied = [];
+  for (const l of links) {
+    try { const r = await applyLink(userId, l); if (r) applied.push(r); }
+    catch (e) { console.error('[link-apply]', l.kind, e.message); }
+  }
+  return { applied, ask };
+}
+
+// Everything Transaction detail needs to explain itself: where this came from, what
+// was decided for the user and by which rule, and what they can undo.
+app.get('/api/transactions/:id/provenance', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: uid })
+      .select('description category type amount date bank bankCode links mergedFrom source channel feeFor cashParentId notOnStatement addedFromStatement')
+      .lean();
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+
+    const links = (txn.links || []).map((l) => ({
+      id: String(l._id), kind: l.kind, otherId: l.otherId, side: l.side,
+      fromId: l.side === 'from' ? String(txn._id) : l.otherId,
+      toId: l.side === 'from' ? l.otherId : String(txn._id),
+      createdBy: l.createdBy, rule: l.rule, reason: l.reason, label: l.label, createdAt: l.createdAt,
+    }));
+    const sources = (txn.mergedFrom || []).map((s) => ({
+      id: String(s._id), source: s.source, amountKobo: s.amountKobo, direction: s.direction,
+      eventTime: s.eventTime, counterpartyRaw: s.counterpartyRaw, reference: s.reference,
+      step: s.step, rule: s.rule, createdBy: s.createdBy, addedAt: s.addedAt,
+      bank: txn.bank || '', bankCode: txn.bankCode || '',
+    }));
+    // A row saved before the observation ledger existed still has one honest source:
+    // the channel it arrived on. Showing that is better than showing nothing.
+    if (!sources.length) {
+      sources.push({
+        id: '', source: statementRecon.observationSourceOf(txn), amountKobo: Math.round(Math.abs(txn.amount) * 100),
+        direction: txn.amount >= 0 ? 'credit' : 'debit', eventTime: txn.date,
+        counterpartyRaw: txn.description || '', reference: '', step: null, rule: '',
+        createdBy: 'rule', addedAt: txn.date, inferred: true,
+      });
+    }
+
+    // The other side of every link, so detail can name it rather than show an id.
+    const otherIds = [...new Set(links.map((l) => l.otherId).filter(Boolean))];
+    const others = otherIds.length
+      ? await Transaction.find({ _id: { $in: otherIds }, userId: uid })
+        .select('description amount date bank type category').lean()
+      : [];
+    const otherById = new Map(others.map((o) => [String(o._id), o]));
+
+    // The charges hanging off this one, and the line the brief fixes for them.
+    const feeRows = await Transaction.find({ userId: uid, feeFor: String(txn._id) })
+      .select('amount description date').lean();
+    const charges = feeSummary(txn, feeRows);
+
+    res.json({
+      lines: provenanceLines({ sources, links }),
+      sources,
+      links: links.map((l) => Object.assign({}, l, {
+        other: (() => {
+          const o = otherById.get(String(l.otherId));
+          if (!o) return null;
+          return { id: String(o._id), description: o.description || '', amount: Math.abs(o.amount), date: o.date, bank: o.bank || '', type: o.type };
+        })(),
+        copy: LINK_COPY[l.kind] || null,
+      })),
+      undo: undoOptions({ txn, links, sources }),
+      charges,
+      feeRows: feeRows.map((f) => ({ id: String(f._id), amount: Math.abs(f.amount), description: f.description || '', date: f.date })),
+      notOnStatement: !!txn.notOnStatement,
+      addedFromStatement: !!txn.addedFromStatement,
+    });
+  } catch (e) { console.error('[provenance]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Link this transaction to another by hand: the user answering a question the rules
+// could not. Recorded as createdBy 'user', so detail says so and never claims a rule
+// decided it.
+app.post('/api/transactions/:id/link', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const { otherId, kind } = req.body || {};
+    if (!otherId || !kind) return res.status(400).json({ message: 'otherId and kind are required' });
+    if (LINK_KINDS.indexOf(kind) === -1) return res.status(400).json({ message: 'Unknown link type' });
+    if (String(otherId) === String(req.params.id)) return res.status(400).json({ message: 'A transaction cannot link to itself' });
+    const [a, b] = await Promise.all([
+      Transaction.findOne({ _id: req.params.id, userId: uid }).select('_id type amount bank').lean(),
+      Transaction.findOne({ _id: otherId, userId: uid }).select('_id type amount bank').lean(),
+    ]);
+    if (!a || !b) return res.status(404).json({ message: 'Transaction not found' });
+    // Orientation matters: a fee, a refund, a reversal and a cash spend all point at
+    // their parent, and an own move points from the debit at the credit.
+    let from = a, to = b;
+    if (kind === 'ownMove') {
+      const aDebit = a.type === 'expense' || a.amount < 0;
+      if (!aDebit) { from = b; to = a; }
+    } else if (kind === 'fee' || kind === 'cash') {
+      if (Math.abs(a.amount) > Math.abs(b.amount)) { from = b; to = a; }
+    } else if (kind === 'reversal' || kind === 'refund') {
+      const aCredit = a.type === 'income' || a.amount >= 0;
+      if (!aCredit) { from = b; to = a; }
+    }
+    const applied = await applyLink(uid, {
+      kind, fromId: String(from._id), toId: String(to._id),
+      createdBy: 'user', rule: kind + '_confirmed_by_user',
+      reason: 'you told us these belong together',
+      label: kind === 'ownMove' ? moveLabel(to, from) : '',
+    });
+    if (!applied) return res.json({ ok: true, already: true });
+    // Confirming an own move teaches the route, so the next one needs no question.
+    if (kind === 'ownMove') {
+      try {
+        const rk = routeKeyOf(from.bank, to.bank);
+        await TransferRoute.updateOne({ userId: uid, routeKey: rk }, { $setOnInsert: { userId: uid, routeKey: rk } }, { upsert: true });
+      } catch { /* a duplicate route is fine */ }
+    }
+    logCorrection(uid, correctionKindFor(kind), {
+      description: (await Transaction.findById(from._id).select('description').lean() || {}).description || '',
+      from: 'unlinked', to: kind, madeBy: 'user', undoOf: '',
+    });
+    res.json({ ok: true, link: applied });
+  } catch (e) { console.error('[link]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Undo a link from either side (brief 3.6). "Not a move between my accounts"
+// restores both rows to the direction their amounts always carried; every kind has
+// its own restore, and every undo writes a correction.
+app.post('/api/transactions/:id/unlink', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: uid });
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+    const { linkId, kind } = req.body || {};
+    const stored = (txn.links || []).find((l) => (linkId ? String(l._id) === String(linkId) : l.kind === kind));
+    if (!stored) return res.status(404).json({ message: 'That link is no longer here' });
+
+    const other = stored.otherId
+      ? await Transaction.findOne({ _id: stored.otherId, userId: uid })
+      : null;
+    const link = {
+      kind: stored.kind, createdBy: stored.createdBy, rule: stored.rule,
+      fromId: stored.side === 'from' ? String(txn._id) : String(stored.otherId),
+      toId: stored.side === 'from' ? String(stored.otherId) : String(txn._id),
+    };
+    // A fee row this app generated for a transfer pair only ever existed because of
+    // the link, so it goes with it rather than becoming a charge from nowhere.
+    const generated = link.kind === 'ownMove' && stored.groupId
+      ? await Transaction.find({ userId: uid, transferPairId: stored.groupId, description: 'Transfer fee', category: 'Bank Charges' }).lean()
+      : [];
+    const plan = planUnlink({ txn, other, link, generated });
+
+    const byId = new Map();
+    byId.set(String(txn._id), txn);
+    if (other) byId.set(String(other._id), other);
+    for (const u of plan.updates) {
+      const doc = byId.get(String(u.id));
+      if (!doc) continue;
+      if (u.set) Object.assign(doc, u.set);
+      if (u.unset) for (const k of Object.keys(u.unset)) doc[k] = u.unset[k];
+      if (u.unsetLink) {
+        doc.links = (doc.links || []).filter((l) => !(l.groupId && stored.groupId
+          ? String(l.groupId) === String(stored.groupId)
+          : l.kind === stored.kind && String(l.otherId) === String(l.side === 'from' ? link.toId : link.fromId)));
+        if (link.kind === 'ownMove') doc.transferPairId = '';
+        if (link.kind === 'reversal') doc.reversalPairId = '';
+      }
+      await doc.save();
+    }
+    for (const delId of plan.deletes) {
+      await Transaction.deleteOne({ _id: delId, userId: uid });
+    }
+    // The undo is the correction: the app had decided this, and the user says no.
+    logCorrection(uid, plan.correction.kind, plan.correction);
+    res.json({ ok: true, undone: link.kind, toast: plan.toast, restored: plan.updates.length, removed: plan.deletes.length });
+  } catch (e) { console.error('[unlink]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// "Not the same": split a merge back into the records it was built from (brief 3.6).
+// The transaction keeps one source; every other observation becomes its own
+// transaction again, carrying what that source actually stated. Nothing is thrown
+// away, which is the whole reason the observations are kept.
+app.post('/api/transactions/:id/split-merge', auth, async (req, res) => {
+  try {
+    const uid = req.user._id;
+    const txn = await Transaction.findOne({ _id: req.params.id, userId: uid });
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+    const sources = (txn.mergedFrom || []).map((s) => ({
+      id: String(s._id), source: s.source, amountKobo: s.amountKobo, direction: s.direction,
+      eventTime: s.eventTime, counterpartyRaw: s.counterpartyRaw, reference: s.reference,
+      rule: s.rule, step: s.step, createdBy: s.createdBy, addedAt: s.addedAt,
+      bank: txn.bank, bankCode: txn.bankCode, accountMask: txn.accountMask,
+    }));
+    if (sources.length < 2) return res.status(400).json({ message: 'This transaction came from one source, so there is nothing to split.' });
+
+    const plan = planSplit({ txn, sources, keep: (req.body || {}).keep });
+    if (plan.noop) return res.json({ ok: true, already: true });
+
+    const created = [];
+    for (const r of plan.newRows) {
+      const doc = new Transaction({
+        userId: uid, date: r.date, description: r.description, amount: r.amount,
+        category: r.category, type: r.type, source: r.source === 'statement' ? 'import' : r.source,
+        channel: r.source, bank: r.bank, bankCode: r.bankCode, accountMask: r.accountMask,
+        reference: r.reference || '',
+        mergedFrom: [{
+          source: r.source, amountKobo: Math.round(Math.abs(r.amount) * 100),
+          direction: r.type === 'income' ? 'credit' : 'debit', eventTime: r.date,
+          counterpartyRaw: r.description, reference: r.reference || '',
+          step: null, rule: 'split_from_merge', createdBy: 'user', addedAt: new Date(),
+        }],
+      });
+      await doc.save();
+      created.push(String(doc._id));
+    }
+    // What is left keeps only the source the user kept.
+    const keptId = plan.keepSource && plan.keepSource.id;
+    txn.mergedFrom = (txn.mergedFrom || []).filter((s) => String(s._id) === String(keptId));
+    await txn.save();
+
+    logCorrection(uid, plan.correction.kind, plan.correction);
+    res.json({ ok: true, split: created.length, created, toast: plan.toast });
+  } catch (e) { console.error('[split-merge]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Run the linking rules now and report what they found. Used after an import and by
+// the Action Center, which shows the `ask` pairs as questions.
+app.post('/api/transactions/relink', auth, async (req, res) => {
+  try {
+    const r = await detectAndApplyLinks(req.user._id, {});
+    res.json({ linked: r.applied.length, applied: r.applied, ask: r.ask });
+  } catch (e) { console.error('[relink]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // ── Cash tracking (spec C4) ─────────────────────────────────────────────────────

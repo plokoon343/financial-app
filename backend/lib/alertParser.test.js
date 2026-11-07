@@ -37,6 +37,39 @@ for (const [label, text] of [['lines', RCPT.join('\n')], ['one line', RCPT.join(
 check('interest earned is income, not Other Income', parseAlert('Credit Alert NGN2.99 Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'Investment');
 check('owealth interest is its own category, not Investment', parseAlert('Credit Alert NGN2.99 OWealth Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'OWealth Interest');
 
+// --- Interest is a known pattern and never goes to review (6 Nov 2026) ------
+// Research section 14: "OWealth interest alerts shown raw under Alerts to check ...
+// Interest is a known pattern: Income, grouped monthly. Never shown raw to the user."
+// Three separate bugs sent them there:
+//   1. OPay's own wording - "You earned ₦2.99 interest today" - has no debit/credit
+//      verb and no balance, reference or value date, so it failed the transactional
+//      test and was held for a person to read.
+//   2. With no direction verb, the direction was inferred, badly: "earned" read as
+//      money OUT on one wording.
+//   3. The ₦1 amount floor read "₦0.73 interest" as no amount at all. OWealth pays
+//      kobo a day, so most real interest alerts are under a naira.
+// All three are now covered, for every wording we have seen.
+for (const [text, want] of [
+  ['OWealth: You earned ₦2.99 interest today', { amount: 2.99, category: 'OWealth Interest' }],
+  ['OPay: Interest Earned NGN0.73', { amount: 0.73, category: 'Investment' }],
+  ['PiggyVest: interest on your savings NGN150.20', { amount: 150.2, category: 'Investment' }],
+  ['Daily interest NGN1.05 has been added', { amount: 1.05, category: 'Investment' }],
+]) {
+  const r = parseAlert(text, { source: 'notification' });
+  check(`interest is saved, not held: ${text.slice(0, 32)}`, r && r.kind === 'transaction' && r.needsReview === false, r && `${r.kind}/${r.needsReview}`);
+  check(`interest is money IN: ${text.slice(0, 32)}`, r && r.type === 'income', r && r.type);
+  check(`interest keeps its kobo: ${text.slice(0, 32)}`, r && r.amount === want.amount, r && r.amount);
+  check(`interest is categorised: ${text.slice(0, 32)}`, r && r.category === want.category, r && r.category);
+}
+// A balance update still carries no money, interest or not.
+check('an owealth balance update is still dropped', parseAlert('Your OWealth balance is NGN52,000.00', { source: 'notification' }) === null);
+// Pasted text keeps the old caution: a known credit wording is not a reason to trust
+// text with no provenance, and the paste path has its own confirm step.
+check('a known credit wording does not loosen the paste path', (() => {
+  const r = parseAlert('Interest Earned NGN0.73', { source: 'sms' });
+  return r && r.type === 'income' && r.amount === 0.73;
+})());
+
 // --- A bank app's push notification is short (3 Nov 2026) -------------------
 // The context test (balance, acct, ref, value date) is shaped like a bank SMS, and
 // every SMS carries one of those words. A push from the bank's own app carries none:

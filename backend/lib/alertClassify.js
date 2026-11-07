@@ -23,6 +23,14 @@ const CONTEXT = rx(RULES.transaction.context);
 // nothing else, so it failed the test and was held for review instead of saved. That
 // is what made notification capture look broken while it was working perfectly.
 const SELF_EVIDENT = rx(RULES.transaction.selfEvident);
+// Wording for a credit we recognise on sight, whatever furniture is or isn't around
+// it. Interest is the case that forced this (research section 14): OPay's OWealth
+// interest alerts say "You earned ₦2.99 interest today" - no debit/credit verb, no
+// balance, no reference - so they failed the transactional test and piled up in the
+// Action Center as RAW TEXT for the user to read and decide about. Interest is a
+// known pattern (behaviour matrix row 22): it is Income, it is grouped monthly, and
+// it must never be shown raw to anyone.
+const KNOWN_CREDIT = rx(RULES.transaction.knownCredit);
 const FEES = RULES.fees.map(rx);
 // "Fee: N10.75" inside a transfer alert is a detail of that transfer, not a fee alert.
 const FEE_FIELD = /\b(?:fee|charges?|vat)\s*[:=]\s*(?:ngn|naira|₦|n)?\s*\d/gi;
@@ -47,7 +55,11 @@ const BALANCE = new RegExp(RULES.shared.balance, 'gi');
 const BANK_DELIVERED = new Set(['notification']);
 const looksTransactional = (raw, source) =>
   MONEY.test(raw)
-  && ((BANK_DELIVERED.has(source) && SELF_EVIDENT.test(raw)) || (DIRECTION.test(raw) && CONTEXT.test(raw)));
+  && (KNOWN_CREDIT.test(raw) || (BANK_DELIVERED.has(source) && SELF_EVIDENT.test(raw)) || (DIRECTION.test(raw) && CONTEXT.test(raw)));
+
+// Is this a credit we recognise on sight? The parser asks, so it can be sure of the
+// direction even when no verb in the text says "credit".
+const knownCredit = (raw) => KNOWN_CREDIT.test(String(raw || ''));
 const firstHit = (groups, s) => {
   for (const [reason, list] of Object.entries(groups)) if (list.some((r) => r.test(s))) return reason;
   return null;
@@ -100,4 +112,4 @@ const bankRule = (code) => BANK_RULES.get(code) || null;
 // The alert with its balance figures blanked out, so the amount is never the balance.
 const withoutBalance = (raw) => String(raw || '').replace(BALANCE, ' ');
 
-module.exports = { classifyAlert, alertIgnoreReason, alertShape, isFeeText, looksTransactional, bankRule, withoutBalance, RULES };
+module.exports = { classifyAlert, alertIgnoreReason, alertShape, isFeeText, looksTransactional, knownCredit, bankRule, withoutBalance, RULES };

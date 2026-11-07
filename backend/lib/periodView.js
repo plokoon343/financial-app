@@ -15,7 +15,7 @@
 // What counts as a transaction in a list. internal_transfer is the user moving their
 // own money and is hidden by default on both screens; 'failed' never happened, so it
 // is not a row a person should be asked to count.
-const COUNTED_TYPES = ['income', 'expense', 'cash_withdrawal', 'loan_in', 'debt_repayment', 'reversal'];
+const COUNTED_TYPES = ['income', 'expense', 'cash_withdrawal', 'loan_in', 'loan_out', 'debt_repayment', 'reversal'];
 
 // A category the machine assigns when it has nothing better: these are the rows the
 // "needs a category" count is about.

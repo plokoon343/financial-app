@@ -10,7 +10,7 @@
 const { normalizeAmount } = require('./amount');
 const { normalizeAnyDate } = require('./dates');
 const { detectDirection, parseLabeledAlert, parseTransferReceipt, blockStripPattern, alertDescription } = require('./alertParse');
-const { classifyAlert, isFeeText, bankRule, withoutBalance } = require('./alertClassify');
+const { classifyAlert, isFeeText, knownCredit, bankRule, withoutBalance } = require('./alertClassify');
 const { fingerprintAccount, detectBank } = require('./bankDetect');
 const { categorizeTransaction } = require('./categorize');
 const { receiptOwnMove } = require('./internalTransfers');
@@ -75,8 +75,10 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date(), user
   // Amount: the bank's own pattern, then a labelled field, then the first money
   // figure that isn't the balance.
   let amount = null, amtConf = 'low', amountPath = 'none';
-  // Fees can be under a naira (VAT on a ₦10.75 transfer fee is ₦0.81); other alerts keep the ₦1 floor.
-  const amtOpts = isFeeText(raw) ? { floor: 0.01 } : undefined;
+  // Fees can be under a naira (VAT on a ₦10.75 transfer fee is ₦0.81), and so can
+  // interest: OWealth pays kobo a day, and a ₦1 floor silently read "₦0.73 interest"
+  // as no amount at all. Other alerts keep the ₦1 floor.
+  const amtOpts = isFeeText(raw) || knownCredit(raw) ? { floor: 0.01 } : undefined;
   const ruled = rule?.amountRe && raw.match(rule.amountRe);
   if (ruled) { const n = normalizeAmount(ruled[1], amtOpts); if (n.value != null) { amount = n.value; amtConf = 'high'; amountPath = 'bank'; } }
   if (amount == null && labeled && labeled.amount) { amount = labeled.amount; amtConf = 'high'; amountPath = 'labelled'; }
@@ -96,6 +98,10 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date(), user
   if (rd) dir = { type: /^c/i.test(rd[1]) ? 'income' : 'expense', conf: 'high' };
   if (!dir && labeled) dir = { type: labeled.type, conf: 'high' };
   if (!dir && receipt && receipt.direction) dir = { type: receipt.direction, conf: 'high' };
+  // A credit we recognise on sight is money in, with no verb needed. "You earned
+  // ₦2.99 interest today" has no direction word at all, and inferring one from the
+  // rest of the sentence used to land it in review as raw text.
+  if ((!dir || dir.conf !== 'high') && knownCredit(raw)) dir = { type: 'income', conf: 'high' };
   if (!dir) dir = detectDirection(raw);
 
   // Date: the bank's pattern, a labelled Value Date, the receipt's own date field,

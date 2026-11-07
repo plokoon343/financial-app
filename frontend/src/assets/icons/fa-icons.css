@@ -1,7 +1,7 @@
 /*! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com
  * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)
  * Copyright 2023 Fonticons, Inc.
- * Subset to the 175 icons this app uses by scripts/build-icons.mjs. Do not edit by hand. */
+ * Subset to the 177 icons this app uses by scripts/build-icons.mjs. Do not edit by hand. */
 
 .fa {
   font-family: var(--fa-style-family, "Font Awesome 6 Free");
@@ -574,6 +574,7 @@ readers do not read off random characters that represent icons */
 .fa-arrow-right-arrow-left::before { content: "\f0ec"; }
 .fa-arrow-trend-down::before { content: "\e097"; }
 .fa-arrow-trend-up::before { content: "\e098"; }
+.fa-arrow-turn-down::before { content: "\f149"; }
 .fa-arrow-up::before { content: "\f062"; }
 .fa-arrow-up-from-bracket::before { content: "\e09a"; }
 .fa-award::before { content: "\f559"; }
@@ -623,6 +624,7 @@ readers do not read off random characters that represent icons */
 .fa-cloud-arrow-up::before { content: "\f0ee"; }
 .fa-coins::before { content: "\f51e"; }
 .fa-comment-dots::before { content: "\f4ad"; }
+.fa-comment-sms::before { content: "\f7cd"; }
 .fa-comments::before { content: "\f086"; }
 .fa-copy::before { content: "\f0c5"; }
 .fa-credit-card::before { content: "\f09d"; }

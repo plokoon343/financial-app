@@ -8,10 +8,11 @@ import AccountSwitcher from './AccountSwitcher';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 import { avatarFor } from '../utils/merchantAvatar';
 import { FeatureTip, InfoTip } from './FeatureTip';
-import { fmtNaira } from '../utils/format';
+import { fmtNaira, fmtNairaFull } from '../utils/format';
 import ChoiceDialog from './ChoiceDialog';
 import Select from './Select';
 import { groupImports, rangeLabel, CHANNEL_LABEL, UNKNOWN_BANK } from '../utils/imports';
+import TxnDetail from './TxnDetail';
 
 // A small round leading avatar for a transaction row (Addendum C): a bundled merchant
 // logo, a person's initial, or the category icon: never a fetched favicon.
@@ -27,6 +28,8 @@ function TxnAvatar({ category, description }) {
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 const RELATIONSHIPS = { family: 'Family', friend: 'Friend', business: 'Business', self: 'You' };
 const money = (n) => fmtNaira(Math.abs(Number(n)));
+// The period's In/Out summary is a total, never a compact "₦15.2K" (round 6, 13.9).
+const moneyFull = (n) => fmtNairaFull(Math.abs(Number(n)));
 const monthKey = (d) => { const x = new Date(d); return isNaN(x) ? '' : x.toISOString().slice(0, 7); };
 const monthLabel = (m) => {
   if (!m) return 'Unknown';
@@ -55,6 +58,9 @@ const Transactions = () => {
   const [people, setPeople] = useState({});   // contactId -> { id, name, relationship }
   const [links, setLinks] = useState({});     // transactionId -> contactId
   const [labeling, setLabeling] = useState(null); // the person whose relationship is being set
+  // Transaction detail (round 6, brief 3.4 to 3.6): where a row came from, what was
+  // decided for the user and by which rule, and the undo for any of it.
+  const [detailOf, setDetailOf] = useState(null);
   const [search, setSearch] = useState('');
   const [showInternal, setShowInternal] = useState(false); // hide internal transfers by default
   const [sortBy, setSortBy] = useState('date');
@@ -356,7 +362,7 @@ const Transactions = () => {
           <div className="stmt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="stmt-modal-head">
               <h3>All statements ({batches.length})</h3>
-              <button className="stmt-modal-close" onClick={() => setShowAllStatements(false)} title="Close"><i className="fas fa-times"></i></button>
+              <button className="stmt-modal-close" onClick={() => setShowAllStatements(false)} title="Close" aria-label="Close"><i className="fas fa-times"></i></button>
             </div>
             <div className="stmt-modal-list">
               {batches.map(b => (
@@ -417,8 +423,8 @@ const Transactions = () => {
       {/* Summary + bulk actions */}
       <div className="tx-summary">
         <span>{filtered.length} shown</span>
-        <span className="pos">In {money(totals.income)}</span>
-        <span className="neg">Out {money(totals.expense)}</span>
+        <span className="pos">In {moneyFull(totals.income)}</span>
+        <span className="neg">Out {moneyFull(totals.expense)}</span>
         {(hiddenInternal > 0 || showInternal) && (
           <button className="tx-internal-toggle" onClick={() => setShowInternal(v => !v)}
             title="Internal transfers (e.g. OPay OWealth savings) move money between your own pockets and aren't spending or income">
@@ -470,8 +476,8 @@ const Transactions = () => {
                 </td>
                 <td>{t.bank || '-'}</td>
                 <td className="row-actions">
-                  <button className="icon-btn save" onClick={() => saveEdit(t._id)}><i className="fas fa-check"></i></button>
-                  <button className="icon-btn" onClick={() => setEditingId(null)}><i className="fas fa-times"></i></button>
+                  <button className="icon-btn save" onClick={() => saveEdit(t._id)} aria-label="Save"><i className="fas fa-check"></i></button>
+                  <button className="icon-btn" onClick={() => setEditingId(null)} aria-label="Cancel edit"><i className="fas fa-times"></i></button>
                 </td>
               </tr>
             ) : (() => {
@@ -508,12 +514,13 @@ const Transactions = () => {
                 <td className="nowrap">{t.bank || '-'}</td>
                 <td className="row-actions">
                   {t.type === 'internal_transfer' ? (
-                    <button className="icon-btn" onClick={() => unmarkTransfer(t)} title="Not a transfer: count it again"><i className="fas fa-rotate-left"></i></button>
+                    <button className="icon-btn" onClick={() => unmarkTransfer(t)} title="Not a transfer: count it again" aria-label="Not a transfer: count it again"><i className="fas fa-rotate-left"></i></button>
                   ) : !isExcludedKind(t.type) ? (
-                    <button className="icon-btn" onClick={() => markTransfer(t)} title="Transfer between my own accounts"><i className="fas fa-right-left"></i></button>
+                    <button className="icon-btn" onClick={() => markTransfer(t)} title="Transfer between my own accounts" aria-label="Mark as a transfer between my own accounts"><i className="fas fa-right-left"></i></button>
                   ) : null}
-                  <button className="icon-btn" onClick={() => startEdit(t)} title="Edit"><i className="fas fa-pen"></i></button>
-                  <button className="icon-btn del" onClick={() => deleteOne(t._id)} title="Delete"><i className="fas fa-trash"></i></button>
+                  <button className="icon-btn" onClick={() => setDetailOf(t)} title="Where this came from" aria-label="Where this came from"><i className="fas fa-circle-info"></i></button>
+                  <button className="icon-btn" onClick={() => startEdit(t)} title="Edit" aria-label="Edit"><i className="fas fa-pen"></i></button>
+                  <button className="icon-btn del" onClick={() => deleteOne(t._id)} title="Delete" aria-label="Delete"><i className="fas fa-trash"></i></button>
                 </td>
               </tr>
               );
@@ -623,8 +630,37 @@ const Transactions = () => {
         .tx-page select { color: var(--text-primary); }
         .tx-page select option { background: var(--card-bg); color: var(--text-primary); }
         .dark-theme .tx-page select { color-scheme: dark; }
+        /* Transaction detail (round 6, brief 3.4 to 3.6): provenance, links, undo. */
+        .txn-detail-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: flex-start; justify-content: center; padding: 24px 16px; overflow-y: auto; z-index: 1000; }
+        .txn-detail { width: 100%; max-width: 560px; background: var(--card-bg); border: 1px solid var(--border-color, var(--glass-border)); border-radius: 16px; padding: 18px; color: var(--text-primary); }
+        .txn-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .txn-detail-title { font-weight: 600; font-size: 1.05rem; }
+        .txn-detail-sub { font-size: 0.85rem; color: var(--text-secondary); margin-top: 2px; }
+        .txn-detail-section { margin-top: 18px; }
+        .txn-detail-section h4 { margin: 0 0 8px; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; }
+        .txn-prov-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border-color, var(--glass-border)); }
+        .txn-prov-row:first-of-type { border-top: 0; }
+        .txn-prov-row > i { width: 18px; text-align: center; margin-top: 3px; color: var(--accent-primary); }
+        .txn-prov-main { font-size: 0.92rem; }
+        .txn-prov-meta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 1px; }
+        .txn-prov-why { font-size: 0.78rem; color: var(--text-faint, var(--text-secondary)); margin-top: 2px; }
+        .txn-detail-undos { display: flex; flex-wrap: wrap; gap: 8px; }
+        .txn-detail-note { font-size: 0.78rem; color: var(--text-faint, var(--text-secondary)); margin: 8px 0 0; }
+        .txn-detail-charges { margin-top: 12px; font-size: 0.88rem; color: var(--text-secondary); }
+        .txn-detail-alarm { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--warning-color); color: var(--text-primary); font-size: 0.85rem; }
+        .txn-detail-alarm > i { color: var(--warning-color); margin-top: 2px; }
+        .txn-detail-error { margin-top: 14px; font-size: 0.85rem; color: var(--danger-color, var(--warning-color)); }
+        .txn-detail-loading { margin-top: 14px; font-size: 0.85rem; color: var(--text-secondary); }
         .dark-theme .tx-page select option { background: #26263a; color: #f8f9fa; }
       `}</style>
+      {detailOf && (
+        <TxnDetail
+          txn={detailOf}
+          onClose={() => setDetailOf(null)}
+          onChanged={fetchAll}
+          flash={flash}
+        />
+      )}
     </div>
   );
 };

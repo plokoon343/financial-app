@@ -23,13 +23,13 @@ check('O1: the lend record tracks the full amount owed', record.amount === 10000
   check('O2: a credit bigger than what is owed is never suggested', !isPaybackCandidate({ ...record, repaid: 6000 }, { amount: 9000 }, when));
 }
 
-// O3: the user taps "Forget it" -> NGN 4,000 becomes Gifts and events spending on
+// O3: the user taps "Forget it" -> NGN 4,000 becomes Gifts & Events spending on
 // the original date.
 {
   const partially = { ...record, repaid: 6000 };
   const off = writeOff(partially);
   check('O3: the remaining NGN 4,000 is written off', off.remaining === 4000 && off.status === 'written_off');
-  check('O3: it lands in Gifts and events, not a new category', off.category === 'Gifts and events');
+  check('O3: it lands in Gifts & Events, not a new category', off.category === 'Gifts & Events');
 }
 
 // A credit outside the 90-day window, or before the loan, is never suggested.

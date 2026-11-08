@@ -30,10 +30,11 @@ function applyPayback(record, amount) {
   return { repaid, remaining: Math.max(0, record.amount - repaid), status: repaid >= record.amount ? 'settled' : 'open' };
 }
 
-// "Forget it": the remainder becomes spending under Gifts and events, dated the
-// original lend date (not today), and the record is closed.
+// "Forget it": the remainder becomes spending under Gifts & Events (the real
+// category id in constants/categories.js), dated the original lend date (not
+// today), and the record is closed.
 function writeOff(record) {
-  return { remaining: Math.max(0, record.amount - (record.repaid || 0)), status: 'written_off', category: 'Gifts and events' };
+  return { remaining: Math.max(0, record.amount - (record.repaid || 0)), status: 'written_off', category: 'Gifts & Events' };
 }
 
 module.exports = { lendRecord, isPaybackCandidate, applyPayback, writeOff };

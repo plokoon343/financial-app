@@ -6414,6 +6414,51 @@ app.post('/api/action-center/answer', auth, async (req, res) => {
         if (rule) await learnCategories(userId, rows.map((r) => ({ description: r.description, category: chosen })));
         break;
       }
+      case 'not_on_statement': {
+        const rows = await own(txnIds);
+        if (!rows.length) return res.status(404).json({ message: 'Already handled.' });
+        if (answerId === 'arrived') {
+          // Confirmed real: stop flagging it, the statement will likely catch up later.
+          await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { notOnStatement: false, reviewedAt: new Date() } });
+        } else if (answerId === 'remove') {
+          // The alert never really arrived, so it must not count as money moved.
+          // 'failed' is the one existing type lib/periodView's COUNTED_TYPES already
+          // excludes - the same thing it already means for the bank's own declined
+          // transactions, and it keeps the row (and its history) instead of deleting it.
+          await Transaction.updateMany({ _id: { $in: rows.map((r) => r._id) }, userId }, { $set: { type: 'failed', notOnStatement: false, reviewedAt: new Date() } });
+        }
+        // 'unsure': keeps it flagged - nothing was actually resolved, so the
+        // transaction is left exactly as it was (notOnStatement stays true).
+        break;
+      }
+      case 'refund_match': {
+        const refundId = txnIds[0];
+        if (!mongoose.isValidObjectId(refundId)) return res.status(404).json({ message: 'Already handled.' });
+        if (answerId.startsWith('txn:')) {
+          const purchaseId = answerId.slice(4);
+          const [refund, purchase] = await Promise.all([
+            Transaction.findOne({ _id: refundId, userId }).select('_id').lean(),
+            Transaction.findOne({ _id: purchaseId, userId }).select('_id description').lean(),
+          ]);
+          if (!refund || !purchase) return res.status(404).json({ message: 'Already handled.' });
+          // The refund rule txnLinks.js already defines (effectOfLink('refund', ...)):
+          // the credit side becomes a reversal, out of the totals; the purchase side
+          // is untouched, so its own category still carries the original spend. Reuse
+          // it rather than building a second "mark this as a refund" mechanism.
+          const applied = await applyLink(userId, {
+            kind: 'refund', fromId: String(refund._id), toId: String(purchase._id),
+            createdBy: 'user', rule: 'refund_confirmed_by_user',
+            reason: 'you told us these belong together',
+          });
+          if (applied) {
+            logCorrection(userId, 'refund', {
+              description: purchase.description || '', from: 'unlinked', to: 'refund', madeBy: 'user', undoOf: '',
+            });
+          }
+        }
+        // 'neither': no purchase matches - leave the credit as ordinary income.
+        break;
+      }
       case 'own_move': {
         const rows = await own(txnIds);
         if (!rows.length) return res.status(404).json({ message: 'Already handled.' });
@@ -6541,10 +6586,10 @@ app.post('/api/action-center/answer', auth, async (req, res) => {
         break;
       }
       default:
-        // not_on_statement, sources_disagree, refund_match and goal have no producer
-        // yet (they need the Observation model from Block 2), so an answer to one can
-        // only arrive from a client built against a future server. Record it rather
-        // than failing, so nothing is lost.
+        // sources_disagree and goal have no producer yet (they need the Observation
+        // model's conflict path and savings-pocket detection respectively), so an
+        // answer to either can only arrive from a client built against a future
+        // server. Record it rather than failing, so nothing is lost.
         break;
     }
 
@@ -7545,9 +7590,10 @@ app.post('/api/owed-to-me/:id/payback', auth, async (req, res) => {
   } catch (e) { console.error('[owed-to-me/payback]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
-// "Forget it": the remainder becomes spending, dated the original lend date, under
-// the closest category this app actually has to "Gifts and events" - Family &
-// Friends (constants/categories.js has no Gifts/events category to invent one).
+// "Forget it": the remainder becomes spending, dated the original lend date,
+// under the category the lib names (Gifts & Events - a real category now;
+// backend/constants/categories.js did not have one when this route was first
+// written, which is why it used to hardcode Family & Friends instead).
 app.post('/api/owed-to-me/:id/write-off', auth, async (req, res) => {
   try {
     const row = await OwedToMe.findOne({ _id: req.params.id, userId: req.user._id });
@@ -7556,7 +7602,7 @@ app.post('/api/owed-to-me/:id/write-off', auth, async (req, res) => {
     if (result.remaining > 0) {
       const txn = await Transaction.create({
         userId: req.user._id, date: row.lentAt, description: `Forgiven: ${row.person}`,
-        amount: -Math.abs(result.remaining), type: 'expense', category: 'Family & Friends', source: 'manual',
+        amount: -Math.abs(result.remaining), type: 'expense', category: result.category, source: 'manual',
       });
       row.writeOffTxnId = txn._id;
     }

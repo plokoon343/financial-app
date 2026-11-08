@@ -85,3 +85,21 @@ Two gaps the device re-check of build 58621ec2 found in what the previous entry'
 - **`ownMoveChanged: 6`** - finding 2's new case. All 6 (the full sample, under the cap) are the same shape: an `income`/`Transfer` row whose narration names one specific account holder on both sides of an inward transfer, moving to `internal_transfer`. A small, exact number is what the safety rule (narration must name the SAME account holder on both a "to" and a "from" segment) is supposed to produce - this is not a general self-transfer sweep, so most self-transfers (the ones needing a pairing across two rows, which is Block 2's linker, not this) are correctly not touched by it.
 
 **Applied, on the owner's explicit go-ahead.** `POST .../reclassify-kinds?apply=1`, same token: `{ scanned: 4675, changed: 144, applied: true, ownMoveChanged: 6 }`. Re-ran the plain dry run immediately after as a check: `{ scanned: 4669, changed: 0, ownMoveChanged: 0 }` - 4669 is exactly 4675 minus the 6 rows now excluded by their new `internal_transfer` type, and zero rows are left for either rule to touch, confirming the write actually took and nothing was missed or double-counted.
+
+## Second device check (build fc693e34, 8 November 2026)
+
+Owner re-checked after the gate fix, the business-name heuristic, the backfill and P7. **Deferred, not being worked now - recorded so it is not lost.**
+
+Confirmed fixed:
+- The ₦100K self-transfer is gone from the queue. The production backfill reached the stored row, not just new ones.
+- No ajo card on Chowdeck or on shop-shaped names. The business-name heuristic holds beyond the catalogue.
+- "Pending Booking Expired!" no longer appears under "Other apps we found". P7's native fix works.
+
+Still open:
+
+**Q1. The Quick look queue is still not single digits.** The `MAX_QUEUE` of 5 added in `actionCards.js` deliberately exempts priority 1 and 2 cards, on the reasoning that they are fraud-risk or change totals and dropping one silently would be the trust failure the cards exist to prevent. That exemption is the most likely cause: if many cards are classified priority 2, the cap never applies to them. Two candidates, and the next session should establish which before changing the cap:
+- The queue genuinely contains that many priority 1 and 2 items, in which case the question is whether some of them are really priority 3 wearing the wrong label.
+- Or a producer is assigning priority 2 too freely.
+Exact count and the breakdown by card kind were not captured. **Get those first** - the fix depends on which kinds are flooding, and lowering the cap blindly would start silently dropping the fraud-risk cards the exemption exists to protect.
+
+**Q2. The birthday prompt appears on the Profile page.** The intent (brief section 8 act 4, plus the owner's own instruction) is that it belongs in onboarding for new users and, for existing users, as a one-off dismissible prompt with a real "Don't ask again". R6-7's note says it was built as a Home card. It is showing on Profile instead, so either the placement differs from the note or there is a second prompt. Check for both before moving it.

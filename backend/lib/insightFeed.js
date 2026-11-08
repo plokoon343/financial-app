@@ -7,6 +7,7 @@
 // Percentages and counts only, so the lines are safe with Hide amounts on.
 
 const { deriveCategoryKey } = require('./merchantKey');
+const { shouldShowOtherReadCard, otherReadCardCopy } = require('./categoryOps');
 
 const DAY = 86400000;
 const LAGOS = 3600000; // WAT is UTC+1, no DST
@@ -19,6 +20,9 @@ const MIN_WEEK_TXNS = 3;       // per week, for a week-on-week comparison
 const SKIP_CATEGORIES = new Set(['Transfer', 'Sent to people', 'Other']);
 
 const spend = (txns) => txns.filter((t) => t.type === 'expense' && !SKIP_CATEGORIES.has(t.category));
+// Same as spend(), but keeps Other: 5.1 rule 6's card is about Other's own share of
+// everything spent, which has to include Other in the total to mean anything.
+const spendWithOther = (txns) => txns.filter((t) => t.type === 'expense' && t.category !== 'Transfer' && t.category !== 'Sent to people');
 const abs = (t) => Math.abs(t.amount);
 const sum = (rows) => rows.reduce((s, t) => s + abs(t), 0);
 const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
@@ -90,8 +94,12 @@ function weekendLine(monthRows) {
   return null;
 }
 
-// Up to 4 insights, best first. now defaults to the present.
-function buildFeed(txns, now = new Date()) {
+// Up to 4 insights, best first. now defaults to the present. `otherReadCardLastShownMonth`
+// is 5.1 rule 6's "already shown this month" guard (categoryOps.shouldShowOtherReadCard) -
+// pure in, pure out: this never writes the guard back, the caller does that once it has
+// actually decided to serve this feed to the user (same "decide, then persist" split
+// every other once-a-month nudge in this codebase already uses).
+function buildFeed(txns, now = new Date(), { otherReadCardLastShownMonth = null } = {}) {
   const month = lagosMonth(now);
   const monthRows = spend(txns).filter((t) => lagosMonth(t.date) === month);
   if (monthRows.length < MIN_MONTH_TXNS) return [];
@@ -99,6 +107,16 @@ function buildFeed(txns, now = new Date()) {
   const total = sum(monthRows);
   const cats = [...byCategory(monthRows).entries()].sort((a, b) => b[1] - a[1]);
   if (cats[0]) out.push({ id: 'top-category', kind: 'category', route: '/insights', text: `${cats[0][0]} is ${pct(cats[0][1], total)}% of what you spent this month.` });
+
+  // 5.1 rule 6: "Other is eating your month" - against the true total (Other included),
+  // not `total` above (which excludes Other, same as every other category line here).
+  const monthAll = spendWithOther(txns).filter((t) => lagosMonth(t.date) === month);
+  const totalAll = sum(monthAll);
+  const otherAmt = sum(monthAll.filter((t) => t.category === 'Other'));
+  const otherShare = totalAll > 0 ? otherAmt / totalAll : 0;
+  if (shouldShowOtherReadCard({ otherShare, monthKey: month, lastShownMonthKey: otherReadCardLastShownMonth })) {
+    out.push({ id: 'other-catchall', kind: 'other', route: '/insights', text: otherReadCardCopy(otherAmt) });
+  }
 
   const w = weekComparison(txns, now);
   if (w && w.change) out.push({ id: 'week-change', kind: 'week', route: '/insights', text: `${w.change.cat} is ${w.change.delta < 0 ? 'down' : 'up'} ${Math.abs(w.change.delta)}% on last week.` });

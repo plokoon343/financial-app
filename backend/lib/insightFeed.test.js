@@ -52,5 +52,21 @@ const prev = Array.from({ length: 8 }, (_, i) => e(`2026-09-${String(i + 1).padS
 check('forecast needs a previous month', forecastLine(month, NOW) === null);
 check('forecast sentence', /^At this pace you will spend about \d+% (more|less) than last month\.$/.test(forecastLine([...prev, ...month], NOW) || ''));
 
+// 5.1 rule 6, wired into buildFeed: "Other is eating your month" - the one feed line
+// that carries a naira amount on purpose (categoryOps.otherReadCardCopy's own exact
+// wording, tested there), unlike every other card here.
+const otherMonth = [
+  // 8 non-Other rows (buildFeed's MIN_MONTH_TXNS gate counts these only - Other is
+  // excluded from that count the same way it is from every other card's totals).
+  e('2026-10-01', 2000, 'Food'), e('2026-10-02', 2000, 'Food'), e('2026-10-03', 2000, 'Food'), e('2026-10-04', 2000, 'Food'),
+  e('2026-10-05', 2000, 'Transport'), e('2026-10-06', 2000, 'Transport'), e('2026-10-07', 2000, 'Transport'), e('2026-10-08', 2000, 'Transport'),
+  e('2026-10-20', 1500, 'Other'), e('2026-10-21', 1500, 'Other'), e('2026-10-22', 1500, 'Other'), // Other: 4500 of 20500 = ~22%
+];
+const otherFeed = buildFeed(otherMonth, NOW);
+check('Other card fires past 15%', otherFeed.some((i) => i.kind === 'other' && i.text === '₦4,500 is in Other this month. Sort a few?'));
+check('Other card suppressed once already shown this month', !buildFeed(otherMonth, NOW, { otherReadCardLastShownMonth: '2026-10' }).some((i) => i.kind === 'other'));
+check('Other card fires again in a new month', buildFeed(otherMonth, NOW, { otherReadCardLastShownMonth: '2026-09' }).some((i) => i.kind === 'other'));
+check('Other card does not fire under 15%', !buildFeed(month, NOW).some((i) => i.kind === 'other'));
+
 console.log(`insightFeed: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

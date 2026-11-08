@@ -82,6 +82,7 @@ const actionCards = require('./lib/actionCards');
 const categorySuggest = require('./lib/categorySuggest');
 const { matchMerchant } = require('./lib/merchants');
 const { cleanName } = require('./lib/cleanName');
+const categoryOps = require('./lib/categoryOps');
 const behaviourMatrix = require('./lib/behaviourMatrix');
 const holds = require('./lib/holds');
 const dollarAccounts = require('./lib/dollarAccounts');
@@ -487,6 +488,15 @@ const userSchema = new mongoose.Schema({
     autoRenew:         { type: Boolean, default: false },
     lastReference:     { type: String, default: '' },
   },
+  // round 6, Block 3 (5.1 rules 1, 2, 6): per-user category presentation state.
+  // `categoryRenames` is id -> the user's own name for it - presentation only, read
+  // through constants/categories.js's displayNameFor(); no Transaction/Budget row's
+  // stored category id ever changes for a rename. `hiddenCategoryIds` removes a
+  // category from pickers without touching its history. `otherReadCardLastShownMonth`
+  // is categoryOps.shouldShowOtherReadCard()'s "already shown this month" guard.
+  categoryRenames: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
+  hiddenCategoryIds: { type: [String], default: [] },
+  otherReadCardLastShownMonth: { type: String, default: '' },
   resetToken: String,
   resetTokenExpiry: Date,
 }, { timestamps: true });
@@ -844,6 +854,62 @@ const customCategorySchema = new mongoose.Schema({
 customCategorySchema.index({ userId: 1, type: 1, nameLower: 1 }, { unique: true });
 const CustomCategory = mongoose.model('CustomCategory', customCategorySchema);
 
+// round 6, Block 3 (5.1 rules 3, 4): the 24-hour undo record a merge or delete keeps.
+// lib/categoryOps.js's undoRecord() builds the plain object this schema stores;
+// expiresAt is a TTL index so a row cleans itself up once the window has passed
+// rather than needing its own cron job.
+const categoryMergeUndoSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  op: { type: String, enum: ['merge'], required: true }, // delete is a merge into Other, same record shape
+  fromId: { type: String, required: true },
+  intoId: { type: String, required: true },
+  transactionIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+  budgetIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+  ruleIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+  createdAt: { type: Date, required: true },
+  expiresAt: { type: Date, required: true },
+});
+categoryMergeUndoSchema.index({ userId: 1, createdAt: -1 });
+categoryMergeUndoSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+const CategoryMergeUndo = mongoose.model('CategoryMergeUndo', categoryMergeUndoSchema);
+
+// round 6, Block 3 (5.3): lib/cleanName.js's "user's own rule" and "learned merchant"
+// steps read from here. `userRule` is an explicit rename the user typed once, for
+// this merchantKey, applied everywhere (5.3's own wording). `learnedName`/
+// `confirmations` are the close-spelling-suggestion path: the same suggested name
+// accepted twice in a row becomes the learned name cleanName() returns; a different
+// name confirmed resets the count to 1 rather than averaging two different guesses
+// together.
+const merchantNameRuleSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  merchantKey: { type: String, required: true },
+  userRule: { type: String, default: '' },
+  learnedName: { type: String, default: '' },
+  learnedLogo: { type: String, default: '' },
+  confirmations: { type: Number, default: 0 },
+}, { timestamps: true });
+merchantNameRuleSchema.index({ userId: 1, merchantKey: 1 }, { unique: true });
+const MerchantNameRule = mongoose.model('MerchantNameRule', merchantNameRuleSchema);
+
+// cleanName()'s { userRule, learnedMerchant } input for one merchantKey, from a
+// pre-fetched map (batch-loaded once per request/scan, never per-row - the same
+// reason LearnedCategory/ActionAnswer are batched in actionCardInput below).
+function nameRuleFor(nameRules, merchantKey) {
+  if (!merchantKey) return { userRule: '', learnedMerchant: null };
+  const r = nameRules.get(merchantKey);
+  if (!r) return { userRule: '', learnedMerchant: null };
+  return {
+    userRule: r.userRule || '',
+    learnedMerchant: r.learnedName && r.confirmations >= 2
+      ? { name: r.learnedName, confirmations: r.confirmations, logo: r.learnedLogo || null }
+      : null,
+  };
+}
+async function loadNameRules(userId) {
+  const rows = await MerchantNameRule.find({ userId }).lean();
+  return new Map(rows.map((r) => [r.merchantKey, r]));
+}
+
 // Fire-and-forget: remember a category the moment it's used anywhere a transaction
 // or budget is written (manual add, detail edit, review, budget, Ask - item 5),
 // not only the one "+ Other" dialog. A client's own base list (frontend/mobile
@@ -1064,7 +1130,9 @@ const ReconLog = mongoose.model('ReconLog', reconLogSchema);
 // vote threshold on top of this means a one-off personal key can't reach consensus.
 // round 6, Block 3: derived from constants/categories.js, the one catalogue, instead
 // of typed out a second time here - same membership, confirmed by categories.test.js.
-const GLOBAL_ELIGIBLE_CATEGORIES = new Set(require('./constants/categories').GLOBAL_ELIGIBLE);
+const categoryCatalogue = require('./constants/categories');
+const { displayNameFor } = categoryCatalogue;
+const GLOBAL_ELIGIBLE_CATEGORIES = new Set(categoryCatalogue.GLOBAL_ELIGIBLE);
 const globalEligible = (c) => GLOBAL_ELIGIBLE_CATEGORIES.has(c);
 // Category names hold spaces/&//, which are awkward as Mongo field keys - slug them.
 const catSlug = (c) => c.replace(/[^a-z0-9]+/gi, '_');
@@ -3064,7 +3132,10 @@ async function deleteUserData(userId, email) {
     Transaction, Budget, Goal, Subscription, RecurringBill, LearnedCategory, ParseCorrection,
     SupportTicket, Notification, TransferRoute, UserAccount, Contact, SenderTag, ReconLog,
     Feedback, Activity, DismissedDetection, KeptPair, NudgeLog, StudentReview, PendingAlert, CorrectionEvent, AiChat,
-    Consent, SecurityEvent, CustomCategory,
+    Consent, SecurityEvent, CustomCategory, CategoryMergeUndo, MerchantNameRule,
+    // Found missing while reviewing round 6's Block 4/5/10 sweep commits: these all
+    // carry a real userId and were never added here when they were built.
+    ActionSkip, ActionAnswer, AnswerTally, HoldObservation, OwedToMe, DollarFunding, ProductEvent,
   ].map((M) => M.deleteMany({ userId: uid })));
   await ActivityDay.deleteMany({ userId: uid });
   // 'billpayments' also holds the current bill purchases (they carry a VTpass
@@ -3507,8 +3578,14 @@ app.get('/api/transactions', auth, async (req, res) => {
     // client can stop showing "VAT"-as-raw-narration, "POS PUR 11 PLC FESTAC 23RD..."
     // etc. (5.4) without needing its own copy of the match order. Additive only -
     // `description` is unchanged and still the source for Transaction detail's
-    // "Original alert" (rule 4).
-    for (const t of transactions) t.cleanName = cleanName({ raw: t.description, type: t.type }).name;
+    // "Original alert" (rule 4). `categoryName` is 5.1 rule 1's rename-keeps-the-id
+    // decoration, additive the same way - `category` is still the stored id.
+    const nameRules = await loadNameRules(req.user._id);
+    for (const t of transactions) {
+      const { userRule, learnedMerchant } = nameRuleFor(nameRules, deriveCategoryKey(t.description));
+      t.cleanName = cleanName({ raw: t.description, type: t.type, userRule, learnedMerchant }).name;
+      t.categoryName = displayNameFor(t.category, req.user.categoryRenames);
+    }
     res.json(transactions);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -3779,6 +3856,135 @@ app.delete('/api/categories/:id', auth, async (req, res) => {
     CustomCategory.deleteOne({ _id: row._id }),
   ]);
   res.json({ message: 'Category deleted', reassignedTo: reassignTo, updated: txnResult.modifiedCount || 0 });
+});
+
+// ── Category preferences: rename, hide, merge, delete (round 6, Block 3, 5.1) ──
+// Operates on the fixed catalogue (constants/categories.js) - "Food", "Entertainment"
+// and so on - which is a different thing from CustomCategory above (a name the user
+// typed themselves via "+ Other"). lib/categoryOps.js decides every plan; everything
+// here is the Mongo side those plans were written to be tested without.
+app.get('/api/category-prefs', auth, async (req, res) => {
+  const renames = req.user.categoryRenames || {};
+  const hidden = new Set(req.user.hiddenCategoryIds || []);
+  const categories = categoryCatalogue.CATEGORIES.map((c) => ({
+    id: c.id, name: displayNameFor(c.id, renames), group: c.group, icon: c.icon,
+    colorToken: c.colorToken, effect: c.effect, budgetable: c.budgetable,
+    hidden: hidden.has(c.id), renamed: !!renames[c.id],
+  }));
+  res.json({ categories });
+});
+
+// 5.1 rule 1: presentation only. The stored category id on every Transaction/Budget/
+// rule row is untouched - displayNameFor() is the one place the rename takes effect.
+app.patch('/api/category-prefs/:id/rename', auth, async (req, res) => {
+  try {
+    const renames = categoryOps.renamePatch(req.user.categoryRenames || {}, req.params.id, req.body?.name);
+    await User.updateOne({ _id: req.user._id }, { $set: { categoryRenames: renames } });
+    res.json({ id: req.params.id, name: renames[req.params.id] });
+  } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// 5.1 rule 2: removes it from pickers; every row that already carries this category
+// id keeps it and keeps showing it on Transaction detail, Insights and the budget it
+// was filed under - hiding is about what a picker offers next, not what happened.
+app.patch('/api/category-prefs/:id/hide', auth, async (req, res) => {
+  const hidden = categoryOps.hidePatch(req.user.hiddenCategoryIds || [], req.params.id, !!req.body?.hidden);
+  await User.updateOne({ _id: req.user._id }, { $set: { hiddenCategoryIds: hidden } });
+  res.json({ id: req.params.id, hidden: hidden.includes(req.params.id) });
+});
+
+// Moves every Transaction, Budget and merchant rule (LearnedCategory) row filed
+// under `fromId` to `intoId`, and keeps a 24-hour undo record of exactly the rows it
+// touched (categoryOps.undoRecord) - nothing added to `intoId` naturally in the
+// meantime is swept up by the undo.
+async function mergeCategoryRows(userId, plan) {
+  const [txns, budgets, rules] = await Promise.all([
+    Transaction.find({ userId, category: plan.fromId }, { _id: 1 }).lean(),
+    Budget.find({ userId, category: plan.fromId }, { _id: 1 }).lean(),
+    LearnedCategory.find({ userId, category: plan.fromId }, { _id: 1 }).lean(),
+  ]);
+  const transactionIds = txns.map((t) => t._id);
+  const budgetIds = budgets.map((b) => b._id);
+  const ruleIds = rules.map((r) => r._id);
+  await Promise.all([
+    transactionIds.length ? Transaction.updateMany({ _id: { $in: transactionIds } }, { $set: { category: plan.intoId } }) : null,
+    budgetIds.length ? Budget.updateMany({ _id: { $in: budgetIds } }, { $set: { category: plan.intoId } }) : null,
+    ruleIds.length ? LearnedCategory.updateMany({ _id: { $in: ruleIds } }, { $set: { category: plan.intoId } }) : null,
+  ]);
+  const record = categoryOps.undoRecord(plan, { transactionIds, budgetIds, ruleIds });
+  await CategoryMergeUndo.create({ userId, ...record });
+  return { transactionIds: transactionIds.length, budgetIds: budgetIds.length, ruleIds: ruleIds.length };
+}
+
+app.post('/api/category-prefs/merge', auth, async (req, res) => {
+  try {
+    const plan = categoryOps.mergePlan(req.body?.fromId, req.body?.intoId);
+    const counts = await mergeCategoryRows(req.user._id, plan);
+    res.json({ message: 'Merged', fromId: plan.fromId, intoId: plan.intoId, updated: counts, undoWindowMs: categoryOps.UNDO_WINDOW_MS });
+  } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// 5.1 rule 4: delete is a merge into Other/Other Income (fallbackFor), same undo.
+app.delete('/api/category-prefs/:id', auth, async (req, res) => {
+  try {
+    const plan = categoryOps.deletePlan(req.params.id);
+    const counts = await mergeCategoryRows(req.user._id, plan);
+    res.json({ message: 'Deleted', fromId: plan.fromId, intoId: plan.intoId, updated: counts, undoWindowMs: categoryOps.UNDO_WINDOW_MS });
+  } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// Reverts the single most recent merge/delete, if it is still inside its 24-hour
+// window - exactly the rows it moved, nothing added to the target category since.
+app.post('/api/category-prefs/undo', auth, async (req, res) => {
+  const record = await CategoryMergeUndo.findOne({ userId: req.user._id }).sort({ createdAt: -1 }).lean();
+  if (!record || !categoryOps.canUndo(record)) return res.status(404).json({ message: 'Nothing to undo.' });
+  await Promise.all([
+    record.transactionIds.length ? Transaction.updateMany({ _id: { $in: record.transactionIds } }, { $set: { category: record.fromId } }) : null,
+    record.budgetIds.length ? Budget.updateMany({ _id: { $in: record.budgetIds } }, { $set: { category: record.fromId } }) : null,
+    record.ruleIds.length ? LearnedCategory.updateMany({ _id: { $in: record.ruleIds } }, { $set: { category: record.fromId } }) : null,
+    CategoryMergeUndo.deleteOne({ _id: record._id }),
+  ]);
+  res.json({
+    message: 'Undone', fromId: record.fromId, intoId: record.intoId,
+    reverted: { transactionIds: record.transactionIds.length, budgetIds: record.budgetIds.length, ruleIds: record.ruleIds.length },
+  });
+});
+
+// ── Merchant name rules (round 6, Block 3, 5.3) ──
+// "Users can rename a merchant once for everywhere": one rule per (user, merchantKey),
+// read by lib/cleanName.js's "user's own rule" step via loadNameRules()/nameRuleFor()
+// above - cardName() and GET /api/transactions both already call through this.
+app.patch('/api/merchant-names/:key/rename', auth, async (req, res) => {
+  const key = String(req.params.key || '').trim();
+  const name = String(req.body?.name || '').trim().slice(0, 60);
+  if (!key) return res.status(400).json({ message: 'No merchant to rename.' });
+  if (!name) return res.status(400).json({ message: 'Give it a name.' });
+  const row = await MerchantNameRule.findOneAndUpdate(
+    { userId: req.user._id, merchantKey: key },
+    { $set: { userRule: name } },
+    { upsert: true, new: true },
+  );
+  res.json({ merchantKey: key, name: row.userRule });
+});
+
+// The close-spelling suggestion cleanName() returns is never auto-applied (5.3's own
+// "suggest only"); this is what the user accepting it calls. The same name confirmed
+// twice in a row becomes the learned name; a different one resets the count to 1,
+// since two different guesses in a row should not quietly average into either.
+app.post('/api/merchant-names/:key/confirm', auth, async (req, res) => {
+  const key = String(req.params.key || '').trim();
+  const name = String(req.body?.name || '').trim().slice(0, 60);
+  const logo = String(req.body?.logo || '').trim().slice(0, 80);
+  if (!key || !name) return res.status(400).json({ message: 'Nothing to confirm.' });
+  const existing = await MerchantNameRule.findOne({ userId: req.user._id, merchantKey: key }).lean();
+  const sameName = existing && existing.learnedName === name;
+  const confirmations = sameName ? (existing.confirmations || 0) + 1 : 1;
+  const row = await MerchantNameRule.findOneAndUpdate(
+    { userId: req.user._id, merchantKey: key },
+    { $set: { learnedName: name, learnedLogo: logo, confirmations } },
+    { upsert: true, new: true },
+  );
+  res.json({ merchantKey: key, learnedName: row.learnedName, confirmations: row.confirmations, learned: row.confirmations >= 2 });
 });
 
 // Corper starter preset: seed a ₦77k NYSC allawee budget for this month plus an
@@ -4201,8 +4407,21 @@ const insightRows = (userId, days = 65) => Transaction.find(
   { date: 1, amount: 1, type: 1, category: 1, description: 1 },
 ).lean();
 app.get('/api/insights/feed', auth, async (req, res) => {
-  try { res.json({ insights: insightFeed.buildFeed(await insightRows(req.user._id)) }); }
-  catch (e) { console.error('[insights/feed]', e.message); res.status(500).json({ message: 'Server error' }); }
+  try {
+    const insights = insightFeed.buildFeed(await insightRows(req.user._id), new Date(), {
+      otherReadCardLastShownMonth: req.user.otherReadCardLastShownMonth || null,
+    });
+    // 5.1 rule 6: mark it shown only once it is actually about to reach the user,
+    // same "decide, then persist" split the pure builder's own comment describes.
+    const shownThisMonth = insights.find((i) => i.kind === 'other');
+    if (shownThisMonth) {
+      const monthKey = new Date().toISOString().slice(0, 7);
+      if (req.user.otherReadCardLastShownMonth !== monthKey) {
+        User.updateOne({ _id: req.user._id }, { $set: { otherReadCardLastShownMonth: monthKey } }).catch(() => {});
+      }
+    }
+    res.json({ insights });
+  } catch (e) { console.error('[insights/feed]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 app.get('/api/insights/lines', auth, async (req, res) => {
   try {
@@ -5780,12 +5999,12 @@ function cardMeta(t) {
 // lib/cleanName.js's one match order (user rule -> learned merchant -> catalogue ->
 // counterparty -> strip -> "Card payment"), the same function the Money list and
 // Transaction detail read, so a merchant is never named one way on a card and
-// another way everywhere else. A user's own merchant renames are not wired in here
-// yet - there is no per-user merchant-rename store to read from yet - so this call
-// site gets the catalogue/strip/fallback behaviour live today, and the explicit-
-// rename step (5.3's "the user's own rule") the moment that store exists.
-function cardName(t) {
-  return cleanName({ raw: t.description, type: t.type }).name;
+// another way everywhere else. `nameRules` is MerchantNameRule's batch-loaded map
+// (loadNameRules, above) - optional so the handful of call sites below that genuinely
+// have no per-user map in scope still work (catalogue/strip/fallback behaviour only).
+function cardName(t, nameRules = null) {
+  const { userRule, learnedMerchant } = nameRules ? nameRuleFor(nameRules, deriveCategoryKey(t.description)) : { userRule: '', learnedMerchant: null };
+  return cleanName({ raw: t.description, type: t.type, userRule, learnedMerchant }).name;
 }
 
 /**
@@ -5804,7 +6023,7 @@ async function actionCardInput(user) {
   const kept = new Set(keptRows.map((k) => k.pairKey));
   const notSenders = await dismissedSenderKeys(userId);
 
-  const [rows, dupes, cashRows, senders, accounts, contacts, detected, learnedRows, answered, routes] = await Promise.all([
+  const [rows, dupes, cashRows, senders, accounts, contacts, detected, learnedRows, answered, routes, nameRules] = await Promise.all([
     Transaction.find({ userId, date: { $gte: since } },
       { date: 1, description: 1, amount: 1, type: 1, category: 1, categoryGuessed: 1, bank: 1, bankCode: 1,
         accountMask: 1, source: 1, senderKey: 1, reviewedAt: 1, reference: 1, links: 1, notOnStatement: 1,
@@ -5826,6 +6045,7 @@ async function actionCardInput(user) {
     LearnedCategory.find({ userId }, { key: 1, category: 1 }).lean(),
     ActionAnswer.find({ userId }, { cardKey: 1 }).lean(),
     TransferRoute.find({ userId }, { routeKey: 1 }).lean(),
+    loadNameRules(userId),
   ]);
 
   const answeredKeys = new Set(answered.map((a) => a.cardKey));
@@ -5868,7 +6088,7 @@ async function actionCardInput(user) {
   for (const t of unsorted) {
     const key = deriveCategoryKey(t.description);
     const base = {
-      id: String(t._id), txnId: String(t._id), name: cardName(t), amount: Math.abs(t.amount),
+      id: String(t._id), txnId: String(t._id), name: cardName(t, nameRules), amount: Math.abs(t.amount),
       meta: cardMeta(t), merchantKey: key || null, direction: 'expense',
     };
     if (APPLE_BILLING.test(t.description)) {
@@ -5907,10 +6127,10 @@ async function actionCardInput(user) {
       pairedIds.add(String(a.fromId));
       input.own_move.push({
         id: String(a.fromId), txnId: String(a.fromId),
-        name: cardName(debit), amount: Math.abs(debit.amount), meta: cardMeta(debit),
-        title: a.label || cardName(debit),
+        name: cardName(debit, nameRules), amount: Math.abs(debit.amount), meta: cardMeta(debit),
+        title: a.label || cardName(debit, nameRules),
         // "Bank A → Bank B" circles (brief 4.2): the two accounts, named.
-        pair: credit ? { from: debit.bank || cardName(debit), to: credit.bank || cardName(credit) } : null,
+        pair: credit ? { from: debit.bank || cardName(debit, nameRules), to: credit.bank || cardName(credit, nameRules) } : null,
         otherId: credit ? String(a.toId) : null,
         routeKey: a.routeKey || null,
       });
@@ -5920,10 +6140,10 @@ async function actionCardInput(user) {
       if (!credit) continue;
       input.refund_match.push({
         id: String(a.creditId), txnId: String(a.creditId),
-        name: cardName(credit), amount: Math.abs(credit.amount), meta: cardMeta(credit),
+        name: cardName(credit, nameRules), amount: Math.abs(credit.amount), meta: cardMeta(credit),
         candidates: (a.choices || []).map((c) => ({
           id: String(c.transactionId),
-          label: `${cardName(c)} on ${new Date(c.date).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })}`,
+          label: `${cardName(c, nameRules)} on ${new Date(c.date).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })}`,
         })),
       });
     }
@@ -5940,14 +6160,14 @@ async function actionCardInput(user) {
     if (pairedIds.has(key)) continue;
     if ((t.links || []).some((l) => l.kind === 'ownMove')) continue;
     const verdict = behaviourMatrix.classify(
-      { direction: 'debit', amountKobo: Math.round(Math.abs(t.amount) * 100), description: t.description, counterpartyClean: cardName(t), category: t.category },
+      { direction: 'debit', amountKobo: Math.round(Math.abs(t.amount) * 100), description: t.description, counterpartyClean: cardName(t, nameRules), category: t.category },
       { userName: user.name || '', trackedWallets },
     );
     if (!verdict.ask || verdict.ask.type !== 'ownMove') continue;
     input.own_move.push({
-      id: key, txnId: key, name: cardName(t), amount: Math.abs(t.amount),
-      meta: cardMeta(t), title: verdict.shownAs || cardName(t),
-      pair: t.bank ? { from: t.bank, to: cardName(t) } : null,
+      id: key, txnId: key, name: cardName(t, nameRules), amount: Math.abs(t.amount),
+      meta: cardMeta(t), title: verdict.shownAs || cardName(t, nameRules),
+      pair: t.bank ? { from: t.bank, to: cardName(t, nameRules) } : null,
     });
   }
 
@@ -5957,7 +6177,7 @@ async function actionCardInput(user) {
   for (const t of rows) {
     if (!t.notOnStatement || t.type !== 'income') continue;
     input.not_on_statement.push({
-      id: String(t._id), txnId: String(t._id), name: cardName(t),
+      id: String(t._id), txnId: String(t._id), name: cardName(t, nameRules),
       amount: Math.abs(t.amount), bank: t.bank || 'bank', meta: cardMeta(t),
     });
   }
@@ -5967,11 +6187,11 @@ async function actionCardInput(user) {
   const credits = rows.filter((t) => t.type === 'income');
   for (const t of credits) {
     const verdict = behaviourMatrix.classify(
-      { direction: 'credit', amountKobo: Math.round(Math.abs(t.amount) * 100), description: t.description, counterpartyClean: cardName(t), category: t.category },
+      { direction: 'credit', amountKobo: Math.round(Math.abs(t.amount) * 100), description: t.description, counterpartyClean: cardName(t, nameRules), category: t.category },
       { userName: user.name || '' },
     );
     if (verdict.ask && verdict.ask.type === 'loan') {
-      input.loan.push({ id: String(t._id), txnId: String(t._id), name: cardName(t), amount: Math.abs(t.amount), meta: cardMeta(t) });
+      input.loan.push({ id: String(t._id), txnId: String(t._id), name: cardName(t, nameRules), amount: Math.abs(t.amount), meta: cardMeta(t) });
     }
   }
   // Income is asked once, about the sender, not once per payment: a repeating credit
@@ -5979,7 +6199,7 @@ async function actionCardInput(user) {
   if (!(user.monthlyIncome > 0)) {
     const bySender = new Map();
     for (const t of credits) {
-      const key = deriveCategoryKey(t.description) || cardName(t).toLowerCase();
+      const key = deriveCategoryKey(t.description) || cardName(t, nameRules).toLowerCase();
       if (!key) continue;
       const g = bySender.get(key) || { key, rows: [], months: new Set() };
       g.rows.push(t);
@@ -5990,7 +6210,7 @@ async function actionCardInput(user) {
       .sort((a, b) => Math.abs(b.rows[0].amount) - Math.abs(a.rows[0].amount))[0];
     if (best) {
       input.income.push({
-        id: best.key, name: cardName(best.rows[0]), amount: Math.abs(best.rows[0].amount),
+        id: best.key, name: cardName(best.rows[0], nameRules), amount: Math.abs(best.rows[0].amount),
         months: best.months.size, meta: cardMeta(best.rows[0]), txnIds: best.rows.map((r) => String(r._id)),
       });
     }
@@ -6016,7 +6236,7 @@ async function actionCardInput(user) {
   for (const { a, b } of dupes) {
     input.same_as.push({
       id: pairKeyOf(a._id, b._id), firstId: String(a._id), secondId: String(b._id),
-      title: cardName(b), name: cardName(b), amount: Math.abs(a.amount), direction: a.type,
+      title: cardName(b, nameRules), name: cardName(b, nameRules), amount: Math.abs(a.amount), direction: a.type,
       time: new Date(a.date).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Lagos' }),
       meta: cardMeta(b),
     });

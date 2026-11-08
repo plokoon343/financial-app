@@ -70,3 +70,16 @@ What it carries that `c4cc2546` did not: Round 6 Blocks 1, 2, 3, 4, 5, 6 and 10,
 Pre-build checks run against the committed tree: clean, nothing unpushed, every route in `_layout.tsx` resolves to a real screen file (the check that would have caught both previous launch crashes), `tsc --noEmit` clean. Block 9 added no native dependencies, so the runtime fingerprint moved only for `87e0247`.
 
 **This is the first device check of the entire round.** Every progress note in `round6-trust-review-polish.md` carries the same caveat: nothing was run against a phone or a live database. Still outstanding and not part of this build: the Block 1 `POST /api/admin/reclassify-kinds` backfill has never been run against production, so existing Apple charges stay filed as cash until it is.
+
+## Build fc693e34, 8 November 2026: Round 6 complete, mascot dropped
+
+Candidate build `fc693e34-0567-400c-9517-ca1a927a05c3`, from finpilot-mobile `28a06a1`. Supersedes `58621ec2`.
+
+APK: https://expo.dev/artifacts/eas/LOrhmCTo6awJQvcGcpjywtAozpfYgQLVldP9bAN8x9g.apk
+Site Download-Android link updated automatically (automonie-web `c6a976c`).
+
+New since `58621ec2`: Blocks 7 (onboarding, six acts), 8 (motion and responses, partial) and 11 (brand moments, first step); P7's native fix so a notification's own title is no longer read as an app name; the business-name heuristic so a shop is not offered as ajo; and the self-transfer backfill, which was applied to production (4,675 scanned, 144 changed, 6 self-transfers, re-verified at 0 remaining).
+
+**Decision, 8 Nov: no mascot.** The owner decided not to proceed with it. `Mascot.tsx` was wired into one place only, the Action Center "All sorted" screen, where it had replaced the checkmark burst; the checkmark is restored and the component deleted (`28a06a1`). `SignatureMorph` stays on the welcome screen. Consequences for future sessions: Block 11 loses one of its four pillars, and brief section 8's acts 1, 3 and 6 name a mascot that no longer exists - those moments still work but have no character carrying them, and nothing should rebuild one.
+
+Still unmet from section 12, definition of done: no CI check (the only workflow runs backend lib tests, not mobile tsc, expo lint or the contrast audit); B1 to B6 never re-verified on a phone since they were fixed; performance budgets unmeasured; four rows of section 10's response table and most of section 11 remain net-new feature work.

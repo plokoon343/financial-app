@@ -57,3 +57,16 @@ Because this bug was baked into build 39af8876's *embedded* bundle (not just som
 ### Step 2 correction, 1 Nov 2026 (afternoon): the real cause of the launch crash
 The crash came back on the phone after `58fe2a6`. Decoded from the phone's stack with a source-mapped export: it is Home (`src/app/(tabs)/index.tsx`), whose effects call `registerTourTarget()` and `hasSeenTour()` from `lib/tour.ts`. Those functions existed only in the round 9 tutorial session's uncommitted changes, so every build and OTA since `0f31f65` shipped them as undefined. The missing routes in `58fe2a6` were not the cause. Fixed in mobile `87da7d9` (committed the finished `tour.ts` and `insights.ts` additions; Home marks the tour seen when it auto-starts it), `tsc` clean on a clean checkout. OTA on `preview`, runtime `7d99153e`, update group `a37b2725`. **Build 6e0d7e28's embedded bundle still has the bug**: a fresh install crashes on its first launch, then works after "Restart app" once the OTA lands. A new candidate build from `87da7d9` or later is needed before Play. **Rule from here: run `tsc --noEmit` on a clean checkout (or with WIP stashed) before any build or OTA.**
 - **New candidate build c4cc2546-bd65-4572-bf01-1b1ad00e390a** (Android preview APK, finished 1 Nov): https://expo.dev/accounts/plokoon/projects/finpilot-mobile/builds/c4cc2546-bd65-4572-bf01-1b1ad00e390a. Built from mobile `87da7d9` with the tutorial WIP stashed, `tsc` clean on that tree, runtime `7d99153e` (unchanged). Site Download link points here: automonie-web `4a26bbf` on `astro-site`, pushed. **This is the real candidate; 6e0d7e28, 39af8876 and 3a4ee00b are all superseded.** Not yet run on a phone.
+
+## Build 58621ec2, 8 November 2026: the whole of Round 6 reaches a phone
+
+New candidate build `58621ec2-9e7a-4faf-ab26-549a9d70ba6e`, from finpilot-mobile `7349f1f`. Supersedes `c4cc2546`, which is now 20-odd commits behind.
+
+APK: https://expo.dev/artifacts/eas/lijL7MwXjdoKoPsF1mLQnPfR7XoQSyIQwGNMnDt1CW0.apk
+Site Download-Android link updated automatically (automonie-web `2c44b61`).
+
+What it carries that `c4cc2546` did not: Round 6 Blocks 1, 2, 3, 4, 5, 6 and 10, the wiring pass, the Action Center answer fix (`df02270`), Block 9's support work, and the native `87e0247` capture change (keep the last 10 verdicts) that had been waiting since 4 November.
+
+Pre-build checks run against the committed tree: clean, nothing unpushed, every route in `_layout.tsx` resolves to a real screen file (the check that would have caught both previous launch crashes), `tsc --noEmit` clean. Block 9 added no native dependencies, so the runtime fingerprint moved only for `87e0247`.
+
+**This is the first device check of the entire round.** Every progress note in `round6-trust-review-polish.md` carries the same caveat: nothing was run against a phone or a live database. Still outstanding and not part of this build: the Block 1 `POST /api/admin/reclassify-kinds` backfill has never been run against production, so existing Apple charges stay filed as cash until it is.

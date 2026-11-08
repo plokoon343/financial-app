@@ -16,7 +16,7 @@ const { Readable } = require('stream');
 const axios = require('axios');
 const crypto = require('crypto');
 const insightFeed = require('./lib/insightFeed');
-const { fingerprint, matchScore, MERGE, PROBABLE: PROBABLE_DUP } = require('./lib/dedupe');
+const { fingerprint, matchScore, splitDuplicates, MERGE, PROBABLE: PROBABLE_DUP } = require('./lib/dedupe');
 const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
 const { reclassifyRow, MACHINE_KINDS } = require('./lib/reclassify');
@@ -5896,6 +5896,36 @@ async function findPossibleDuplicates(userId, kept) {
   return pairs.sort((x, y) => y.score - x.score).slice(0, 20);
 }
 
+// Merge `dropId` into `keepId`: the evidence moves onto the kept transaction
+// (undoable from detail, "Not the same" splits it back out) and the copy is
+// removed. Shared by the user's own "Yes, same one" answer and the auto-merge
+// below for a pair the dedupe score already calls certain (phone check P3, 8 Nov
+// 2026: asking "is this the same as..." about an exact amount/name/time match is
+// the opposite of guess-first - this IS the guess, and it is a safe one).
+async function mergeDuplicateTxns(userId, keepId, dropId, rule) {
+  const copy = await Transaction.findOne({ _id: dropId, userId })
+    .select('mergedFrom source channel amount type date description bank bankCode accountMask reference').lean();
+  if (!copy) return false;
+  const carried = (copy.mergedFrom && copy.mergedFrom.length ? copy.mergedFrom : [{
+    source: statementRecon.observationSourceOf(copy),
+    amountKobo: Math.round(Math.abs(copy.amount) * 100),
+    direction: copy.amount >= 0 ? 'credit' : 'debit',
+    eventTime: copy.date, counterpartyRaw: copy.description || '',
+    reference: copy.reference || '', rawHash: '',
+  }]).map((s) => Object.assign({}, s, {
+    _id: undefined, step: 5, rule,
+    createdBy: rule === 'same_as_confirmed_by_user' ? 'user' : 'rule',
+    addedAt: new Date(),
+  }));
+  await Transaction.updateOne({ _id: keepId, userId }, { $push: { mergedFrom: { $each: carried } } });
+  await Transaction.deleteOne({ _id: dropId, userId });
+  await logCorrection(userId, 'merge', {
+    description: copy.description || '', from: 'two_transactions', to: 'merged',
+    bankCode: copy.bankCode || '', madeBy: rule === 'same_as_confirmed_by_user' ? 'user' : 'rule', undoOf: 'rule',
+  });
+  return true;
+}
+
 const slimTxn = (t) => ({ id: t._id, date: t.date, amount: Math.abs(t.amount), type: t.type, description: t.description, bank: t.bank || '', source: t.source || 'manual', category: t.category });
 
 async function actionCenterItems(userId) {
@@ -6315,8 +6345,17 @@ async function actionCardInput(user) {
     input.ajo.push({ id: `${g.contactKey}:${g.amount}`, name: g.name, amount: g.amount, meta: cardMeta(g.rows[0]), txnIds: g.rows.map((r) => String(r._id)), contactKey: g.contactKey });
   }
 
-  // ── Duplicates: "Is this the same as ...?" (brief 4.3 priority 2)
-  for (const { a, b } of dupes) {
+  // ── Duplicates: "Is this the same as ...?" (brief 4.3 priority 2).
+  // Phone check P3, 8 Nov 2026: "identical amount, name and time" was still asked
+  // about - the opposite of guess-first. A pair the dedupe score already calls
+  // 'duplicate' is merged silently, exactly as the 3 Nov field note resolves a
+  // self-transfer: undoable from detail's "Not the same", never asked. Only a
+  // genuinely ambiguous ('probable') pair still becomes a card.
+  const { merge: certainDupes, ask: askDupes } = splitDuplicates(dupes);
+  for (const { a, b } of certainDupes) {
+    mergeDuplicateTxns(userId, a._id, b._id, 'same_as_certain').catch((e) => console.error('[same-as/auto-merge]', e.message));
+  }
+  for (const { a, b } of askDupes) {
     input.same_as.push({
       id: pairKeyOf(a._id, b._id), firstId: String(a._id), secondId: String(b._id),
       title: cardName(b, nameRules), name: cardName(b, nameRules), amount: Math.abs(a.amount), direction: a.type,
@@ -6562,26 +6601,7 @@ app.post('/api/action-center/answer', auth, async (req, res) => {
           // (which is what this did) made that impossible, whatever the old comment
           // claimed. The copy's evidence moves onto the transaction that is kept, so
           // "Not the same" on detail can split it back out.
-          const copy = await Transaction.findOne({ _id: second, userId })
-            .select('mergedFrom source channel amount type date description bank bankCode accountMask reference').lean();
-          if (copy) {
-            const carried = (copy.mergedFrom && copy.mergedFrom.length ? copy.mergedFrom : [{
-              source: statementRecon.observationSourceOf(copy),
-              amountKobo: Math.round(Math.abs(copy.amount) * 100),
-              direction: copy.amount >= 0 ? 'credit' : 'debit',
-              eventTime: copy.date, counterpartyRaw: copy.description || '',
-              reference: copy.reference || '', rawHash: '',
-            }]).map((s) => Object.assign({}, s, {
-              _id: undefined, step: 5, rule: 'same_as_confirmed_by_user',
-              createdBy: 'user', addedAt: new Date(),
-            }));
-            await Transaction.updateOne({ _id: first, userId }, { $push: { mergedFrom: { $each: carried } } });
-            await Transaction.deleteOne({ _id: second, userId });
-            await logCorrection(userId, 'merge', {
-              description: copy.description || '', from: 'two_transactions', to: 'merged',
-              bankCode: copy.bankCode || '', madeBy: 'user', undoOf: 'rule',
-            });
-          }
+          await mergeDuplicateTxns(userId, first, second, 'same_as_confirmed_by_user');
         } else if (first && second) {
           await KeptPair.updateOne({ userId, pairKey: pairKeyOf(first, second) }, { $setOnInsert: { userId, pairKey: pairKeyOf(first, second) } }, { upsert: true });
         }

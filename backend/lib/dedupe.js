@@ -114,4 +114,20 @@ function classify(score) {
 const SOURCE_RANK = { mono: 4, statement: 3, statement_pdf: 3, statement_csv: 3, sms: 2, email: 2, import: 2, voice: 1, manual: 1 };
 const richer = (a, b) => (SOURCE_RANK[a] || 0) >= (SOURCE_RANK[b] || 0);
 
-module.exports = { normalizeCounterparty, fingerprint, matchScore, classify, jaroWinkler, richer, MERGE, PROBABLE };
+// Phone check P3, 8 Nov 2026: a pair the score already calls 'duplicate' (identical
+// amount, name and time, say) must never become an "Is this the same as...?" card -
+// asking the user to confirm an exact match is the opposite of guess-first. Only a
+// genuinely ambiguous ('probable') pair is worth a question; anything merely
+// 'distinct' is neither. Pure split so the "never ask about a certain duplicate"
+// rule is checked once here, not re-derived at every call site.
+function splitDuplicates(pairs = []) {
+  const merge = [], ask = [];
+  for (const p of pairs) {
+    const verdict = classify(p.score);
+    if (verdict === 'duplicate') merge.push(p);
+    else if (verdict === 'probable') ask.push(p);
+  }
+  return { merge, ask };
+}
+
+module.exports = { normalizeCounterparty, fingerprint, matchScore, classify, splitDuplicates, jaroWinkler, richer, MERGE, PROBABLE };

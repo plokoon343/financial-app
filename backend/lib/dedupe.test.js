@@ -1,6 +1,6 @@
 'use strict';
 // Run: node backend/lib/dedupe.test.js
-const { normalizeCounterparty, fingerprint, matchScore, classify, jaroWinkler } = require('./dedupe');
+const { normalizeCounterparty, fingerprint, matchScore, classify, splitDuplicates, jaroWinkler } = require('./dedupe');
 
 let pass = 0, fail = 0;
 const check = (label, cond) => { if (cond) pass++; else { fail++; console.log(`FAIL  ${label}`); } };
@@ -42,6 +42,22 @@ const sDistinct = score(
   { amount: 5000, type: 'expense', date: '2026-08-09', bank: 'ACCESS', description: 'KONGA STORE' },
 );
 check('distinct < 70', sDistinct < 70 && classify(sDistinct) === 'distinct');
+
+// --- splitDuplicates (phone check P3, 8 Nov 2026): a certain duplicate (the ₦50
+// Commission at 01:00 in the finding, identical amount/name/time) must never
+// become a card - only a genuinely ambiguous pair is worth asking about. ---
+{
+  const pairs = [
+    { a: { id: 'x1' }, b: { id: 'x2' }, score: sIdentical },   // 110: certain
+    { a: { id: 'p1' }, b: { id: 'p2' }, score: sProbable },    // 70-84: ambiguous
+    { a: { id: 'd1' }, b: { id: 'd2' }, score: sDistinct },    // <70: not a pair at all
+  ];
+  const { merge, ask } = splitDuplicates(pairs);
+  check('an exact duplicate is merged, never a card', merge.length === 1 && merge[0].a.id === 'x1');
+  check('an exact duplicate never reaches the ask list', !ask.some((p) => p.a.id === 'x1'));
+  check('an ambiguous pair is still asked about', ask.length === 1 && ask[0].a.id === 'p1');
+  check('a distinct pair is neither merged nor asked', merge.length + ask.length === 2);
+}
 
 // jaro-winkler sanity
 check('jw identical=1', jaroWinkler('shoprite', 'shoprite') === 1);

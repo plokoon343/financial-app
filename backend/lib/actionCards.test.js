@@ -55,11 +55,14 @@ const ownMoveItem = {
     cash: [{ id: 'cash', amount: 17000, count: 1, txnIds: ['w1'], period: 'this month', meta: 'Fri' }],
     who_is_this: [{ id: 'w1', contactKey: 'ada', name: 'Ada Okafor', amount: 2000, meta: 'Fri' }],
     subscription: [{ id: 'sub1', detectionKey: 'netflix', name: 'Netflix', amount: 4400, months: 2, meta: 'Fri' }],
-    apple_service: [{ id: 'ap1', amount: 1326, meta: 'Fri' }],
+    apple_service: [{ id: 'ap1', amount: 2500, meta: 'Fri' }],
     goal: [{ id: 'go1', pocket: 'OWealth', goal: 'Laptop', amount: 10000, meta: 'Fri' }],
     which_account: [{ id: 'wa1', senderKey: '0803...', label: '0803...', count: 4, accounts: [{ id: 'a1', label: 'GTBank' }], meta: 'Fri' }],
   };
-  const { cards: q } = build(sample);
+  // This is a shape check, one of every kind at once, not a cap check (the queue cap
+  // is tested in isolation below) - raised so the seven priority 3/4 kinds here do not
+  // trip over each other for the default budget of 5.
+  const { cards: q } = build(sample, { maxQueue: 100 });
   eq('every kind produced a card', q.length, Object.keys(sample).length);
   for (const c of q) {
     check(`${c.kind}: has a question`, c.question && c.question.length > 0);
@@ -137,7 +140,7 @@ const ownMoveItem = {
   eq('at most three category questions', q.length, 3);
   eq('the three biggest are the ones asked', q.map((c) => c.item.amount), [11000, 10000, 9000]);
   eq('the other six are guessed as overflow', autoResolve.filter((r) => r.reason === 'overflow').length, 6);
-  const raised = build({ category: items }, { maxCategoryCards: 9 });
+  const raised = build({ category: items }, { maxCategoryCards: 9, maxQueue: 9 });
   eq('the cap is a setting, not a law of nature', raised.cards.length, 9);
 }
 
@@ -147,6 +150,60 @@ const ownMoveItem = {
   eq('three suggestions plus a way out', q[0].answers.map((a) => a.label), ['Food', 'Groceries', 'Other', 'Something else']);
   eq('the best guess carries the pill', q[0].answers[0].pill, 'Best guess');
   check('the way out opens a picker rather than answering', q[0].answers[3].opensPicker === true);
+}
+
+// ── The gate, generalised (phone check 8 Nov 2026: real queues hit 14, 15, 31, 34,
+// 89 cards, because the floor and cap only ever governed `category`) ─────────────
+
+// The floor now applies to every priority 3/4 kind, not only category.
+{
+  const { cards: q, autoResolve } = build({ subscription: [{ id: 'sub1', detectionKey: 'x', name: 'Small Co', amount: 500, meta: 'Fri' }] });
+  eq('a priority 4 item under the floor is never asked', q.length, 0);
+  eq('and it is recorded as below the floor', autoResolve.map((r) => r.reason), ['below_floor']);
+  check('but nothing unsafe is guessed on the user\'s behalf for a non-category kind', autoResolve[0].category === null);
+}
+
+// Priority 1 and 2 are exempt from the floor: they matter by definition, however
+// small the amount (a small amount moving to the wrong account is still wrong).
+{
+  const { cards: q } = build({ own_move: [{ ...ownMoveItem, id: 'tiny', txnId: 'tiny', amount: 500 }] });
+  eq('a priority 2 card under the floor is still asked', q.length, 1);
+}
+
+// The whole-queue cap now spans every kind, not only category versus category.
+{
+  const input = { who_is_this: [], subscription: [], apple_service: [], goal: [] };
+  for (let i = 0; i < 3; i++) input.who_is_this.push({ id: `w${i}`, contactKey: `c${i}`, name: `Person ${i}`, amount: 2000 + i });
+  for (let i = 0; i < 3; i++) input.subscription.push({ id: `s${i}`, detectionKey: `sub${i}`, name: `Sub ${i}`, amount: 3000 + i });
+  for (let i = 0; i < 3; i++) input.apple_service.push({ id: `a${i}`, amount: 4000 + i });
+  const { cards: q, autoResolve } = build(input);
+  eq('nine priority 3/4 cards across three kinds are still capped at the queue limit', q.length, 5);
+  eq('the overflow is recorded, not silently lost', autoResolve.filter((r) => r.reason === 'queue_overflow').length, 4);
+  check('never more than 5 queued, the research-doc target', q.length <= 5);
+}
+
+// Priority 1 and 2 are exempt from the cap too: a disagreement or a totals change
+// is never dropped silently, however many are waiting.
+{
+  const input = {
+    not_on_statement: Array.from({ length: 6 }, (_, i) => ({ id: `n${i}`, name: `Person ${i}`, amount: 50000 + i, bank: 'GTBank' })),
+  };
+  const { cards: q, autoResolve } = build(input);
+  eq('six priority 1 cards are all kept, over the queue cap', q.length, 6);
+  eq('nothing priority 1 is ever auto-resolved', autoResolve.length, 0);
+}
+
+// Mixing exempt and capped kinds: the cap spends its budget on priority 3/4 only.
+{
+  const input = {
+    own_move: [ownMoveItem],
+    not_on_statement: [{ id: 'n1', name: 'Tunde', amount: 100000, bank: 'GTBank' }],
+    who_is_this: Array.from({ length: 7 }, (_, i) => ({ id: `w${i}`, contactKey: `c${i}`, name: `Person ${i}`, amount: 2000 + i })),
+  };
+  const { cards: q } = build(input);
+  eq('the two priority 1/2 cards are both kept', q.filter((c) => c.priority <= 2).length, 2);
+  eq('priority 3/4 is capped to the queue limit regardless', q.filter((c) => c.priority >= 3).length, 5);
+  eq('total obeys the cap plus the exempt cards', q.length, 7);
 }
 
 // ── A4: a skipped category card resolves to its guess after 14 days ──────────────

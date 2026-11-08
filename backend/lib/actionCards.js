@@ -74,6 +74,13 @@ const ASK_FLOOR = 2000;
 // Without this cap a 3-month import of 40 unfamiliar shops is 40 cards, which is the
 // long page of sections again in a different shape.
 const MAX_CATEGORY_CARDS = 3;
+// How many cards the WHOLE queue will ever hold at once, across every kind (phone
+// check, 8 Nov 2026: real queues hit 14, 15, 31, 34 and 89 cards, because the floor
+// and the cap above only ever governed `category`. Priority 1 and 2 are exempt - they
+// are fraud-risk or change the totals by definition, so dropping one silently would be
+// the exact trust failure these cards exist to prevent (see `sourcesDisagree`'s own
+// comment). The cap spends its budget on priority 3 and 4 only, biggest first.
+const MAX_QUEUE = 5;
 // A skipped category question resolves to its best guess after this long (rule 6).
 const SKIP_DAYS = 14;
 // Eight progress segments, then a single bar (brief 4.2 item 2).
@@ -584,6 +591,27 @@ function groupCategories(items, { askFloor = ASK_FLOOR, maxCards = MAX_CATEGORY_
   return { cards, guessed };
 }
 
+// The answer a card would resolve to if it is never asked: the one marked "Best
+// guess" (category-style cards), else the one marked `primary` (the likely answer
+// every other builder already highlights), else the first. Used by the generalised
+// floor and cap below, so every kind demotes to the SAME answer the screen would have
+// drawn filled in - "guess first" applied uniformly, not invented per kind.
+function bestGuessAnswer(c) {
+  return c.answers.find((a) => a.pill === 'Best guess') || c.answers.find((a) => a.primary) || c.answers[0] || null;
+}
+
+// What an auto-resolution looks like for a demoted card: enough for the caller to file
+// the guess where one is safe (category only - a single field, reversible, marked
+// Guessed) and to simply not ask about the rest (changing an own-move, an ajo, a
+// subscription flag etc. without confirmation is not a safe silent guess, so none is
+// invented; the transaction is just left as it already is).
+function demote(c, reason) {
+  const a = bestGuessAnswer(c);
+  const id = a ? a.id : null;
+  const isCategoryGuess = (c.kind === 'category' || c.kind === 'grouped_category') && id && id.startsWith('cat:');
+  return { reason, kind: c.kind, txnIds: c.targets.txnIds || [], category: isCategoryGuess ? id.slice(4) : null };
+}
+
 // ── Ordering ─────────────────────────────────────────────────────────────────────
 // Priority first, then the bigger amount, then the key so the order never wobbles
 // between two reloads. Skipped cards go to the back of the whole queue (rule 6:
@@ -605,17 +633,22 @@ function order(cards) {
  * options:
  *   skips     { [cardKey]: ISO date or Date }  when each card was last skipped
  *   now       Date
- *   askFloor  naira below which a single category question is never asked
+ *   askFloor  naira below which a question is never asked (priority 3 and 4 only -
+ *             priority 1 and 2 always matter, by definition: see MAX_QUEUE above)
  *   skipDays  days after which a skipped priority-3 card resolves to its guess
  *   kinds     restrict the queue to these kinds (Money's "Sort them" link opens the
  *             Action Center filtered to category cards, brief 4.1)
+ *   maxQueue  the whole queue's cap (priority 1 and 2 are exempt; see MAX_QUEUE)
  *
  * Returns { cards, autoResolve, counts, segments }.
- *   autoResolve  items the caller should file as Guessed instead of asking about:
- *                below the floor, or a category card skipped past `skipDays`.
+ *   autoResolve  items the caller should file as Guessed, or simply not ask about:
+ *                below the floor, over the queue cap, or skipped past `skipDays`.
  */
 function build(input = {}, options = {}) {
-  const { skips = {}, now = new Date(), askFloor = ASK_FLOOR, skipDays = SKIP_DAYS, kinds = null, maxCategoryCards = MAX_CATEGORY_CARDS } = options;
+  const {
+    skips = {}, now = new Date(), askFloor = ASK_FLOOR, skipDays = SKIP_DAYS, kinds = null,
+    maxCategoryCards = MAX_CATEGORY_CARDS, maxQueue = MAX_QUEUE,
+  } = options;
   const wanted = kinds && kinds.length ? new Set(kinds) : null;
   const cards = [];
   const autoResolve = [];
@@ -645,7 +678,22 @@ function build(input = {}, options = {}) {
   // left offers only "Neither". Dropping those is right - there is nothing for the
   // user to decide - and it keeps the screen's contract true by construction rather
   // than by hoping every producer remembers.
-  const asked = cards.filter((c) => c.answers.length >= 2);
+  let asked = cards.filter((c) => c.answers.length >= 2);
+
+  // Rule 1, generalised (the phone check's root cause): below the floor, a cosmetic
+  // or optional question (priority 3 or 4) is never asked, for every kind, not only
+  // `category` (which already applied this inside groupCategories, per-row, before a
+  // card was even built). Priority 1 and 2 are exempt - they change totals or are a
+  // fraud-risk by definition, so they always "matter" regardless of amount.
+  const floored = [];
+  for (const c of asked) {
+    if (c.priority >= 3 && c.item.amount != null && Math.abs(c.item.amount) < askFloor) {
+      autoResolve.push(demote(c, 'below_floor'));
+      continue;
+    }
+    floored.push(c);
+  }
+  asked = floored;
 
   // Skips (rule 6). A priority-3 card skipped longer than `skipDays` leaves the queue
   // with its best guess applied; priority 1 and 2 cards stay however long they are
@@ -656,20 +704,26 @@ function build(input = {}, options = {}) {
     if (!at) { kept.push(c); continue; }
     const days = (now - new Date(at)) / 86400000;
     if (c.priority === 3 && days >= skipDays) {
-      const guess = (c.answers.find((a) => a.pill === 'Best guess') || {}).id || null;
-      autoResolve.push({
-        reason: 'skipped_out',
-        kind: c.kind,
-        txnIds: c.targets.txnIds || [],
-        category: guess && guess.startsWith('cat:') ? guess.slice(4) : null,
-      });
+      autoResolve.push(demote(c, 'skipped_out'));
       continue;
     }
     kept.push({ ...c, skipped: true });
   }
 
   const ordered = order(kept);
-  return { cards: ordered, autoResolve, counts: countsOf(ordered), segments: Math.min(ordered.length, MAX_SEGMENTS) };
+
+  // The cap, generalised (the phone check's headline bug): never more than `maxQueue`
+  // cards at once, across every kind - not only the `category` cap inside
+  // groupCategories, which only ever governed category cards against each other.
+  // Priority 1 and 2 are exempt, same reasoning as the floor above; the budget is
+  // spent on priority 3 and 4, in the order they are already sorted (biggest first).
+  const critical = ordered.filter((c) => c.priority <= 2);
+  const rest = ordered.filter((c) => c.priority >= 3);
+  const keptRest = rest.slice(0, maxQueue);
+  for (const c of rest.slice(maxQueue)) autoResolve.push(demote(c, 'queue_overflow'));
+
+  const final = order([...critical, ...keptRest]);
+  return { cards: final, autoResolve, counts: countsOf(final), segments: Math.min(final.length, MAX_SEGMENTS) };
 }
 
 // ── Counts (B5: one query, so a heading can never disagree with its cards) ────────
@@ -743,6 +797,7 @@ module.exports = {
   INTERRUPTION,
   ASK_FLOOR,
   MAX_CATEGORY_CARDS,
+  MAX_QUEUE,
   SKIP_DAYS,
   MAX_SEGMENTS,
 };

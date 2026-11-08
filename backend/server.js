@@ -5172,8 +5172,8 @@ async function applyContactToPast(userId, contact) {
 // paths pass rescue:false, so an AI-read alert never lands in the ledger on its own.
 // Capped per call so a paste of many unreadable lines can't fan out into many calls.
 const LLM_RESCUE_MAX = 8;
-async function parseAlertsWithRescue(rawList, source = 'sms', sender = '', { rescue = true } = {}) {
-  const rows = rawList.map((b) => ({ raw: b, row: parseOneAlert(b, source, sender) }));
+async function parseAlertsWithRescue(rawList, source = 'sms', sender = '', { rescue = true, userName = '' } = {}) {
+  const rows = rawList.map((b) => ({ raw: b, row: parseOneAlert(b, source, sender, userName) }));
   if (rescue && llmActive()) {
     let used = 0;
     for (const item of rows) {
@@ -5196,7 +5196,7 @@ app.post('/api/parse-sms', auth, async (req, res) => {
     const source = blocks.length ? blocks : [text];
     // Deterministic parse + an optional LLM rescue for the needs-review tail (unknown
     // banks / odd wording) when a Tier-2 provider is configured.
-    let rows = (await parseAlertsWithRescue(source, 'sms')).filter((r) => r && (r.amount > 0 || r.needsReview));
+    let rows = (await parseAlertsWithRescue(source, 'sms', '', { userName: req.user.name || '' })).filter((r) => r && (r.amount > 0 || r.needsReview));
     if (!rows.length) return res.status(422).json({ message: "Couldn't read a transaction from that. Check you pasted the full alert.", transactions: [] });
     // Apply the user's learned categories, then the shared consensus.
     rows = await applyLearnedCategories(req.user._id, rows);
@@ -5751,9 +5751,9 @@ async function ingestInboundEmail({ recipient, from, subject = '', text = '', ht
   const segments = inboundEmail.splitEmailAlerts(resolved.bodyOnly);
   let parsedRows;
   if (segments.length > 1) {
-    parsedRows = (await parseAlertsWithRescue(segments, 'email', bankFrom, { rescue: false })).filter((r) => r && r.amount > 0);
+    parsedRows = (await parseAlertsWithRescue(segments, 'email', bankFrom, { rescue: false, userName: user.name || '' })).filter((r) => r && r.amount > 0);
   } else {
-    const [one] = await parseAlertsWithRescue([resolved.fullText], 'email', bankFrom, { rescue: false });
+    const [one] = await parseAlertsWithRescue([resolved.fullText], 'email', bankFrom, { rescue: false, userName: user.name || '' });
     parsedRows = one && one.amount > 0 ? [one] : [];
   }
   // An alert with no readable date happened when the bank emailed it, not "today"

@@ -33,6 +33,14 @@ const g = ex('NIP TRANSFER TO ADEBAYO SAMUEL OLUWASEUN 0123456789 GTB');
 check('non-pipe: name captured', g && g.direction === 'to' && /ADEBAYO SAMUEL OLUWASEUN/.test(g.name));
 check('non-pipe: account captured', g && g.account === '0123456789');
 
+// --- phone check P1/P2, 8 Nov 2026: a narration stating both sides must not double
+// the name into one garbled string ("CHIDUMEBI ONUKOGU CHIDUMEBI ONUKOGU") ---
+const selfBoth = ex('NIP Transfer from CHIDUMEBI VINCENT ONUKOGU to CHIDUMEBI VINCENT ONUKOGU');
+check('both sides stated: name is not doubled', selfBoth && selfBoth.name === 'CHIDUMEBI VINCENT ONUKOGU');
+check('both sides stated: direction is the first side matched', selfBoth && selfBoth.direction === 'from');
+const mixedBoth = ex('NIP Transfer from JOHN BRIGHT DOE to JANE MARY SMITH');
+check('two different people stated: still only one name, not both', mixedBoth && mixedBoth.name === 'JOHN BRIGHT DOE' && !/SMITH/.test(mixedBoth.name));
+
 // --- keying: account is identity across name spellings ---
 check('same account -> same key despite name diff',
   contactKey({ account: '3049402864', name: 'UCHENDU J O' }) === contactKey({ account: '3049402864', name: 'UCHENDU JULIUS' }));

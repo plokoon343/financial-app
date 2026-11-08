@@ -34,6 +34,21 @@ for (const [label, text] of [['lines', RCPT.join('\n')], ['one line', RCPT.join(
   check(`receipt (${label}): amount, direction and category`, r && r.amount === 10600 && r.type === 'expense' && r.category === 'Transfer');
   check(`receipt (${label}): the receiving bank is not the user's bank`, r && r.bank !== 'Moniepoint', r && r.bank);
 }
+// Phone check 8 Nov 2026, P1: a self-transfer receipt must become an internal
+// transfer regardless of source, with userName threaded through every call site
+// (the bug was specifically that the email path never forwarded userName at all).
+const SELF_RCPT = ['Receipt', '8 Nov 2026, 09:00', '₦100,000.00', 'Success', 'Sender', 'Chidumebi Vincent Onukogu', 'Receiver', 'Chidumebi Vincent Onukogu', 'Account number', '1234567890', 'Receiving bank', 'Access Bank'];
+for (const source of ['sms', 'email', 'share', 'notification']) {
+  const r = parseAlert(SELF_RCPT.join('\n'), { source, userName: 'Chidumebi Vincent Onukogu' });
+  check(`self-transfer (${source}): is an internal transfer, never a question`, r && r.internal === true, r);
+  check(`self-transfer (${source}): the title names one account, not a doubled name`, r && r.description === 'Moved to Access', r && r.description);
+}
+// The same receipt with no userName threaded (the actual root cause: a caller that
+// forgets to pass it) must not crash and must not be silently miscounted - it falls
+// through to the ordinary category path instead, same as before this fix existed.
+const noName = parseAlert(SELF_RCPT.join('\n'), { source: 'email' });
+check('self-transfer with no userName threaded: not marked internal (the bug, reproduced)', noName && noName.internal !== true);
+
 check('interest earned is income, not Other Income', parseAlert('Credit Alert NGN2.99 Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'Investment');
 check('owealth interest is its own category, not Investment', parseAlert('Credit Alert NGN2.99 OWealth Interest Earned Bal: NGN500.00', { source: 'notification' }).category === 'OWealth Interest');
 

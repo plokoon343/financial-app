@@ -43,7 +43,12 @@ function extractCounterparty(description) {
   if (!d || NON_PERSON.test(d)) return null;
   // Must look like a person/business transfer: a transfer-ish verb AND a to/from.
   if (!/\b(transfer|trf|nip|instant payment|payment|sent|paid|received)\b/i.test(d)) return null;
-  const m = d.match(/\b(to|from)\b\s*[:\-|]?\s*(.+)$/i);
+  // Phone check 8 Nov 2026 (P1/P2): a self-transfer narration states BOTH sides -
+  // "transfer from CHIDUMEBI ONUKOGU to CHIDUMEBI ONUKOGU" - and the old greedy
+  // `(.+)$` read everything after the FIRST "to"/"from" to the end of the string,
+  // concatenating both names into one garbled counterparty. The capture now stops
+  // at the next "to"/"from", so only the name belonging to the matched side is read.
+  const m = d.match(/\b(to|from)\b\s*[:\-|]?\s*(.+?)(?=\s+\b(?:to|from)\b|$)/i);
   if (!m) return null;
   const direction = m[1].toLowerCase();
   const rest = m[2];

@@ -6330,12 +6330,19 @@ async function actionCardInput(user) {
   }
 
   // ── Ajo: the same amount sent to the same person twice. Savings, not spending, and
-  // the single most common thing a Nigerian budgeting app files wrongly.
+  // the single most common thing a Nigerian budgeting app files wrongly - but only
+  // ever a PERSON. Phone check P6, 8 Nov 2026: "You've sent CHOWDECK 5,000 twice.
+  // Is this ajo or a contribution?" - Chowdeck is a food delivery business, already
+  // in our own merchant catalogue (R6-3). cleanName already knows the difference
+  // (counterpartyType is 'person' only when extractCounterparty found one AND no
+  // catalogue entry claimed the name first); the ajo producer was asking the regex
+  // directly instead of consulting it.
   const byPerson = new Map();
   for (const t of rows) {
     if (t.type !== 'expense') continue;
     const cp = extractCounterparty(t.description);
     if (!cp || !cp.name) continue;
+    if (cleanName({ raw: t.description, type: 'expense' }).counterpartyType !== 'person') continue;
     const k = `${contactKey(cp)}|${Math.abs(t.amount)}`;
     if (!byPerson.has(k)) byPerson.set(k, { name: cp.name, contactKey: contactKey(cp), amount: Math.abs(t.amount), rows: [] });
     byPerson.get(k).rows.push(t);

@@ -24,6 +24,16 @@ const check = (label, cond, extra = '') => {
   check('M2: a real catalogue match, so a logo is allowed', r.source === 'catalogue' && r.logo === 'shoprite');
 }
 
+// Phone check P6, 8 Nov 2026: a TRANSFER-shaped narration to a catalogue business
+// (not just a POS purchase) must not read as a person either - this is exactly the
+// shape of narration the ajo producer was asking about ("You've sent CHOWDECK 5,000
+// twice. Is this ajo or a contribution?").
+{
+  const r = cleanName({ raw: 'Transfer to CHOWDECK/KOON PLO | PAYSTACK- TITAN | 9982425026', type: 'expense' });
+  check('P6: a catalogue business via transfer is not flagged as a person', r.counterpartyType !== 'person', r.counterpartyType);
+  check('P6: the catalogue match wins, with its own name', r.name === 'Chowdeck' && r.source === 'catalogue');
+}
+
 // ── M3: only digits and codes -> "Card payment" (never digits as a title). ──
 {
   const r = cleanName({ raw: '0123456789012 REF99881234 00000', type: 'expense' });

@@ -13,6 +13,7 @@
 
 const { normalizeCounterparty, jaroWinkler } = require('./dedupe');
 const { mentionsSelf, mentionsBank, bankNameIn } = require('./internalTransfers');
+const { isInternal: isOwealthChurn } = require('./opayStatement');
 
 const KINDS = ['ownMove', 'reversal', 'refund', 'fee', 'cash'];
 
@@ -320,8 +321,15 @@ function moveLabel(credit, debit) {
 function detectRefundLinks(txns, opts) {
   const o = opts || {};
   const days = o.refundWindowDays != null ? o.refundWindowDays : 90;
-  const credits = txns.filter(isCredit).sort((a, b) => ms(a.date) - ms(b.date));
-  const debits = txns.filter(isDebit);
+  // Phone check P4/P5, 8 Nov 2026: "dozens of Owealth Withdrawal(Payment) cards",
+  // several with identical, indistinguishable labels. OWealth (and the same shape
+  // of savings-pocket auto-save/withdrawal on other wallets) is internal churn, not
+  // a purchase or a refund - lib/opayStatement already knows this pattern for the
+  // statement-upload path; the refund producer did not consult it for alert-sourced
+  // rows. Excluded on both sides: it is never a refund candidate and never the thing
+  // a refund is matched against.
+  const credits = txns.filter((t) => isCredit(t) && !isOwealthChurn(t.description)).sort((a, b) => ms(a.date) - ms(b.date));
+  const debits = txns.filter((t) => isDebit(t) && !isOwealthChurn(t.description));
   const used = new Set();
   const links = [];
   const ask = [];

@@ -226,6 +226,25 @@ check('fee table falls back to the seed', feeTableFromEnv({}).includes(6.98));
   check('T9 a credit bigger than the charge is not a refund', detectRefundLinks([debit, bigger], {}).links.length === 0);
 }
 
+// Phone check P4/P5, 8 Nov 2026: "dozens of Owealth Withdrawal(Payment) cards",
+// some with two indistinguishable candidates. OWealth churn is savings-pocket
+// movement, never a refund question, however many identical rows there are.
+{
+  const owCredit = row({ id: 'ow-credit', dir: 'credit', amount: 5000, at: '2026-08-18T09:00:00Z', desc: 'OWealth Withdrawal(Payment)', bank: 'OPay', mask: '1234' });
+  const owDebit1 = row({ id: 'ow-debit1', dir: 'debit', amount: 5000, at: '2026-08-17T09:00:00Z', desc: 'OWealth Withdrawal(Payment)', bank: 'OPay', mask: '1234' });
+  const owDebit2 = row({ id: 'ow-debit2', dir: 'debit', amount: 5000, at: '2026-08-18T08:00:00Z', desc: 'OWealth Withdrawal(Payment)', bank: 'OPay', mask: '1234' });
+  const owResult = detectRefundLinks([owDebit1, owDebit2, owCredit], {});
+  check('P4/P5: OWealth churn never becomes a refund link', owResult.links.length === 0);
+  check('P4/P5: OWealth churn is dropped, not asked about even with two candidates', owResult.ask.length === 0);
+  // A real purchase and refund for the same amount, on the same day OWealth also
+  // moved money, must still link normally - the exclusion is about OWealth
+  // specifically, not about every row sharing its day.
+  const realDebit = row({ id: 'real-buy', dir: 'debit', amount: 5000, at: '2026-08-17T11:00:00Z', desc: 'WEB PUR JUMIA NG', bank: 'GTBank', mask: '6083' });
+  const realCredit = row({ id: 'real-refund', dir: 'credit', amount: 5000, at: '2026-08-18T09:00:00Z', desc: 'REFUND JUMIA NG', bank: 'GTBank', mask: '6083' });
+  const mixed = detectRefundLinks([owDebit1, owDebit2, realDebit, realCredit], {});
+  check('P4/P5: a real refund alongside OWealth churn still links', mixed.links.length === 1 && has(mixed, 'refund', 'real-refund', 'real-buy'));
+}
+
 // ── T10: a statement row for a transaction we already hold ────────────────────
 // The statement says 3 Oct; the SMS said 2 Oct 22:59 Lagos time. Inside the
 // ladder's plus-or-minus-one-day window for a statement row, so it merges and the

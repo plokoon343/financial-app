@@ -6331,12 +6331,14 @@ async function actionCardInput(user) {
 
   // ── Ajo: the same amount sent to the same person twice. Savings, not spending, and
   // the single most common thing a Nigerian budgeting app files wrongly - but only
-  // ever a PERSON. Phone check P6, 8 Nov 2026: "You've sent CHOWDECK 5,000 twice.
-  // Is this ajo or a contribution?" - Chowdeck is a food delivery business, already
-  // in our own merchant catalogue (R6-3). cleanName already knows the difference
-  // (counterpartyType is 'person' only when extractCounterparty found one AND no
-  // catalogue entry claimed the name first); the ajo producer was asking the regex
-  // directly instead of consulting it.
+  // ever a PERSON, requiring a POSITIVE person match, never just the absence of a
+  // business match. Phone check P6/finding 1, 8 Nov 2026: "You've sent CHOWDECK
+  // 5,000 twice" (a catalogue business) and later "EKO Pharmacy"/"Groovemall"-style
+  // uncatalogued businesses both fired this card, because cleanName used to default
+  // anything extractCounterparty found straight to 'person' when no catalogue entry
+  // claimed it. cleanName now runs a business-keyword/name-shape heuristic before
+  // ever returning 'person' (lib/cleanName.js), so this `=== 'person'` check is a
+  // real positive match, not the absence of a business one.
   const byPerson = new Map();
   for (const t of rows) {
     if (t.type !== 'expense') continue;
@@ -11617,24 +11619,46 @@ app.post('/api/admin/backfill-global-categories', auth, superAdminAuth, async (r
 
 // One-time (superadmin): re-run classification over rows already saved, so the
 // transactions the old rules got wrong are corrected in place (round 6, B1 - card
-// purchases such as apple.com/bill filed as "cash out, not counted as spending").
-// lib/reclassify decides each row and refuses to touch a user's own category or a
-// row they have confirmed. Answers with what WOULD change unless ?apply=1.
+// purchases such as apple.com/bill filed as "cash out, not counted as spending";
+// phone check P1/finding 2, 8 Nov 2026 - a row whose own narration names the
+// account holder on both sides of a transfer, saved before the parse-time P1 fix
+// and never backfilled). lib/reclassify decides each row and refuses to touch a
+// user's own category or a row they have confirmed. Answers with what WOULD
+// change unless ?apply=1; the own-move count/sample is broken out separately so
+// it can be read and decided on its own.
 app.post('/api/admin/reclassify-kinds', auth, superAdminAuth, async (req, res) => {
   try {
     const apply = req.query.apply === '1' || req.body?.apply === true;
     const rows = await Transaction.find({ type: { $in: [...MACHINE_KINDS, 'expense', 'income'] } })
-      .select('type amount description category reviewedAt cashAllocated cashParentId').lean();
+      .select('userId type amount description category reviewedAt cashAllocated cashParentId').lean();
+    // Phone check P1/finding 2, 8 Nov 2026: the self-transfer case in reclassifyRow
+    // needs the row's own account holder's name, which the row itself doesn't carry.
+    // One batch lookup for every distinct userId among the scanned rows, not one
+    // query per row.
+    const userIds = [...new Set(rows.map((r) => String(r.userId)).filter(Boolean))];
+    const users = await User.find({ _id: { $in: userIds } }).select('name').lean();
+    const nameOf = new Map(users.map((u) => [String(u._id), u.name || '']));
     const ops = [];
     const sample = [];
+    const ownMoveSample = [];
+    let ownMoveChanged = 0;
     for (const row of rows) {
-      const set = reclassifyRow(row);
+      const userName = nameOf.get(String(row.userId)) || '';
+      const set = reclassifyRow(row, { userName });
       if (!set) continue;
       ops.push({ updateOne: { filter: { _id: row._id }, update: { $set: set } } });
-      if (sample.length < 20) sample.push({ description: (row.description || '').slice(0, 60), from: { type: row.type, category: row.category }, to: set });
+      const entry = { description: (row.description || '').slice(0, 60), from: { type: row.type, category: row.category }, to: set };
+      if (sample.length < 20) sample.push(entry);
+      // Called out separately in the response: this is the one case the original
+      // B1 backfill never covered (own-move detection from a row's own narration),
+      // so the owner can see exactly what it would do before deciding to run it.
+      if (set.type === 'internal_transfer') {
+        ownMoveChanged += 1;
+        if (ownMoveSample.length < 20) ownMoveSample.push(entry);
+      }
     }
     if (apply && ops.length) await Transaction.bulkWrite(ops, { ordered: false });
-    res.json({ scanned: rows.length, changed: ops.length, applied: apply, sample });
+    res.json({ scanned: rows.length, changed: ops.length, applied: apply, sample, ownMoveChanged, ownMoveSample });
   } catch (e) { console.error('[reclassify-kinds]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 

@@ -46,6 +46,34 @@ const CHARGE_LABELS = [
   [/commission ?on/i, 'Commission'],
 ];
 
+// Phone check finding 1, 8 Nov 2026: the catalogue can never cover every Nigerian
+// business, and counterpartyType used to fall through anything extractCounterparty
+// found straight to 'person' - "EKO Pharmacy", "Groovemall" and any other business
+// not yet in the catalogue read as a person, which is exactly what fired the ajo
+// card on Chowdeck before the catalogue had it (P6). Two independent signals a name
+// is a business rather than a person, checked before ever assuming 'person':
+//   - a business keyword no personal name uses.
+//   - shape: a single word with no space. Real Nigerian personal names are
+//     virtually always two or more words (first + surname, at least); a single
+//     unspaced word ("Groovemall", "Jumia") is far more often a trading name.
+const BUSINESS_WORDS = /\b(pharmacy|mall|stores?|ltd|limited|enterprises?|ventures?|services?|foods?|motors?|global|technolog(?:y|ies)|solutions?|nigeria|plaza|supermarket|hotel|restaurant|clinic|hospital|academy|schools?|company|industries|logistics|concepts?|group|international)\b/i;
+function looksLikeBusiness(name) {
+  const s = String(name || '').trim();
+  if (!s) return false;
+  if (BUSINESS_WORDS.test(s)) return true;
+  return !/\s/.test(s);
+}
+
+// The positive shape of an ordinary Nigerian personal name: two or more words, each
+// alphabetic and long enough to be a real name part. Checked only once a business
+// match has already been ruled out, so a name that is neither clearly a business nor
+// clearly shaped like a person's (one real word plus noise, three single letters,
+// and so on) is left unflagged rather than guessed as a person.
+function looksLikePerson(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return words.length >= 2 && words.every((w) => /^[A-Za-z'-]{2,}$/.test(w));
+}
+
 // Acronyms that must not be Title-Cased into "Pos"/"Atm"/"Nip".
 const ACRONYMS = new Set(['POS', 'ATM', 'NIP', 'USSD', 'VAT', 'GTB', 'UBA', 'MTN', 'DSTV', 'GOTV']);
 const titleCase = (s) => s.toLowerCase().split(' ').filter(Boolean).map((w) => {
@@ -147,10 +175,16 @@ function cleanName({ raw, type = 'expense', userRule = '', learnedMerchant = nul
 
   // A person/business the transfer names - Title Case (13.2 rule 3), never the bank's
   // own SHOUTED spelling. Flagged counterpartyType: 'person' so the caller applies
-  // "Sent to people" rather than a spending category (round 6 rule 3).
+  // "Sent to people" rather than a spending category (round 6 rule 3) - but only
+  // when the name is actually shaped like one. A business not in the catalogue
+  // ("EKO Pharmacy", "Groovemall") gets 'business' instead, and anything genuinely
+  // ambiguous gets neither (null) rather than a guessed 'person' (phone check
+  // finding 1, 8 Nov 2026).
   const cp = extractCounterparty(text);
   if (cp && cp.name) {
-    return { name: titleCase(cp.name), source: 'person', category: null, logo: null, counterpartyType: 'person', suggestion: null };
+    const name = titleCase(cp.name);
+    const counterpartyType = looksLikeBusiness(cp.name) ? 'business' : (looksLikePerson(cp.name) ? 'person' : null);
+    return { name, source: 'person', category: null, logo: null, counterpartyType, suggestion: null };
   }
 
   // 4. Close-spelling: suggest only, never apply, never a logo.
@@ -180,4 +214,4 @@ function cleanName({ raw, type = 'expense', userRule = '', learnedMerchant = nul
   };
 }
 
-module.exports = { cleanName, stripNoise, titleCase, closeSpellingSuggestion, CHARGE_LABELS };
+module.exports = { cleanName, stripNoise, titleCase, closeSpellingSuggestion, CHARGE_LABELS, looksLikeBusiness, looksLikePerson };

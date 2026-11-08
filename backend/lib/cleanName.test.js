@@ -34,6 +34,34 @@ const check = (label, cond, extra = '') => {
   check('P6: the catalogue match wins, with its own name', r.name === 'Chowdeck' && r.source === 'catalogue');
 }
 
+// Phone check finding 1, 8 Nov 2026: a business not in the catalogue must not fall
+// through to 'person' either - the catalogue can never cover every Nigerian
+// business, so cleanName needs its own name-shape heuristic.
+{
+  const r = cleanName({ raw: 'Transfer to EKO PHARMACY | ACCESS | 0123456789', type: 'expense' });
+  check('finding 1: a business keyword (Pharmacy) is never flagged as a person', r.counterpartyType === 'business', r.counterpartyType);
+}
+{
+  const r = cleanName({ raw: 'Transfer to GROOVEMALL | GTB | 0123456789', type: 'expense' });
+  check('finding 1: a single unspaced word is never flagged as a person', r.counterpartyType === 'business', r.counterpartyType);
+}
+{
+  // Two real-looking name words with no business signal: still flagged a person.
+  const r = cleanName({ raw: 'MOBILE TRF TO CHIOMA EZE', type: 'expense' });
+  check('finding 1: an ordinary two-word name is still flagged a person', r.counterpartyType === 'person', r.counterpartyType);
+}
+{
+  // A business keyword wins even in the middle of a longer, name-shaped narration.
+  const r = cleanName({ raw: 'Transfer to KLM VENTURES OKEY | GTB | 0123456789', type: 'expense' });
+  check('finding 1: a business keyword wins even mid-name', r.counterpartyType === 'business', r.counterpartyType);
+}
+{
+  // Not a business keyword, not clearly person-shaped either (a single real word
+  // plus a stray initial) - left unflagged rather than guessed as a person.
+  const r = cleanName({ raw: 'Transfer to X KONGA2024', type: 'expense' });
+  check('finding 1: an ambiguous name is left unflagged, not guessed a person', r.counterpartyType !== 'person', r.counterpartyType);
+}
+
 // ── M3: only digits and codes -> "Card payment" (never digits as a title). ──
 {
   const r = cleanName({ raw: '0123456789012 REF99881234 00000', type: 'expense' });

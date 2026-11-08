@@ -13,6 +13,7 @@ import ChoiceDialog from './ChoiceDialog';
 import Select from './Select';
 import { groupImports, rangeLabel, CHANNEL_LABEL, UNKNOWN_BANK } from '../utils/imports';
 import TxnDetail from './TxnDetail';
+import MissingPaymentFinder from './MissingPaymentFinder';
 
 // A small round leading avatar for a transaction row (Addendum C): a bundled merchant
 // logo, a person's initial, or the category icon: never a fetched favicon.
@@ -43,6 +44,7 @@ const Transactions = () => {
   const [all, setAll] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
+  const [finderOpen, setFinderOpen] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -289,7 +291,12 @@ const Transactions = () => {
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--glass-bg)', border: '1px solid var(--border-color, var(--glass-border))', color: 'var(--text-primary)', borderRadius: 999, padding: '0.5rem 0.95rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>
           <i className="fas fa-money-bill-wave" style={{ color: 'var(--accent-primary)' }}></i> Track cash
         </button>
+        <button onClick={() => setFinderOpen(true)} title="Check whether a missing payment already made it in, and why not if it hasn't"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--glass-bg)', border: '1px solid var(--border-color, var(--glass-border))', color: 'var(--text-primary)', borderRadius: 999, padding: '0.5rem 0.95rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>
+          <i className="fas fa-magnifying-glass-dollar" style={{ color: 'var(--accent-primary)' }}></i> Missing a payment?
+        </button>
       </div>
+      {finderOpen && <MissingPaymentFinder onClose={() => setFinderOpen(false)} />}
 
       <FeatureTip tipKey="screen:money" title="Your full ledger">
         Filter by month, bank, category or search; click any column header to sort.

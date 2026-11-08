@@ -7,6 +7,7 @@ import { undoable } from '../lib/undo';
 import { fillTemplate, ruleLabel, positionLabel, initials } from '../lib/actionCards';
 import { EXPENSE_CATEGORIES } from '../constants/categories';
 import Select from './Select';
+import ReportProblem from './ReportProblem';
 
 // The Action Center (round 6, Block 4; brief section 4), web half of 13.11 parity.
 //
@@ -287,6 +288,10 @@ export default function ActionCenter() {
                 <pre className="acx-raw">{card.raw}</pre>
               </details>
             )}
+
+            <div className="acx-report">
+              <ReportProblem screen="action_center" transactionId={card.key} sourceLabel={card.kind} rawText={card.raw || undefined} />
+            </div>
           </section>
 
           <button type="button" className="acx-skip" onClick={() => skipCard(card)}>Skip for now</button>

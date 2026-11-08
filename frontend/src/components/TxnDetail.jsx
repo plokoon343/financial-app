@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import ReportProblem from './ReportProblem';
 
 // Transaction detail (Round 6, brief 3.4 to 3.6).
 //
@@ -185,6 +186,15 @@ export default function TxnDetail({ txn, onClose, onChanged, flash }) {
                 </p>
               </section>
             )}
+
+            <section className="txn-detail-section">
+              <ReportProblem
+                screen="transaction"
+                transactionId={txn._id}
+                sourceLabel={txn.bank}
+                rawText={txn.source === 'sms' || txn.source === 'notification' || txn.source === 'email' ? txn.description : undefined}
+              />
+            </section>
           </>
         )}
       </div>

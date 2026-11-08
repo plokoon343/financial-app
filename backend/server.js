@@ -1155,6 +1155,15 @@ const supportTicketSchema = new mongoose.Schema({
   status:  { type: String, enum: ['open', 'resolved'], default: 'open' },
   topic:   { type: String, default: '' },  // e.g. 'email-forwarding', 'statements', 'billing'
   source:  { type: String, enum: ['form', 'email', 'whatsapp'], default: 'form' },
+  // Where "Report a problem" was tapped from (round6 Block 9): the item's own IDs and
+  // its source's status, never the raw alert/SMS text unless the user ticks rawTextIncluded.
+  context: {
+    screen:          { type: String, default: '' }, // 'transaction' | 'action_center' | 'source_row'
+    transactionId:   { type: String, default: '' },
+    sourceLabel:     { type: String, default: '' },  // e.g. 'GTBank', 'OPay notifications'
+    sourceStatus:    { type: String, default: '' },  // what the status line said at the time
+    rawTextIncluded: { type: Boolean, default: false },
+  },
   diagnostics: {
     consent:      { type: Boolean, default: false },
     appVersion:   { type: String, default: '' },
@@ -3367,6 +3376,17 @@ app.post('/api/support/tickets', sensitiveLimiter, auth, async (req, res) => {
       setupCheck: d.setupCheck || null,
       recentLogs: Array.isArray(d.recentLogs) ? d.recentLogs.slice(-20).map((l) => String(l).slice(0, 300)) : [],
     } : { consent: false };
+    // "Report a problem" from a specific spot (round6 Block 9): the item's own IDs
+    // and source status only. rawTextIncluded is just a record of the user's choice -
+    // the raw text itself, if any, is whatever the client folded into `message`.
+    const c = req.body.context;
+    const context = c ? {
+      screen: String(c.screen || '').slice(0, 30),
+      transactionId: String(c.transactionId || '').slice(0, 40),
+      sourceLabel: String(c.sourceLabel || '').slice(0, 60),
+      sourceStatus: String(c.sourceStatus || '').slice(0, 120),
+      rawTextIncluded: !!c.rawTextIncluded,
+    } : undefined;
     const ticket = await SupportTicket.create({
       userId: req.user._id,
       name: req.user.name,
@@ -3376,6 +3396,7 @@ app.post('/api/support/tickets', sensitiveLimiter, auth, async (req, res) => {
       topic: String(topic || '').slice(0, 60),
       source: 'form',
       diagnostics,
+      ...(context ? { context } : {}),
     });
     trackEvent('support_contacted', { userId: req.user._id, properties: { topic: ticket.topic, source: 'form' } });
     // Notify superadmins of the new ticket (in-app).
@@ -3394,6 +3415,68 @@ app.get('/api/support/tickets', auth, async (req, res) => {
     const tickets = await SupportTicket.find({ userId: req.user._id }).sort({ createdAt: -1 });
     res.json(tickets);
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Missing-payment finder (round6 Block 9, highest-value support tool): "I sent/got
+// money and it's not here." Takes which bank and roughly when, checks whether a
+// matching transaction already exists, and if not, diagnoses why (never connected,
+// or connected but quiet) so the fix offered is the right one.
+app.get('/api/support/missing-payment', auth, async (req, res) => {
+  try {
+    const bankCode = String(req.query.bankCode || '').toLowerCase().trim();
+    if (!bankCode) return res.status(400).json({ message: 'bankCode is required' });
+    const bank = BANK_REGISTRY.find((b) => b.code === bankCode);
+    const bankName = bank ? bank.name : bankCode;
+
+    // "Roughly when": a date, defaulting to today; search a 7-day window around it
+    // since "roughly" is the point - most users won't know the exact day.
+    const around = req.query.around ? new Date(req.query.around) : new Date();
+    const from = new Date(around.getTime() - 4 * 24 * 60 * 60 * 1000);
+    const to = new Date(around.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+    const [account, matches] = await Promise.all([
+      UserAccount.findOne({ userId: req.user._id, bankCode, deleted: { $ne: true } }).sort({ lastSeen: -1 }).lean(),
+      Transaction.find({ userId: req.user._id, bankCode, date: { $gte: from, $lte: to } })
+        .sort({ date: -1 }).limit(10)
+        .select('_id date description amount type').lean(),
+    ]);
+
+    if (matches.length) {
+      return res.json({
+        found: true,
+        bankName,
+        matches: matches.map((m) => ({ id: m._id, date: m.date, description: m.description, amount: m.amount, type: m.type })),
+      });
+    }
+
+    // Not found: work out why, so the fix offered is the right one.
+    const daysSinceSeen = account?.lastSeen ? Math.floor((Date.now() - new Date(account.lastSeen).getTime()) / (24 * 60 * 60 * 1000)) : null;
+    let reason, actions;
+    if (!account) {
+      reason = `We haven't seen any transactions from ${bankName} on your account yet.`;
+      actions = [
+        { id: 'turn_on', label: 'Turn on automatic tracking', route: '/automatic-tracking' },
+        { id: 'paste', label: 'Paste the alert text', route: '/add-transaction?mode=paste' },
+        { id: 'upload', label: 'Upload a statement', route: '/import-statement' },
+      ];
+    } else if (daysSinceSeen !== null && daysSinceSeen >= 3) {
+      reason = `${bankName} last reached us ${daysSinceSeen} day${daysSinceSeen === 1 ? '' : 's'} ago. Tracking may have stopped.`;
+      actions = [
+        { id: 'check_setup', label: 'Check my setup', route: '/setup-check' },
+        { id: 'battery', label: 'Allow Automonie in battery settings', openSettings: true },
+        { id: 'paste', label: 'Paste the alert text', route: '/add-transaction?mode=paste' },
+        { id: 'upload', label: 'Upload a statement', route: '/import-statement' },
+      ];
+    } else {
+      reason = `${bankName} is connected and recently active, but nothing matches that date.`;
+      actions = [
+        { id: 'paste', label: 'Paste the alert text', route: '/add-transaction?mode=paste' },
+        { id: 'upload', label: 'Upload a statement', route: '/import-statement' },
+        { id: 'report', label: 'Report this to support', route: '/support' },
+      ];
+    }
+    res.json({ found: false, bankName, lastSeen: account?.lastSeen || null, reason, actions });
+  } catch (e) { console.error('[missing-payment]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Superadmin: all tickets
@@ -9930,6 +10013,12 @@ app.get('/api/cashflow/forecast', auth, async (req, res) => {
       // how Plan could say "add your monthly income" above a safe-to-spend hero
       // (round 6, B4). null, and the client shows the money on hand instead.
       safeToSpend: safeToSpendFor(monthlyIncome, start - committed),
+      // Round 6, Block 9: the number explainer's working, same shape as Home's.
+      breakdown: monthlyIncome ? [
+        { label: 'Money you have now', amount: Math.round(start) },
+        { label: 'Minus bills and subscriptions due before your next pay day', amount: -Math.round(committed) },
+        { label: 'Safe to spend', amount: safeToSpendFor(monthlyIncome, start - committed), isResult: true },
+      ] : null,
       projectedEnd: series[series.length - 1].balance,
       lowest, shortfallDate,
       totals: { income: Math.round(totalIn), expense: Math.round(totalOut) },

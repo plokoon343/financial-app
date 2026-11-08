@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import { getRecentLogs } from '../lib/logBuffer';
+import MissingPaymentFinder from './MissingPaymentFinder';
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
@@ -31,6 +32,7 @@ const Support = () => {
   const [message, setMessage] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [info, setInfo] = useState(null);
+  const [finderOpen, setFinderOpen] = useState(false);
 
   const flash = (text, type = 'success') => { setMessage({ text, type }); setTimeout(() => setMessage(null), 3500); };
 
@@ -94,6 +96,15 @@ const Support = () => {
           <li><i className="fas fa-location-dot" style={{ color: 'var(--accent-primary)', width: 20 }}></i> Lagos, Nigeria</li>
         </ul>
       </div>
+
+      {/* Block 9's highest-value tool: the single most predictable reason people
+          write in gets its own answer before they have to ask. */}
+      <div className="sp-card" style={{ marginBottom: '1.25rem' }}>
+        <h3>Is a payment missing?</h3>
+        <p>Tell us which bank, and we'll check whether it already made it in and, if not, why.</p>
+        <button type="button" className="btn-primary-sm" onClick={() => setFinderOpen(true)}>Find a missing payment</button>
+      </div>
+      {finderOpen && <MissingPaymentFinder onClose={() => setFinderOpen(false)} />}
 
       <div className="sp-grid">
         {/* FAQ */}

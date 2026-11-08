@@ -1,7 +1,7 @@
 /*! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com
  * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)
  * Copyright 2023 Fonticons, Inc.
- * Subset to the 180 icons this app uses by scripts/build-icons.mjs. Do not edit by hand. */
+ * Subset to the 181 icons this app uses by scripts/build-icons.mjs. Do not edit by hand. */
 
 .fa {
   font-family: var(--fa-style-family, "Font Awesome 6 Free");
@@ -679,6 +679,7 @@ readers do not read off random characters that represent icons */
 .fa-location-dot::before { content: "\f3c5"; }
 .fa-lock::before { content: "\f023"; }
 .fa-magic::before { content: "\f0d0"; }
+.fa-magnifying-glass-dollar::before { content: "\f688"; }
 .fa-microsoft::before { content: "\f3ca"; }
 .fa-minus-circle::before { content: "\f056"; }
 .fa-mobile-screen::before { content: "\f3cf"; }

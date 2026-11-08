@@ -42,11 +42,25 @@ function billsDueThisMonth(now, bills = [], subs = []) {
 const safeToSpendFor = (monthlyIncome, available) =>
   (monthlyIncome > 0 ? Math.max(0, round(available)) : null);
 
+// The number explainer (round6 Block 9): the lines that add up to safe-to-spend,
+// in the order the figure is actually worked out, so tapping the hero can show its
+// own working instead of asking the user to trust a single number.
+function safeToSpendBreakdown({ have, monthExpense, billsDue, over, safeToSpend }) {
+  return [
+    { label: 'Money you have this month', amount: round(have) },
+    { label: 'Minus what you have spent', amount: -round(monthExpense) },
+    { label: 'Minus bills and subscriptions still due', amount: -round(billsDue) },
+    over > 0
+      ? { label: 'You are over by', amount: -over, isResult: true }
+      : { label: 'Safe to spend', amount: safeToSpend, isResult: true },
+  ];
+}
+
 function homeSummary({ now = new Date(), monthlyIncome = 0, monthIncome = 0, monthExpense = 0, bills = [], subs = [], monthTxnCount = 0, lastSyncAt = null } = {}) {
   const daysLeft = daysLeftInMonth(now);
   const billsDue = billsDueThisMonth(now, bills, subs);
   const incomeSet = monthlyIncome > 0;
-  let safeToSpend = null, dailyAllowance = null, over = 0;
+  let safeToSpend = null, dailyAllowance = null, over = 0, breakdown = null;
   if (incomeSet) {
     const have = Math.max(monthlyIncome, monthIncome);
     const left = have - monthExpense - billsDue;
@@ -54,11 +68,12 @@ function homeSummary({ now = new Date(), monthlyIncome = 0, monthIncome = 0, mon
     over = left < 0 ? round(-left) : 0;
     // Nearest 50 naira reads as a daily allowance, not false precision.
     dailyAllowance = Math.round(safeToSpend / daysLeft / 50) * 50;
+    breakdown = safeToSpendBreakdown({ have, monthExpense, billsDue, over, safeToSpend });
   }
   return {
-    incomeSet, safeToSpend, dailyAllowance, over, billsDue, daysLeft,
+    incomeSet, safeToSpend, dailyAllowance, over, billsDue, daysLeft, breakdown,
     monthTxnCount, lastSyncAt: lastSyncAt ? new Date(lastSyncAt).toISOString() : null,
   };
 }
 
-module.exports = { homeSummary, billsDueThisMonth, daysLeftInMonth, safeToSpendFor };
+module.exports = { homeSummary, billsDueThisMonth, daysLeftInMonth, safeToSpendFor, safeToSpendBreakdown };

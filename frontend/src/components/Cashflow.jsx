@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { fmtNaira, fmtNairaFull } from '../utils/format';
 import InfoButton from './InfoSheet';
+import NumberExplainer from './NumberExplainer';
 
 const RANGES = [30, 60, 90];
 const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
@@ -119,6 +120,7 @@ export default function Cashflow() {
                 so none is shown here either (round 6, B4). */}
             <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.6, opacity: 0.9 }}>
               {data.safeToSpend == null ? 'MONEY YOU HAVE NOW' : 'SAFE TO SPEND TODAY'} <InfoButton topic="safeToSpend" style={{ color: '#fff', opacity: 0.85 }} />
+              <NumberExplainer title="safe to spend" lines={data.breakdown} style={{ color: '#fff', opacity: 0.85 }} />
             </div>
             <div style={{ fontSize: 38, fontWeight: 800, marginTop: 4 }}>{fmtNaira(data.safeToSpend == null ? data.currentBalance : data.safeToSpend)}</div>
             <div style={{ fontSize: 13.5, opacity: 0.9, marginTop: 2 }}>

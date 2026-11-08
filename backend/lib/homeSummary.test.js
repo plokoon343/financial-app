@@ -26,9 +26,12 @@ check('safe to spend = income - spent - bills', s.safeToSpend === 50000, s);
 check('daily allowance rounds to 50', s.dailyAllowance === 3150, s);
 check('not over', s.over === 0);
 check('carries count and sync time', s.monthTxnCount === 12 && s.lastSyncAt === '2026-10-16T08:00:00.000Z');
+check('breakdown lines add up to safe to spend', s.breakdown.slice(0, -1).reduce((n, l) => n + l.amount, 0) === s.safeToSpend, s.breakdown);
+check('breakdown ends on the result line', s.breakdown[s.breakdown.length - 1].isResult && s.breakdown[s.breakdown.length - 1].amount === 50000, s.breakdown);
 
 const o = homeSummary({ now, monthlyIncome: 50000, monthExpense: 60000 });
 check('overspent: safe is 0 and over is reported', o.safeToSpend === 0 && o.over === 10000 && o.dailyAllowance === 0, o);
+check('overspent breakdown says "You are over by"', o.breakdown[o.breakdown.length - 1].label === 'You are over by' && o.breakdown[o.breakdown.length - 1].amount === -10000, o.breakdown);
 
 const hi = homeSummary({ now, monthlyIncome: 50000, monthIncome: 90000, monthExpense: 30000 });
 check('actual income above the stated one is used', hi.safeToSpend === 60000, hi);

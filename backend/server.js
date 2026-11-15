@@ -50,6 +50,7 @@ const capture = require('./lib/capture');
 const compliance = require('./lib/compliance');
 const { brandFor } = require('./lib/subscriptionBrands');
 const nudges = require('./lib/nudges');
+const journey = require('./lib/journey');
 const { homeSummary, safeToSpendFor } = require('./lib/homeSummary');
 const trackingSummary = require('./lib/trackingSummary');
 const promo = require('./lib/promo');
@@ -5035,10 +5036,12 @@ async function runWeeklyInsightPush(now = new Date()) {
   let sent = 0;
   for (const u of users) {
     try {
+      if (await pushedToday(u._id, now)) continue;   // another push already used today's one; try again later in the window
       const claimed = await User.updateOne({ _id: u._id, weeklyInsightWeek: { $ne: week } }, { $set: { weeklyInsightWeek: week } });
       if (!claimed.modifiedCount) continue;
       const line = insightFeed.weeklyLine(await insightRows(u._id, 20), now);
       if (!line) continue;
+      if (!(await claimPush(u._id, now, 'weekly_insight'))) continue;
       await sendExpoPush(u.pushTokens, { title: 'Your week in money', body: line, data: { type: 'weekly_insight', nav: '/insights' } });
       await createNotification(u._id, { type: 'info', title: 'Your week in money', message: line, link: '/insights', dedupeKey: `weekly-insight:${week}` }).catch(() => {});
       sent += 1;
@@ -10181,6 +10184,9 @@ async function nudgeUser(u, copy, now) {
   const variant = nudges.pickVariant(complete ? spec.completeVariants : spec.variants, lastVariant);
   const body = variant && nudges.render(variant, chosen.vars, { showAmounts: pushAmounts(u) });
   if (!body) return null;
+  // One push a day across the app, and never between 10 pm and 8 am.
+  if (journey.inQuiet(nudges.lagos(now).hour, null)) return null;
+  if (!(await claimPush(u._id, now, `nudge:${chosen.trigger}`))) return null;
   const row = await NudgeLog.create({ userId: u._id, trigger: chosen.trigger, category: spec.category, variantId: variant.id, key: chosen.key, sentAt: now });
   await sendExpoPush(u.pushTokens, { title: spec.title, body, data: { type: 'nudge', nudgeId: String(row._id), nav: spec.nav } });
   await createNotification(u._id, { type: 'info', title: spec.title, message: body }).catch(() => {});
@@ -10229,11 +10235,247 @@ async function flushTxnNotices(now = new Date()) {
 }
 setInterval(() => { flushTxnNotices().catch((e) => console.error('[txn-notice] sweep', e.message)); }, 60 * 1000).unref();
 
+// ── The first month (Round 10 Part E) ───────────────────────────────────────────
+// One planned moment per user per Lagos day, from the account's created date (lib/journey).
+// HOW IT RUNS: on demand. The Home card is decided when the app asks (GET /api/journey/today),
+// so it cannot silently stop when a scheduler does. The push is a bonus from the hourly
+// job (cron or the in-process stopgap): if that never fires, nobody loses a moment, they
+// just see the card when they open the app. A moment has a window (its day plus a few
+// grace days), so a person who was away comes back to today's moment, never a backlog.
+// Moments are data: data/journey-moments.json with the admin's overrides on top.
+const journeyStateSchema = new mongoose.Schema({
+  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  momentId: { type: String, required: true },
+  claimDay: { type: String },                    // the Lagos day this moment owns; unset once skipped
+  status:   { type: String, enum: ['shown', 'tapped', 'dismissed', 'skipped'], default: 'shown' },
+  shownAt:  { type: Date, default: Date.now },
+  pushedAt: { type: Date, default: null },
+  emailedAt: { type: Date, default: null },
+}, { timestamps: true });
+journeyStateSchema.index({ userId: 1, momentId: 1 }, { unique: true });                       // a moment is served once, ever
+journeyStateSchema.index({ userId: 1, claimDay: 1 }, { unique: true, partialFilterExpression: { claimDay: { $type: 'string' } } }); // and a day has one moment
+const JourneyState = mongoose.model('JourneyState', journeyStateSchema);
+
+// The app-wide push ledger: one row per person per Lagos day. Anything that sends an
+// engagement push claims the day here first, so two features can never both push.
+const pushDaySchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  day:    { type: String, required: true },
+  source: { type: String, default: '' },
+  sentAt: { type: Date, default: Date.now, expires: 60 * 86400 },
+});
+pushDaySchema.index({ userId: 1, day: 1 }, { unique: true });
+const PushDay = mongoose.model('PushDay', pushDaySchema);
+// true if this push now owns the day, false if another already did.
+async function claimPush(userId, now, source) {
+  try { await PushDay.create({ userId, day: nudges.lagosDay(now), source, sentAt: now }); return true; }
+  catch (e) { if (e && e.code === 11000) return false; throw e; }
+}
+const pushedToday = async (userId, now) => !!(await PushDay.exists({ userId, day: nudges.lagosDay(now) }));
+
+const journeyConfigSchema = new mongoose.Schema({
+  key:        { type: String, default: 'main', unique: true },
+  enabled:    { type: Boolean, default: true },
+  pushEnabled: { type: Boolean, default: false }, // pushes stay off until the owner turns them on
+  journeyDays: { type: Number, default: journey.DEFAULT_JOURNEY_DAYS },
+  moments:    { type: mongoose.Schema.Types.Mixed, default: () => ({}) }, // overrides by moment id
+  updatedBy:  { type: String, default: '' },
+}, { timestamps: true, minimize: false });
+const JourneyConfig = mongoose.model('JourneyConfig', journeyConfigSchema);
+
+const JOURNEY_BASE = require('./data/journey-moments.json');
+async function journeyConfig() {
+  const cfg = (await JourneyConfig.findOne({ key: 'main' }).lean().catch(() => null)) || {};
+  return {
+    enabled: cfg.enabled !== false, pushEnabled: cfg.pushEnabled === true,
+    journeyDays: cfg.journeyDays || JOURNEY_BASE.journeyDays || journey.DEFAULT_JOURNEY_DAYS,
+    overrides: cfg.moments || {}, moments: journey.mergeMoments(JOURNEY_BASE.moments, cfg.moments || {}),
+  };
+}
+
+async function journeySnapshot(u, now) {
+  const id = u._id;
+  const since = new Date(Math.max(new Date(u.createdAt || 0).getTime(), now.getTime() - 6 * 86400000));
+  const [budget, rule, cash, banks, ask, anyTxn, credits] = await Promise.all([
+    Budget.exists({ userId: id }),
+    MerchantNameRule.exists({ userId: id }),
+    Transaction.exists({ userId: id, cashAllocated: true }),
+    Transaction.distinct('bank', { userId: id, bank: { $ne: '' } }),
+    AiChat.exists({ userId: id, 'messages.0': { $exists: true } }),
+    Transaction.exists({ userId: id }),
+    Transaction.find({ userId: id, type: 'income', date: { $gte: since } }, { date: 1, amount: 1, type: 1, description: 1 }).lean(),
+  ]);
+  return {
+    createdAt: u.createdAt, audience: u.audience || '', plan: u.plan || 'free', lastActiveAt: u.lastActiveAt || u.lastLogin || null,
+    incomeSet: (u.monthlyIncome || 0) > 0, budgetSet: !!budget, ruleMade: !!rule, cashUsed: !!cash,
+    bankCount: banks.length, askUsed: !!ask, aiOn: aiConfigured(), hasTxns: !!anyTxn,
+    txns: credits.map((t) => ({ id: String(t._id), date: t.date, amount: t.amount, type: t.type, description: t.description })),
+  };
+}
+
+// The moment for this person today (claims the day for it unless claim is false).
+async function journeyToday(u, now, { channel = 'card', claim = true } = {}) {
+  const cfg = await journeyConfig();
+  if (!cfg.enabled) return null;
+  const idx = journey.dayIndex(u.createdAt, now);
+  if (idx < 0 || idx > cfg.journeyDays) return null;          // no further queries for established accounts
+  const snap = await journeySnapshot(u, now);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const served = await JourneyState.find({ userId: u._id }, { momentId: 1, claimDay: 1, status: 1, pushedAt: 1 }).lean();
+    const r = journey.pick({ moments: cfg.moments, snap, served, now, channel, journeyDays: cfg.journeyDays });
+    if (!r || !r.fresh || !claim) return r;
+    try {
+      await JourneyState.create({ userId: u._id, momentId: r.moment.id, claimDay: nudges.lagosDay(now), status: 'shown', shownAt: now });
+      return r;
+    } catch (e) { if (!e || e.code !== 11000) throw e; /* a parallel request claimed the day: read again */ }
+  }
+  return null;
+}
+
+// While a service announcement (outage, maintenance, security, must update) or a
+// full-screen notice is waiting for this person, Home shows that alone and the journey
+// card is held for the day (not consumed). Product announcements sit in a different slot.
+async function announcementHold(user, now) {
+  const live = await Announcement.find({ status: 'scheduled', endsAt: { $gt: now }, startsAt: { $lte: now } }).lean();
+  if (!live.length) return false;
+  const rows = await AnnouncementState.find({ userId: user._id, announcementId: { $in: live.map((a) => a._id) } }).lean();
+  const states = Object.fromEntries(rows.map((r) => [String(r.announcementId), r]));
+  const card = announcementsLib.pickActiveCard(live, states, user, now);
+  if (announcementsLib.pickFullscreen(live, states, user, now).length) return true;
+  return !!card && announcementsLib.isServiceKind(card.kind);
+}
+
+const journeyCard = (m) => ({ id: m.id, title: m.card.title, body: m.card.body, button: m.card.button, nav: m.card.nav, check: m.check || '' });
+
+app.get('/api/journey/today', auth, async (req, res) => {
+  try {
+    const now = new Date();
+    if (journey.dayIndex(req.user.createdAt, now) < 0) return res.json({ moment: null });
+    if (await announcementHold(req.user, now)) return res.json({ moment: null, held: 'announcement' });
+    const r = await journeyToday(req.user, now);
+    res.json({ moment: r && r.moment.card ? journeyCard(r.moment) : null });
+  } catch (e) { console.error('[journey/today]', e.message); res.json({ moment: null }); }
+});
+
+// The person acted on today's card: opened it, closed it, or the phone found it not real
+// (better_month with no honest win). Skipped frees the day for the next moment.
+app.post('/api/journey/:id/:action', auth, async (req, res) => {
+  try {
+    const { id, action } = req.params;
+    if (!/^[a-z0-9_]{3,40}$/.test(id) || !['tap', 'dismiss', 'skip'].includes(action)) return res.status(400).json({ message: 'Bad request' });
+    const set = action === 'tap' ? { status: 'tapped' } : action === 'dismiss' ? { status: 'dismissed' } : { status: 'skipped' };
+    const update = action === 'skip' ? { $set: set, $unset: { claimDay: '' } } : { $set: set };
+    // A tap never undoes a dismiss, and only a moment that carries a client check can be skipped.
+    const filter = { userId: req.user._id, momentId: id, ...(action === 'tap' ? { status: 'shown' } : {}) };
+    if (action === 'skip') {
+      const m = (await journeyConfig()).moments.find((x) => x.id === id);
+      if (!m || !m.check) return res.status(400).json({ message: 'Not skippable' });
+    }
+    await JourneyState.updateOne(filter, update);
+    res.json({ ok: true });
+  } catch (e) { console.error('[journey/action]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Admin: read and change the moments without a release.
+app.get('/api/admin/journey', auth, superAdminAuth, async (req, res) => {
+  try {
+    const cfg = await journeyConfig();
+    res.json({ enabled: cfg.enabled, pushEnabled: cfg.pushEnabled, journeyDays: cfg.journeyDays, overrides: cfg.overrides, defaults: JOURNEY_BASE.moments, moments: cfg.moments });
+  } catch (e) { console.error('[admin/journey]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.put('/api/admin/journey', auth, superAdminAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const set = { updatedBy: req.user.email };
+    if (typeof b.enabled === 'boolean') set.enabled = b.enabled;
+    if (typeof b.pushEnabled === 'boolean') set.pushEnabled = b.pushEnabled;
+    if (b.journeyDays !== undefined) set.journeyDays = Math.max(7, Math.min(90, Math.round(Number(b.journeyDays)) || journey.DEFAULT_JOURNEY_DAYS));
+    if (b.moments && typeof b.moments === 'object' && !Array.isArray(b.moments)) {
+      const next = {};
+      for (const [id, o] of Object.entries(b.moments)) {
+        if (!/^[a-z0-9_]{3,40}$/.test(id) || !o || typeof o !== 'object') return res.status(400).json({ message: `Bad moment id ${id}` });
+        const base = JOURNEY_BASE.moments.find((m) => m.id === id);
+        const check = journey.sanitizeMoment({ ...(base || {}), ...o, card: { ...(base?.card || {}), ...(o.card || {}) }, email: { ...(base?.email || {}), ...(o.email || {}) }, push: { ...(base?.push || {}), ...(o.push || {}) } }, id);
+        if (check.error) return res.status(400).json({ message: check.error });
+        next[id] = o;
+      }
+      set.moments = next;
+    }
+    await JourneyConfig.updateOne({ key: 'main' }, { $set: set }, { upsert: true });
+    const cfg = await journeyConfig();
+    res.json({ enabled: cfg.enabled, pushEnabled: cfg.pushEnabled, journeyDays: cfg.journeyDays, overrides: cfg.overrides, moments: cfg.moments });
+  } catch (e) { console.error('[admin/journey/put]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Hourly: push today's moment to people it applies to. Off until pushEnabled. Claims the
+// app-wide day first, so a person who already got any push today gets none from here.
+async function runJourneyPush(now = new Date()) {
+  const cfg = await journeyConfig();
+  if (!cfg.enabled || !cfg.pushEnabled) return { skipped: 'journey push is off' };
+  const hr = nudges.lagos(now).hour;
+  if (journey.inQuiet(hr, null)) return { skipped: 'quiet hours' };
+  const copy = await nudgeCopy();
+  const users = await User.find({ 'pushTokens.0': { $exists: true }, createdAt: { $gte: new Date(now.getTime() - (cfg.journeyDays + 1) * journey.DAY) } })
+    .select('_id email pushTokens nudgePrefs showAmountsInNotifications hideAmounts notifQuietFrom notifQuietTo createdAt lastActiveAt lastLogin audience plan monthlyIncome').lean();
+  let sent = 0;
+  for (const u of users) {
+    if (txnNotify.isTestAccount(u)) continue;
+    try {
+      if (journey.inQuiet(hr, txnNotify.quietOf(u))) continue;
+      const r = await journeyToday(u, now, { claim: false });
+      if (!r || !r.moment.push || r.moment.check || (r.state && r.state.pushedAt)) continue;
+      if (!journey.pushNow(r.moment, now, txnNotify.quietOf(u))) continue;
+      const msg = journey.pushText(r.moment, { copy, prefs: u.nudgePrefs || {}, showAmounts: pushAmounts(u) });
+      if (!msg) continue;
+      if (!(await claimPush(u._id, now, `journey:${r.moment.id}`))) continue;
+      const day = nudges.lagosDay(now);
+      if (r.fresh) {
+        try { await JourneyState.create({ userId: u._id, momentId: r.moment.id, claimDay: day, status: 'shown', shownAt: now, pushedAt: now }); }
+        catch (e) { if (e && e.code === 11000) continue; throw e; }
+      } else await JourneyState.updateOne({ userId: u._id, momentId: r.moment.id }, { $set: { pushedAt: now } });
+      await sendExpoPush(u.pushTokens, { title: msg.title, body: msg.body, data: { type: 'journey', momentId: r.moment.id, nav: msg.nav } });
+      await createNotification(u._id, { type: 'info', title: msg.title, message: msg.body, dedupeKey: `journey:${r.moment.id}` }).catch(() => {});
+      sent += 1;
+    } catch (e) { console.error('[journey/push]', String(u._id), e.message); }
+  }
+  return { users: users.length, sent };
+}
+
+// The win-back email (day 14, away for days). Off unless JOURNEY_EMAIL_ENABLED=true, product
+// email consent required, at most one announcement-style email a week, one-click unsubscribe.
+async function runJourneyEmails(now = new Date()) {
+  if (process.env.JOURNEY_EMAIL_ENABLED !== 'true' || !emailConfigured()) return { skipped: 'journey email is off' };
+  const cfg = await journeyConfig();
+  if (!cfg.enabled) return { skipped: 'journey is off' };
+  const hr = nudges.lagos(now).hour;
+  if (hr < 10 || hr >= 17) return { skipped: 'outside sending hours' };
+  const users = await User.find({ productEmails: true, emailAlerts: { $ne: false }, email: { $exists: true }, createdAt: { $gte: new Date(now.getTime() - (cfg.journeyDays + 1) * journey.DAY) } })
+    .select('_id email name createdAt lastActiveAt lastLogin audience plan monthlyIncome lastAnnouncementEmailAt announcementUnsubToken').lean();
+  let sent = 0;
+  for (const u of users) {
+    try {
+      if (u.lastAnnouncementEmailAt && now - new Date(u.lastAnnouncementEmailAt) < 7 * journey.DAY) continue;
+      const r = await journeyToday(u, now, { channel: 'email', claim: false });
+      if (!r || !r.fresh) continue;
+      try { await JourneyState.create({ userId: u._id, momentId: r.moment.id, claimDay: nudges.lagosDay(now), status: 'shown', shownAt: now, emailedAt: now }); }
+      catch (e) { if (e && e.code === 11000) continue; throw e; }
+      const mail = annEmail({ title: r.moment.email.subject, emailBody: r.moment.email.text, buttonLabel: '', buttonLink: '' }, `${PUBLIC_API_URL}/unsubscribe?token=${await annUnsubToken(u)}`);
+      await sendNewsletterEmail({ to: u.email, subject: r.moment.email.subject, html: mail.html, text: mail.text });
+      await User.updateOne({ _id: u._id }, { $set: { lastAnnouncementEmailAt: now } });
+      sent += 1;
+    } catch (e) { console.error('[journey/email]', String(u._id), e.message); }
+  }
+  return { users: users.length, sent };
+}
+
 let nudgesRunning = false;
 async function runNudgesJob(now = new Date()) {
   if (nudgesRunning) return { skipped: 'already running' };
   nudgesRunning = true;
   try {
+    // The planned first-month moment goes first; whoever it pushes has used today's one push.
+    await runJourneyPush(now).then((r) => r && r.sent && console.log('[journey/push]', r)).catch((e) => console.error('[journey/push]', e.message));
+    await runJourneyEmails(now).then((r) => r && r.sent && console.log('[journey/email]', r)).catch((e) => console.error('[journey/email]', e.message));
     const copy = await nudgeCopy();
     const users = await User.find({ 'pushTokens.0': { $exists: true } }).select('_id email pushTokens nudgePrefs showAmountsInNotifications hideAmounts notifQuietFrom notifQuietTo createdAt lastActiveAt lastLogin').lean();
     let sent = 0;

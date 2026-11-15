@@ -247,3 +247,41 @@ Deviations and things the brief got wrong or left open:
 Retiring the old endpoints (`GET /api/global-banner`, `/api/public/promo` PIXLCO card): every build that reads announcements must be the minimum first. The first build with the announcement client is the next mobile build after this commit (current `app.json` is 1.0.0, and 1.0.0 builds already in testers' hands read the old endpoints). When that build ships, bump it to 1.1.0, set `APP_MIN_VERSION` to at least that version once the update screen exists as a real block (see above), and only then remove the old endpoints. Until then keep them: older builds would otherwise lose the known-issue banner. The web `GlobalBanner.jsx` still reads `/api/global-banner` and is untouched; the composer does not feed it.
 
 Owner steps: add the `/api/cron/announcements` job; decide where users switch product emails on; run "Import old PIXLCO card and banner" once after deploy if either is still live; create the first announcement as a draft and use "Send me a test" before anything real.
+
+### Part E: the first month, 15 Nov 2026
+
+Backend `npm test` 70/70 files pass (new `lib/journey.test.js`, 71 checks; `lib/nudges.test.js` still 54/54). API checks `scripts/api-journey.js` against a throwaway local `automonie_test` DB with push and email off: 24/24 pass. Mobile `npx tsc --noEmit` clean, lint 0 errors (the 3 warnings in `index.tsx` were already there). Web untouched. Nothing pushed, nothing run against production, no push or email sent, no EAS build, no OTA. `scripts/api-regression.js` was not usable as a check: it stops at section 7 on an unrelated `/api/help` assertion before it reaches the nudge section, so the older push-nudge checks there were read, not run (they use separate days, so the new one-push-a-day ledger does not change them).
+
+**How it fires (decision): on demand, with the push as a bonus.** There is still no reliable external cron, so the day's moment is decided when the app asks (`GET /api/journey/today`), the same way `/api/announcements/active` works. It cannot silently stop, because nothing has to be running for a person to see their card. The hourly job (cron `/api/cron/nudges` or the existing in-process stopgap) only adds a push for the same moment; if it never fires nobody loses a moment. A moment has a window (its day plus `graceDays`, 0 to 2 days in the shipped table), so a person who is away for a week comes back to today's moment only. Tested: away days 2 to 9 and back on day 10 gets day 10's moment, none of days 2 to 7.
+
+| Moment | State | Notes |
+|---|---|---|
+| Day 0 evening summary | Done | Card from 6 pm only, no grace (not owed later). New copy. |
+| Day 1 "Here's what we found" | Done | Needs at least one transaction. New copy. |
+| Day 2 first rule | Done | Skipped if the person already made a merchant rule. A "toast" is a Home card here; there is no toast surface. |
+| Day 3 first budget | Done | Skipped if any budget exists. Push reuses `setup_budget`. |
+| Day 4 cash check | Done | Skipped if a cash withdrawal was already allocated. |
+| Day 5 missing bank | Done | Skipped with 3 or more banks seen. Push reuses `setup_connect`. |
+| Day 7 weekly recap | Done | Push reuses `weekly_recap`. |
+| First payday / corper allowance | Done | First pay-like credit after signup (reuses the nudge payday detector, now exported as `findPay`). Corpers get `corper_allowance`, everyone else `payday`; never both. Corper push line is new copy. |
+| Day 10 Ask sample | Done | Free plan, Ask on, never used Ask. |
+| Day 14 two-week check or win-back | Done, email unproven | Active in the last 3 days: card. Away: the win-back email, off unless `JOURNEY_EMAIL_ENABLED=true`, product-email consent, one a week, one-click unsubscribe. The send itself was not exercised (nothing may be sent). |
+| Day 21 Sapa radar / "How long will the money last?" | Done | Radar needs income set and is not for students; students get their own card. |
+| Day 25 to 30 better than last month | Done, phone verifies | Only a real win: the phone runs `betterMonth.ts` on its own rows and, if there is no honest win, posts `skip`, which frees the day. No push for this one (the server cannot verify it). |
+| Month end recap / month end + 1 plan | Done | Last Lagos day of the month and the 1st, only for accounts at least 7 and 8 days old. Plan push reuses `month_start`. |
+
+Rules: one planned moment a day is enforced by a unique index (user, claimed day) plus the pure `pick`; a moment is served once ever (unique user + moment id). One push a day across the app is a new `PushDay` ledger, unique per user and Lagos day: the journey push, the nudge engine and the Sunday weekly insight push all claim it first. Quiet hours 10 pm to 8 am are a fixed floor (plus the person's own window if wider) for the journey and the nudge engine. Not under the one-a-day ledger on purpose: the "new transactions added" notice and the forwarding-confirmation push, which are transactional and user-chosen. Time is Lagos for everyone: there is no per-user timezone stored.
+
+**Configurable without a release:** moments live in `data/journey-moments.json`; `GET/PUT /api/admin/journey` (superadmin) stores overrides by moment id in `JourneyConfig` (change a day or window, copy, push line, switch a moment off, add a moment, change `journeyDays`, turn the whole journey or its push off). Copy with an emoji or a dash is refused and an invalid edit falls back to the default. There is no admin screen for it, only the endpoint.
+
+**Part D interaction.** A journey moment uses its own Home slot, a card directly below the Ask bar, not the slot under the hero that announcements own, so the two do not overlap. Part D's behaviour is unchanged. On a day when both exist: a product announcement (update, feature, event) and the journey card both show, in their own slots. A service announcement (outage, maintenance, security, must update) or an unseen full-screen notice wins the day: `/api/journey/today` returns no moment and `held: 'announcement'`, and the moment is not consumed, so it appears after the announcement ends if it is still inside its window. Announcements never push, so there is no push conflict.
+
+Deviations and what is left:
+
+- Quests are not wired in. They are mobile-local with no server record, so the server cannot know a quest is done. The cards point at the same screens the quests do and use the same "already done" facts (budget, rule, cash) instead.
+- Journey push is off by default (`pushEnabled` false) and the push needs the binary to have expo-notifications, so on builds without it only the card appears.
+- The existing nudge engine's setup nudges for the first week remain; they now lose to the journey whenever the journey pushed that day.
+- The `LIMITS.perDay: 2` in `lib/nudges.js` is now effectively 1 through the ledger; left as is.
+- The Home card fetches on screen focus; it is not cached offline.
+
+Owner steps: nothing is needed for the cards. To turn on the push: `PUT /api/admin/journey {"pushEnabled": true}`. To turn on the win-back email: set `JOURNEY_EMAIL_ENABLED=true`. The hourly cron job already exists for the nudges and now also drives these. Needs the next mobile build or OTA for the Home card.

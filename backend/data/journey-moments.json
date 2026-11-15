@@ -1,0 +1,84 @@
+{
+  "_about": "The first-month journey: planned moments, at most one per user per Lagos day, counted from the account's created date. Defaults live here; the admin can override any field per moment id, switch moments off, change the day, or add a moment, without a release (stored in the database, merged over this file). trigger: day (day..dayTo plus graceDays after), payday, allowance, month_end, month_after. A moment is never served twice to a person. skipIf: the job is already done. requires: facts that must hold. push.copyKey reuses a line from nudge-copy.json; push.text is new copy for moments that had none. No emoji and no em dashes anywhere in this file.",
+  "journeyDays": 45,
+  "moments": [
+    {
+      "id": "day0_summary", "order": 10, "trigger": "day", "day": 0, "graceDays": 0, "showFromHour": 18,
+      "card": { "title": "Your first evening", "body": "Here is what automonie has picked up so far. Give it a quick look and fix anything that is off.", "button": "See today", "nav": "/(tabs)/transactions" },
+      "push": { "category": "tips", "text": "Your first day is in. Take a quick look at what we picked up.", "fromHour": 18, "toHour": 21 }
+    },
+    {
+      "id": "day1_found", "order": 20, "trigger": "day", "day": 1, "graceDays": 1, "requires": ["has_txns"],
+      "card": { "title": "Here's what we found", "body": "We read your alerts and sorted them. Spot check a few, it takes a minute.", "button": "Take a look", "nav": "/(tabs)/insights" },
+      "push": { "category": "tips", "text": "Here's what we found in your first day of alerts.", "fromHour": 9, "toHour": 20 }
+    },
+    {
+      "id": "day2_rule", "order": 30, "trigger": "day", "day": 2, "graceDays": 1, "skipIf": ["rule_made"],
+      "card": { "title": "Teach it once", "body": "Fix one category and we remember it for that merchant next time. Tap any transaction to try.", "button": "Fix a category", "nav": "/(tabs)/transactions" }
+    },
+    {
+      "id": "day3_budget", "order": 40, "trigger": "day", "day": 3, "graceDays": 1, "skipIf": ["budget_set"],
+      "card": { "title": "Set your first budget", "body": "Pick one category and a limit. Food is a good place to start.", "button": "Set a budget", "nav": "/(tabs)/grow" },
+      "push": { "category": "budgets", "copyKey": "setup_budget", "fromHour": 9, "toHour": 20 }
+    },
+    {
+      "id": "day4_cash", "order": 50, "trigger": "day", "day": 4, "graceDays": 1, "skipIf": ["cash_used"],
+      "card": { "title": "Spent any cash?", "body": "Cash that leaves your account never shows in an alert. Break a withdrawal into what it bought.", "button": "Track cash", "nav": "/cash" }
+    },
+    {
+      "id": "day5_bank", "order": 60, "trigger": "day", "day": 5, "graceDays": 1, "skipIf": ["banks_3plus"],
+      "card": { "title": "Any bank missing?", "body": "If you use more than one bank, add the rest so your numbers are complete.", "button": "Check my banks", "nav": "/email-forwarding" },
+      "push": { "category": "tips", "copyKey": "setup_connect", "fromHour": 9, "toHour": 20 }
+    },
+    {
+      "id": "day7_recap", "order": 70, "trigger": "day", "day": 7, "graceDays": 2,
+      "card": { "title": "Your first week", "body": "Your week in money is ready.", "button": "See my week", "nav": "/recap" },
+      "push": { "category": "recap", "copyKey": "weekly_recap", "fromHour": 9, "toHour": 20 }
+    },
+    {
+      "id": "payday", "order": 80, "trigger": "payday", "graceDays": 2, "excludeAudiences": ["corper"],
+      "card": { "title": "Payday", "body": "Money landed. Give it a plan before the outings start.", "button": "Plan it", "nav": "/(tabs)/grow" },
+      "push": { "category": "tips", "copyKey": "payday_detected", "fromHour": 9, "toHour": 20 }
+    },
+    {
+      "id": "corper_allowance", "order": 80, "trigger": "allowance", "graceDays": 2, "audiences": ["corper"],
+      "replaces": "payday",
+      "card": { "title": "Allowance day", "body": "Your allowance has landed. Split it into needs, savings and fun before it moves.", "button": "Plan it", "nav": "/(tabs)/grow" },
+      "push": { "category": "tips", "text": "Your allowance has landed. Two minutes of planning now saves the month.", "fromHour": 9, "toHour": 20 }
+    },
+    {
+      "id": "day10_ask", "order": 90, "trigger": "day", "day": 10, "graceDays": 2, "plans": ["free"], "requires": ["ai_on"], "skipIf": ["ask_used"],
+      "card": { "title": "Ask about your money", "body": "Ask a plain question, like where did my transport money go this month. Try one free.", "button": "Try Ask", "nav": "/assistant" }
+    },
+    {
+      "id": "day14_check", "order": 100, "trigger": "day", "day": 14, "graceDays": 1, "requires": ["recently_active"],
+      "card": { "title": "Two weeks in", "body": "Your numbers are getting reliable. See what has changed since week one.", "button": "See what changed", "nav": "/(tabs)/insights" }
+    },
+    {
+      "id": "day14_winback", "order": 105, "trigger": "day", "day": 14, "graceDays": 2, "channel": "email", "requires": ["inactive"],
+      "email": { "subject": "Your money picture is waiting", "text": "You have not opened automonie in a few days, and new alerts have been piling up. Open the app and it will catch up on its own. Nothing is lost." }
+    },
+    {
+      "id": "day21_sapa", "order": 110, "trigger": "day", "day": 21, "graceDays": 1, "requires": ["income_set"], "excludeAudiences": ["student"],
+      "card": { "title": "Sapa radar", "body": "See how far your money goes before the next pay lands.", "button": "Check the radar", "nav": "/cashflow" }
+    },
+    {
+      "id": "day21_lasting", "order": 110, "trigger": "day", "day": 21, "graceDays": 1, "audiences": ["student"],
+      "card": { "title": "How long will the money last?", "body": "Add what you have and what is still coming, and see how far it stretches.", "button": "Find out", "nav": "/cashflow" }
+    },
+    {
+      "id": "better_month", "order": 120, "trigger": "day", "day": 25, "dayTo": 30, "graceDays": 0, "check": "better_month",
+      "card": { "title": "Better than last month", "body": "You are spending less than this time last month. See where.", "button": "See where", "nav": "/(tabs)/insights" }
+    },
+    {
+      "id": "month_end", "order": 130, "trigger": "month_end", "graceDays": 0, "minAgeDays": 7,
+      "card": { "title": "Your month in review", "body": "The month is done. Your recap is ready.", "button": "See my recap", "nav": "/recap" },
+      "push": { "category": "recap", "text": "Your month is done. Your recap is ready.", "fromHour": 9, "toHour": 20 }
+    },
+    {
+      "id": "month_after", "order": 140, "trigger": "month_after", "graceDays": 1, "minAgeDays": 8,
+      "card": { "title": "Plan next month", "body": "A fresh month. Set your limits while it is still quiet.", "button": "Plan it", "nav": "/(tabs)/grow" },
+      "push": { "category": "tips", "copyKey": "month_start", "fromHour": 9, "toHour": 20 }
+    }
+  ]
+}

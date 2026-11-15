@@ -42,6 +42,17 @@ function lagos(now) {
 const lagosDay = (t) => new Date(new Date(t).getTime() + LAGOS_OFFSET).toISOString().slice(0, 10);
 const abs = (n) => Math.abs(Number(n) || 0);
 
+// The credit that looks like a payday, if any landed within `windowMs` (default 24 hours):
+// a salary-like description, or one at least 60% of the biggest credit in the previous
+// two months (and at least NGN 20,000). Shared with the first-month journey.
+function findPay(txns, now, windowMs = DAY) {
+  const credits = (txns || []).filter((t) => t.type === 'income');
+  const recent = credits.filter((t) => now - new Date(t.date) <= windowMs && now - new Date(t.date) >= 0);
+  const older = credits.filter((t) => now - new Date(t.date) > windowMs && now - new Date(t.date) <= 62 * DAY);
+  const usual = Math.max(0, ...older.map((t) => abs(t.amount)));
+  return recent.find((t) => PAYDAY.test(t.description || '') || (usual >= 20000 && abs(t.amount) >= usual * 0.6)) || null;
+}
+
 // Which triggers apply right now. snapshot = {
 //   createdAt, lastActiveAt, txns: [{ id, date, amount, type, category, description, createdAt }],
 //   budgets: [{ category, amount }], bills: [{ id, name, nextDue }], subs: [{ id, name, nextRenewal }],
@@ -76,11 +87,7 @@ function evaluate(s, now) {
 
   // Payday: a salary-like credit in the last 24 hours, or one at least 60% of the
   // biggest credit in the previous two months (and at least NGN 20,000).
-  const credits = txns.filter((t) => t.type === 'income');
-  const recent = credits.filter((t) => now - new Date(t.date) <= DAY && now - new Date(t.date) >= 0);
-  const older = credits.filter((t) => now - new Date(t.date) > DAY && now - new Date(t.date) <= 62 * DAY);
-  const usual = Math.max(0, ...older.map((t) => abs(t.amount)));
-  const pay = recent.find((t) => PAYDAY.test(t.description || '') || (usual >= 20000 && abs(t.amount) >= usual * 0.6));
+  const pay = findPay(txns, now);
   if (pay) add('payday_detected', pay.id, { amount: abs(pay.amount) });
 
   // Spending spike: the last 7 days more than 40% above the weekly average of the 8
@@ -212,4 +219,4 @@ function mergeCopy(base, overrides = []) {
   return copy;
 }
 
-module.exports = { evaluate, select, pickVariant, render, mergeCopy, lagos, lagosDay, PRIORITY, CATEGORIES, LIMITS, SETUP };
+module.exports = { findPay, evaluate, select, pickVariant, render, mergeCopy, lagos, lagosDay, PRIORITY, CATEGORIES, LIMITS, SETUP };

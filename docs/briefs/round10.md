@@ -152,3 +152,28 @@ Tests: token expires and is single-use; ticks update on phone and web; F3 never 
 `ownMoveChanged` was 0.
 
 Read before applying: only 196 of 2857 rows land on a person category (Sent to people, Money from People). 2498 become Other or Other Income, which clears a retired label without adding information, and no cash withdrawal became an own move into Cash, although A3 expects that. On real production narrations the person and cash detection is firing far less than it does on the tuned fixtures, so applying now would file 2498 rows as Other and leave a better backfill to re-touch them later. Those rows stay machine-set, so a later pass can still move them, but the owner should decide whether to improve detection first. Not applied; waiting on the owner.
+
+### Detection improved, then re-measured (version 480cd05)
+
+Tuned against the 249 rows still carrying retired labels on the owner's own account (fetched through that account's own `/api/transactions`, so no other user's narrations were read). Three real shapes were missing:
+
+- The sender named BEFORE the verb: "<name> has sent you", which OPay and Moniepoint use and which has no "to" or "from" for the person reader to find. Now handled, with "Paystack has sent you" and "OPay has sent you" pinned as NOT people.
+- A name followed by masked account digits or a reference blob ("TRANSFER TO <name> OPay *****1234/TRF|...") left `<name> *****` as the candidate, which failed the name-shape test. The noise is stripped before the name is judged.
+- "POS WD <agent>", the abbreviation real alerts use for cash taken at an agent. `CASH_OUT` knew "ATM" and "cash withdrawal" but not this, which is why `ownMoveChanged` was 0. Only the abbreviation was added: "POS WITHDRAWAL SHOPRITE ABUJA" is labelled Groceries in the fixture, and a named shop on the row should keep its merchant category. Both are pinned by tests.
+
+Effect on the owner's own account: Money from People 25 to 28, Other 19 to 15, Other Income 14 to 11, and 3 rows correctly became cash withdrawals. The 33 ATM/POS rows that remain are genuine `POS PUR` and `WEB PUR` against unreadable terminal ids, so Other is the true answer there.
+
+Effect on the whole production dry run, same 4854 rows scanned and 2857 changed:
+
+| Change | Before | After |
+|---|---|---|
+| Transfer to Other Income | 1303 | 1300 |
+| Transfer to Other | 1195 | 1191 |
+| Transfer to Sent to people | 138 | 139 |
+| Transfer to Money from People | 58 | 61 |
+| Transfer to cash withdrawal (Other) | 0 | 3 |
+| ATM/POS to Other | 65 | 65 |
+
+About 10 rows of 2857 moved. The shapes that dominate the other users' 2491 Other rows are not the shapes on the owner's account, and identifying them would need a narration census across accounts the owner has not asked for. Stopping here is a judgement, not a completed job: the backfill clears retired labels, and roughly 2500 rows will read Other because the narration genuinely names no one.
+
+One argument for applying as it stands: the web and mobile pickers no longer offer Transfer or ATM/POS, so those rows currently show a category the user cannot choose again. Still not applied; the owner decides.

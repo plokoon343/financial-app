@@ -121,6 +121,14 @@ check('dash form with an initial is a person', cat('NIP Transfer In - Chukwuemek
 check('a relationship word is a person', cat('NIP Transfer In - Family Support', 'income').category === 'Money from People' && cat('Transfer Out - Mum').category === 'Sent to people');
 check('a purpose label is not a person', cat('NIP Transfer In - Rental Income', 'income').category === 'Other Income' && cat('NIP Transfer In - Business Partner', 'income').category === 'Other Income');
 check('piggybank is Savings', cat('Transfer Out - Savings (Piggybank)').category === 'Savings');
+// Shapes measured on a real production account, 15 Nov 2026, that used to fall through
+// to Other. The sender comes BEFORE the verb and there is no to/from in the narration.
+check('"<name> has sent you" is a person', cat('Incoming Transfer Successful\nADA OBI has sent you .', 'income').category === 'Money from People');
+check('a long full name before "has sent you" is a person', cat('AUGUSTINE KENECHUKWU OFORAH has sent you . Get up to', 'income').category === 'Money from People');
+check('a business before "has sent you" is not a person', cat('Paystack has sent you . Get up to 6% bonus', 'income').category !== 'Money from People');
+check('a bank name before "sent you" is not a person', cat('OPay has sent you .', 'income').category !== 'Money from People');
+// Masked account numbers and reference blobs glued to the name no longer hide it.
+check('star-masked noise after a name still reads as a person', cat('TRANSFER TO GABRIEL UDOKA EDWARD OPay *****1234/TRF|2MPTj4vl2|99Debit').category === 'Sent to people');
 // The data file is what drives the keywords (A4).
 check('keywords live in data/keywordRules.json', fs.existsSync(path.join(__dirname, '..', 'data', 'keywordRules.json')));
 check('SOURCES lists the nine sources', SOURCES.length === 9);

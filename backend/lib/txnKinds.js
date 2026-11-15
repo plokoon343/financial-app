@@ -21,7 +21,17 @@ const FAILED = /\b(failed|declined|unsuccessful|not successful|was not successfu
 const REVERSAL = /\b(reversal|reversal of|rvsl|reversed|refund(?:ed)?|charge ?back|returned)\b/;
 
 // Cash pulled at an ATM/agent: converted to cash, not yet spent on anything.
-const CASH_OUT = /\b(atm|atm withdrawal|cash wdl|cash withdrawal|cardless|cardless withdrawal|cash-?out|cash out|pos cash|cash advance)\b/;
+// "POS WD <agent name>" is how Nigerian banks write cash taken at an agent, and
+// "wd"/"wdl" is the same word shortened. Measured on a real account, 15 Nov 2026: 33
+// rows of this shape were filed under the ATM/POS category and none was read as cash,
+// which is why the Round 10 A3 backfill reported ownMoveChanged 0.
+//
+// Only the ABBREVIATION is listed, not the whole word "withdrawal": "POS WITHDRAWAL
+// SHOPRITE ABUJA" is in the labelled fixture as Groceries, because a named shop on the
+// row means the merchant is the better answer, while "POS WD <agent>" is the shape the
+// real data uses for cash collected at an agent. The CARD_PURCHASE guard below still
+// keeps "POS PUR" and the like out either way.
+const CASH_OUT = /\b(atm|atm withdrawal|cash wdl|cash withdrawal|cardless|cardless withdrawal|cash-?out|cash out|pos cash|cash advance|pos ?wd|agent ?wd|wdl)\b/;
 
 // A card purchase is never cash, however the bank abbreviates it. Nigerian banks
 // write a shop or online payment as "POS PUR", "WEB PUR", "VPOS" or "PURCHASE/POS",

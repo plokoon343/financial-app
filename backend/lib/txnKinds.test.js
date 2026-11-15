@@ -77,4 +77,19 @@ check('kind types count', KIND_TYPES.length, 5);
 assert.ok(KIND_TYPES.includes('loan_in') && KIND_TYPES.includes('debt_repayment'), 'KIND_TYPES complete');
 passed += 1;
 
-console.log(`\n${passed} passed, 0 failed`);
+// Round 10: cash taken at an agent, measured on a real account (15 Nov 2026). "POS WD"
+// is a withdrawal, "POS PUR" is a purchase, and the pair must not be confused: reading
+// cash off the ATM/POS category once turned card payments into untracked cash (round 6).
+{
+  const cash = (d) => classifyKind({ type: 'expense', description: d });
+  check('POS WD at an agent is cash', cash('POS WD MABELYN 247 GLOBAL VENT LAGOS'), 'cash_withdrawal');
+  check('POS WD with a wallet name is cash', cash('POS WD OPAY JAMESOLING GLOBAL Badagry'), 'cash_withdrawal');
+  check('wdl is cash', cash('CASH WDL AGENT IKEJA'), 'cash_withdrawal');
+  check('POS PUR stays a purchase', cash('POS PUR 203596CQ LAGOS NIGERIA'), null);
+  check('a web purchase stays a purchase', cash('Web purchase apple.com/bill'), null);
+  // The whole word with a named shop stays the shop's category (see txnKinds.js).
+  check('POS WITHDRAWAL at a named shop is not forced to cash', cash('POS WITHDRAWAL SHOPRITE ABUJA'), null);
+}
+
+console.log(`
+${passed} passed, 0 failed`);

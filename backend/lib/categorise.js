@@ -65,15 +65,36 @@ function nameShaped(name) {
   return words.some((w) => /^[A-Za-z'-]{3,}$/.test(w));
 }
 
+// Noise a wallet glues onto the name: masked account numbers, reference blobs, the
+// leftover stars from "OPay *****1234". Dropped before the name is judged, because
+// "GABRIEL UDOKA EDWARD *****" is a person and "*****" is not a name word.
+const NAME_NOISE = /[*#]+\d*|\b\d[\d*]{2,}\b|\b[A-Za-z]*\d+[A-Za-z0-9]*\b/g;
+
+// "ONUKOGU CHIDUMEBI VINCENT has sent you", "ADA OBI sent you ₦5,000": OPay and
+// Moniepoint put the sender BEFORE the verb, with no to/from anywhere, so the to/from
+// reader below never saw it. Measured on a real account, 15 Nov 2026: the commonest
+// shape among credits that fell through to Other.
+function personBeforeSentYou(description) {
+  const d = String(description || '');
+  const m = d.match(/(?:^|[\n.:])\s*([A-Za-z'.\- ]{4,60}?)\s+(?:has\s+)?sent\s+you\b/i);
+  if (!m) return null;
+  const name = m[1].replace(NAME_NOISE, ' ').replace(/\s+/g, ' ').trim();
+  if (!name || RAIL_WORDS.test(name)) { RAIL_WORDS.lastIndex = 0; return null; }
+  RAIL_WORDS.lastIndex = 0;
+  if (looksLikeBusiness(name) || NOT_A_NAME.test(name)) return null;
+  return looksLikePerson(name) || nameShaped(name) ? name : null;
+}
+
 function personFromTransfer(description) {
   const d = String(description || '');
+  if (personBeforeSentYou(d)) return true;
   if (!/\b(?:transfer|trf|nip|ft|sent)\b/i.test(d)) return false;
   // "NIP Transfer In - Ada Obi", "Transfer Out - Mum": the name follows a dash.
   const dashed = d.match(/\btransfer\s+(?:in|out)\b\s*[-\u2013:]\s*(.+)$/i);
   const m = dashed || d.match(/\b(?:to|from)\b[\s:\-|/]*(.+)$/i);
   if (!m) return false;
   const segment = m[1].split(/[|/]/)[0].replace(/\b\d[\d*]{3,}\b.*$/, '');
-  const name = segment.replace(RAIL_WORDS, ' ').replace(/[-\u2013:]/g, ' ').replace(/\s+/g, ' ').trim();
+  const name = segment.replace(RAIL_WORDS, ' ').replace(NAME_NOISE, ' ').replace(/[-\u2013:]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!name) return false;
   if (dashed && RELATION.test(name)) return true;
   if (looksLikeBusiness(name) || NOT_A_NAME.test(name)) return false;

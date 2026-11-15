@@ -366,6 +366,17 @@ const ownMoveItem = {
   eq('and it has two answers', withOne.cards[0].answers.map((a) => a.label), ['GTBank', 'Cash']);
 }
 
+// ── Round 10 Part B: priorities that were labelled too high stay low ───────────────
+{
+  eq('refund_match is priority 3, not 2', cards.PRIORITY.refund_match, 3);
+  // Priority 1 and 2 are exempt from floor and cap, so a flood of ambiguous refunds
+  // must be bounded now: small ones resolve, the rest respect the queue cap.
+  const many = Array.from({ length: 40 }, (_, i) => ({ id: `rf${i}`, name: `Shop ${i}`, amount: i < 20 ? 900 : 5000 + i, candidates: [{ id: `a${i}`, label: 'A' }, { id: `b${i}`, label: 'B' }] }));
+  const { cards: q, counts } = build({ refund_match: many });
+  check('forty ambiguous refunds never exceed the queue cap', q.length <= cards.MAX_QUEUE);
+  eq('and none is priority 1 or 2', counts.byPriority[1] + counts.byPriority[2], 0);
+}
+
 // ── An empty queue ───────────────────────────────────────────────────────────────
 {
   const { cards: q, counts } = build({});

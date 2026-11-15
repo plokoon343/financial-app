@@ -43,7 +43,11 @@ const PRIORITY = {
   income: 2,
   loan: 2,
   ajo: 2,
-  refund_match: 2,
+  // Round 10 Part B: was 2. The linker already links an unambiguous refund on its own;
+  // this card only asks WHICH of several earlier charges a credit repays, so it is a
+  // category-level question (priority 3: floor, cap and skip-expiry apply). One fixture
+  // account produced 104 of these at priority 2, which is exempt from every limit.
+  refund_match: 3,
   regular_payment: 2,
   category: 3,
   grouped_category: 3,

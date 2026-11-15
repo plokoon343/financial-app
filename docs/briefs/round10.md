@@ -130,3 +130,5 @@ Tests: token expires and is single-use; ticks update on phone and web; F3 never 
     5. "Machine-set only": rows have no marker for a user's own category on old data, so `retireRow` skips reviewed rows, cash breakdowns, `source: manual` and any row whose `categorySource` is rule/contact/learned. Run the dry run and read `counts` before approving.
     6. Step 10 (AI) is supported only when a caller passes a validated `aiSuggestion`; nothing passes one yet.
     7. The six-path rule test is unit plus source-level (no Mongo here); I added the same checks to `scripts/api-regression.js` but could not run it. Run it against a `_test` database before the next release.
+
+- Part B (queue count): measured, report in `docs/briefs/round10-queue.md`. The owner's account is not in the local database, so the measurement used the 800-transaction fixture account: `refund_match` produced 104 priority-2 cards (exempt from floor and cap). Re-labelled to priority 3 in `lib/actionCards.js`, pinned in `actionCards.test.js`. Target of 5 or fewer is met on the fixture but NOT verified on the owner's real data; run the same measurement on it once available. Backend only, tests 68/68.

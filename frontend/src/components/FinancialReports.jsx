@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
 } from 'recharts';
-import { fmtNaira } from '../utils/format';
+import { fmtNaira, fmtNairaCompact } from '../utils/format';
 
 const INCOME = '#10b981';
 const EXPENSE = '#ef4444';
@@ -109,7 +109,7 @@ const FinancialReports = ({ transactions = [] }) => {
               <BarChart data={months} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-                <YAxis tickFormatter={(v) => fmtNaira(v)} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} width={70} />
+                <YAxis tickFormatter={(v) => fmtNairaCompact(v)} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} width={70} />
                 <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
                 <Legend />
                 <Bar dataKey="income" name="Income" fill={INCOME} radius={[4, 4, 0, 0]} />
@@ -125,14 +125,14 @@ const FinancialReports = ({ transactions = [] }) => {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-                <YAxis tickFormatter={(v) => fmtNaira(v)} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} width={70} />
+                <YAxis tickFormatter={(v) => fmtNairaCompact(v)} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} width={70} />
                 <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="savings" name="Savings" stroke={INCOME} strokeWidth={2.5} fill="url(#gSav)" />
               </AreaChart>
             ) : report === 'expense' ? (
               <BarChart data={categories} layout="vertical" margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" horizontal={false} />
-                <XAxis type="number" tickFormatter={(v) => fmtNaira(v)} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
+                <XAxis type="number" tickFormatter={(v) => fmtNairaCompact(v)} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" width={110} tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
                 <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
                 <Bar dataKey="value" name="Spent" radius={[0, 4, 4, 0]}>
@@ -143,7 +143,7 @@ const FinancialReports = ({ transactions = [] }) => {
               <LineChart data={months} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-                <YAxis tickFormatter={(v) => fmtNaira(v)} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} width={70} />
+                <YAxis tickFormatter={(v) => fmtNairaCompact(v)} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} width={70} />
                 <Tooltip content={<ChartTooltip />} />
                 <Line type="monotone" dataKey="cumulative" name="Cumulative" stroke={ACCENT} strokeWidth={2.5} dot={{ r: 3 }} />
               </LineChart>

@@ -167,7 +167,7 @@ const Register = () => {
   return (
     <div className={`login-container ${darkMode ? 'dark' : 'light'}`}>
       {/* Theme Toggle with FontAwesome icons */}
-      <button className="theme-toggle" onClick={toggleDarkMode}>
+      <button type="button" className="theme-toggle" aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"} onClick={toggleDarkMode}>
         <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
       </button>
 

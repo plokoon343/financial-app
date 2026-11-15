@@ -15,8 +15,11 @@ html, body {
   width: 100%;
 }
 
+button, input, select, textarea { font-family: inherit; font-variant-numeric: inherit; } /* buttons fell back to Arial, so the naira sign and digits there did not match */
+
 body {
   font-family: var(--font-body);
+  font-variant-numeric: tabular-nums; /* Round 10 C2: Poppins now carries a real tnum feature */
   background: var(--primary-bg);
   color: var(--text-primary);
   line-height: 1.6;

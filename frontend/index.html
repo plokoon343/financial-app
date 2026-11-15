@@ -12,9 +12,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Automonie" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" />
+    <!-- Self-hosted Poppins carrying the naira sign and tabular figures (stock Google Poppins has neither) -->
+    <link rel="preload" href="/fonts/Poppins-500Medium.woff2" as="font" type="font/woff2" crossorigin />
+    <style>
+      @font-face { font-family: 'Poppins'; font-weight: 400; font-display: swap; src: url(/fonts/Poppins-400Regular.woff2) format('woff2'); }
+      @font-face { font-family: 'Poppins'; font-weight: 500; font-display: swap; src: url(/fonts/Poppins-500Medium.woff2) format('woff2'); }
+      @font-face { font-family: 'Poppins'; font-weight: 600; font-display: swap; src: url(/fonts/Poppins-600SemiBold.woff2) format('woff2'); }
+      @font-face { font-family: 'Poppins'; font-weight: 700; font-display: swap; src: url(/fonts/Poppins-700Bold.woff2) format('woff2'); }
+      @font-face { font-family: 'Poppins'; font-weight: 800; font-display: swap; src: url(/fonts/Poppins-800ExtraBold.woff2) format('woff2'); }
+    </style>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run Automonie.</noscript>

@@ -30,7 +30,7 @@ const ForgotPassword = () => {
 
   return (
     <div className={`login-container ${darkMode ? 'dark' : 'light'}`}>
-      <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
+      <button type="button" className="theme-toggle" aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"} onClick={() => setDarkMode(!darkMode)}>
         <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
       </button>
 

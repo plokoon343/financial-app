@@ -285,3 +285,13 @@ Deviations and what is left:
 - The Home card fetches on screen focus; it is not cached offline.
 
 Owner steps: nothing is needed for the cards. To turn on the push: `PUT /api/admin/journey {"pushEnabled": true}`. To turn on the win-back email: set `JOURNEY_EMAIL_ENABLED=true`. The hourly cron job already exists for the nudges and now also drives these. Needs the next mobile build or OTA for the Home card.
+### Part F progress, 15 Nov 2026 (built on branches `claude/round10-part-f-email-851e83` and `claude/round10-part-f-email-mobile`, merged into `main` in both repos on 15 Nov)
+
+Report and F3 ship gate: `docs/briefs/round10-email.md`.
+
+- Done: F1 handoff. One-time link (24 hours, single use, one user, hash stored, atomic redeem), web page `/setup/email`, phone card with QR, "Email me the link", "Copy link" and three live ticks, "Desktop site" instructions removed. Backend `npm test` 70/70 (new `emailHandoff.test.js` proves expiry and single use), web build passes, mobile `tsc` clean and lint 0 errors.
+- Done: F2 attempted and NOT proven. The Gmail URL needs a signed-in account I did not have; file import stays for step 3. Recorded in the report.
+- Done, off: F3 built (Kotlin listener, filter, sender list endpoint, pre-permission screen, server flag `FEATURE_GMAIL_BANK_EMAILS` unset). Filter unit test (TypeScript, 22 checks) passes; the Kotlin test is written but NOT run.
+- Keys-pending: F1 forwarding itself needs `INBOUND_EMAIL_SECRET` and the inbound MX (Round 9). "Email me the link" needs `BREVO_API_KEY` (already live). Optional `HANDOFF_BASE_URL` if the page should live on the bare domain.
+- Needs an EAS build: F3 only (native). The F1 phone card is JS and can go by OTA.
+- Not verified: routes against a real database and browser (no Mongo here); Gmail accepting the filter XML; F3 on a device.

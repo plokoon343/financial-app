@@ -69,6 +69,7 @@ const Sidebar = () => {
       { path: '/settings', label: 'Settings', icon: 'fa-gear' },
       { path: '/support', label: 'Support & FAQ', icon: 'fa-circle-question' },
       ...((user?.role === 'superadmin' || user?.newsletterEditor) ? [{ path: '/newsletter', label: 'Newsletter', icon: 'fa-bullhorn' }] : []),
+      ...((user?.role === 'superadmin' || user?.newsletterEditor) ? [{ path: '/announcements', label: 'Announcements', icon: 'fa-bell' }] : []),
       ...(user?.role === 'superadmin' ? [{ path: '/admin', label: 'Admin', icon: 'fa-shield-halved' }] : []),
     ]},
   ];

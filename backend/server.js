@@ -88,6 +88,7 @@ const holds = require('./lib/holds');
 const dollarAccounts = require('./lib/dollarAccounts');
 const remoteRules = require('./lib/remoteRules');
 const appVersionLib = require('./lib/appVersion');
+const announcementsLib = require('./lib/announcements');
 const moneyFormat = require('./lib/moneyFormat');
 const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
@@ -374,6 +375,16 @@ const userSchema = new mongoose.Schema({
   monthlyIncome: { type: Number, default: 0 },
   primaryGoal:   { type: String, default: '' },
   emailAlerts:   { type: Boolean, default: true },
+  // Round 10 Part D: product emails (feature and event announcements) go only to users
+  // who allowed them. Off until the user turns it on. Service messages (outage,
+  // security, maintenance, must update) do not depend on it.
+  productEmails: { type: Boolean, default: false },
+  lastAnnouncementEmailAt: { type: Date },        // the one-a-week announcement email limit
+  announcementUnsubToken: { type: String, index: true, sparse: true }, // one-click unsubscribe from product emails
+  // The client and build the user last opened, from the X-Client and X-App-Version
+  // headers: lets an announcement target a platform or an app version range.
+  lastClient:     { type: String, default: '' },
+  lastAppVersion: { type: String, default: '' },
   // Expo push tokens for this user's devices (spending-insight notifications).
   pushTokens:    { type: [String], default: [] },
   // Push nudges: a switch per category (missing = on) and whether amounts may show
@@ -1266,6 +1277,51 @@ const globalBannerSchema = new mongoose.Schema({
   createdBy:{ type: String, default: '' },
 }, { timestamps: true });
 const GlobalBanner = mongoose.model('GlobalBanner', globalBannerSchema);
+
+// ── Announcements (Round 10 Part D) ────────────────────────────────────────────
+// One in-app card at a time under the Home hero, optionally a full-screen notice
+// (outage, security, must update only) and an email. Never a push. See lib/announcements.
+const announcementSchema = new mongoose.Schema({
+  title:       { type: String, required: true, maxlength: 60 },
+  body:        { type: String, default: '', maxlength: 240 },       // the card message
+  emailBody:   { type: String, default: '', maxlength: 5000 },      // longer email text (falls back to body)
+  buttonLabel: { type: String, default: '', maxlength: 30 },
+  buttonLink:  { type: String, default: '', maxlength: 300 },
+  kind:        { type: String, enum: announcementsLib.KINDS, required: true },
+  channels:    { type: [String], default: ['card'] },
+  audience:    { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
+  startsAt:    { type: Date, default: null },
+  endsAt:      { type: Date, default: null },
+  status:      { type: String, enum: announcementsLib.STATUSES, default: 'draft' },
+  createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdByEmail: { type: String, default: '' },
+  approvedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  approvedAt:  { type: Date, default: null },
+  testedAt:    { type: Date, default: null },     // "Send me a test" done for this exact content
+  legacyKey:   { type: String, default: '', index: true }, // set when migrated from the old PIXLCO card or banner
+  // Email delivery: resumable, so a daily cap never loses people.
+  emailDone:      { type: Boolean, default: false },
+  emailLockUntil: { type: Date, default: null },
+  endedAt:     { type: Date, default: null },
+}, { timestamps: true });
+announcementSchema.index({ status: 1, endsAt: 1 });
+const Announcement = mongoose.model('Announcement', announcementSchema);
+
+// What one user did with one announcement. Powers dismissed-never-returns,
+// full-screen-shows-once and the stats.
+const announcementStateSchema = new mongoose.Schema({
+  userId:         { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  announcementId: { type: mongoose.Schema.Types.ObjectId, ref: 'Announcement', required: true },
+  delivered:      { type: Boolean, default: true },
+  seen:           { type: Boolean, default: false },
+  tapped:         { type: Boolean, default: false },
+  dismissed:      { type: Boolean, default: false },
+  fullscreenShown:{ type: Boolean, default: false },
+  emailedAt:      { type: Date, default: null },
+}, { timestamps: true });
+announcementStateSchema.index({ userId: 1, announcementId: 1 }, { unique: true });
+announcementStateSchema.index({ announcementId: 1 });
+const AnnouncementState = mongoose.model('AnnouncementState', announcementStateSchema);
 
 // Activity log - a durable history of milestone actions in the app (goal
 // reached, goal created, Pro subscribed...), distinct from the
@@ -2551,6 +2607,15 @@ const auth = async (req, res, next) => {
     // day, and never in the way of the request.
     const last = req.user.lastActiveAt;
     const today = metrics.lagosDay(new Date());
+    // Which client and build this is, for announcement targeting; written only when it changes.
+    const seenClient = clientOf(req);
+    const seenVersion = String(req.get('x-app-version') || '').trim().slice(0, 20);
+    if ((seenClient && seenClient !== req.user.lastClient) || (/^\d+(\.\d+){0,3}$/.test(seenVersion) && seenVersion !== req.user.lastAppVersion)) {
+      const set = {};
+      if (seenClient) set.lastClient = seenClient;
+      if (/^\d+(\.\d+){0,3}$/.test(seenVersion)) set.lastAppVersion = seenVersion;
+      User.updateOne({ _id: req.user._id }, { $set: set }).catch(() => {});
+    }
     if (!last || Date.now() - last.getTime() > 3600000 || metrics.lagosDay(last) !== today) {
       User.updateOne({ _id: req.user._id }, { $set: { lastActiveAt: new Date() } }).catch(() => {});
       ActivityDay.updateOne({ userId: req.user._id, day: today }, { $setOnInsert: { userId: req.user._id, day: today } }, { upsert: true }).catch(() => {});
@@ -2871,6 +2936,7 @@ app.get('/api/me', auth, async (req, res) => {
     id: u._id, name: u.name, email: u.email, role: u.role,
     newsletterEditor: !!u.newsletterEditor,
     betaTester: !!u.betaTester,
+    productEmails: !!u.productEmails,
     plan: u.plan || 'free',
     // What the user can use right now (trial and Student included), and its name.
     tier: ent.tier, tierName: ent.name,
@@ -3050,7 +3116,7 @@ app.get('/api/billing/status', auth, async (req, res) => {
 // Update profile / onboarding fields
 app.put('/api/me', auth, async (req, res) => {
   try {
-    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, onboarded, twoFactorEnabled, birthdayDay, birthdayMonth, birthdayEmails, audience, incomeProfile } = req.body;
+    const { name, phone, monthlyIncome, primaryGoal, emailAlerts, productEmails, onboarded, twoFactorEnabled, birthdayDay, birthdayMonth, birthdayEmails, audience, incomeProfile } = req.body;
     const u = req.user;
     // Birthday: both numbers together, a real date, or both empty to clear it.
     let birthdayChanged = false;
@@ -3071,11 +3137,12 @@ app.put('/api/me', auth, async (req, res) => {
     if (monthlyIncome !== undefined) u.monthlyIncome = Math.max(0, parseFloat(monthlyIncome) || 0);
     if (primaryGoal !== undefined) u.primaryGoal = primaryGoal.toString().slice(0, 100);
     if (emailAlerts !== undefined) u.emailAlerts = !!emailAlerts;
+    if (productEmails !== undefined) u.productEmails = !!productEmails;
     if (twoFactorEnabled !== undefined) u.twoFactorEnabled = !!twoFactorEnabled;
     if (onboarded !== undefined) u.onboarded = !!onboarded;
     await u.save();
     if (birthdayChanged || birthdayEmails !== undefined) syncBirthdayToBrevo(u).catch(() => {});
-    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, twoFactorEnabled: u.twoFactorEnabled, onboarded: u.onboarded, birthdayDay: u.birthdayDay || null, birthdayMonth: u.birthdayMonth || null, birthdayEmails: u.birthdayEmails !== false, audience: u.audience || '', incomeProfile: u.incomeProfile || '' });
+    res.json({ id: u._id, name: u.name, email: u.email, role: u.role, phone: u.phone, monthlyIncome: u.monthlyIncome, primaryGoal: u.primaryGoal, emailAlerts: u.emailAlerts, productEmails: !!u.productEmails, twoFactorEnabled: u.twoFactorEnabled, onboarded: u.onboarded, birthdayDay: u.birthdayDay || null, birthdayMonth: u.birthdayMonth || null, birthdayEmails: u.birthdayEmails !== false, audience: u.audience || '', incomeProfile: u.incomeProfile || '' });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -3624,6 +3691,322 @@ app.post('/api/admin/global-banner', auth, superAdminAuth, async (req, res) => {
     res.json({ banner: { id: String(b._id), message: b.message, type: b.type, link: b.link, linkText: b.linkText } });
   } catch (e) { console.error('[global-banner]', e.message); res.status(500).json({ message: 'Could not update the banner.' }); }
 });
+// ── Announcements: app side (Round 10 Part D) ──────────────────────────────────
+const ANN_USER_FIELDS = 'name email plan audience lastClient lastAppVersion banksUsed customBanks createdAt lastActiveAt lastLogin betaTester isActive productEmails lastAnnouncementEmailAt announcementUnsubToken';
+
+// The ONE audience resolver. The live count in the composer and every send path call
+// this, so the number the admin sees can never disagree with who receives it.
+async function resolveAudience(filter, now = new Date()) {
+  const users = await User.find({ isActive: { $ne: false } }).select(ANN_USER_FIELDS).lean();
+  return users.filter((u) => announcementsLib.matchesAudience(u, filter, now));
+}
+
+const annEsc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const annCard = (a) => ({
+  id: String(a._id), title: a.title, body: a.body, kind: a.kind,
+  buttonLabel: a.buttonLabel || '', buttonLink: a.buttonLink || '',
+  endsAt: a.endsAt, fullscreen: (a.channels || []).includes('fullscreen'),
+});
+const annAbsLink = (l) => (l && l.startsWith('/') ? `https://automonie.com${l}` : l || '');
+
+function annEmail(a, unsubUrl) {
+  const text = a.emailBody || a.body || '';
+  const link = annAbsLink(a.buttonLink);
+  const button = a.buttonLabel && link
+    ? `<p style="margin:22px 0"><a href="${annEsc(link)}" style="background:#0f6e56;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:12px;display:inline-block">${annEsc(a.buttonLabel)}</a></p>` : '';
+  const foot = unsubUrl
+    ? `You are getting this because you allowed product emails from automonie. <a href="${annEsc(unsubUrl)}" style="color:#8a97a8">Unsubscribe</a>.`
+    : 'This is a service message about your automonie account or the app, so it is sent to everyone it affects.';
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0b1326">
+    <div style="font-weight:800;font-size:20px;color:#0f6e56;margin-bottom:16px">automonie</div>
+    <h2 style="margin:0 0 12px;font-size:20px">${annEsc(a.title)}</h2>
+    ${annEsc(text).split(/\n{2,}/).map((p) => `<p style="line-height:1.6;font-size:16px">${p.replace(/\n/g, '<br>')}</p>`).join('')}
+    ${button}
+    <p style="color:#8a97a8;font-size:12px;margin-top:28px">${foot}</p></div>`;
+  const plain = `${a.title}\n\n${text}${a.buttonLabel && link ? `\n\n${a.buttonLabel}: ${link}` : ''}\n\n${unsubUrl ? `Unsubscribe: ${unsubUrl}` : 'This is a service message about your automonie account or the app.'}`;
+  return { subject: a.title, html, text: plain };
+}
+
+// Product mail goes out as the newsletter no-reply identity; service mail as the main sender.
+const annSend = (a, to, mail) => (announcementsLib.isServiceKind(a.kind)
+  ? sendEmail({ to, subject: mail.subject, html: mail.html, text: mail.text })
+  : sendNewsletterEmail({ to, subject: mail.subject, html: mail.html, text: mail.text }));
+
+async function annUnsubToken(u) {
+  if (u.announcementUnsubToken) return u.announcementUnsubToken;
+  const token = crypto.randomBytes(16).toString('hex');
+  await User.updateOne({ _id: u._id }, { $set: { announcementUnsubToken: token } });
+  return token;
+}
+
+// Send an announcement's email to whoever is eligible and not yet emailed. Resumable:
+// a daily cap (ANNOUNCEMENT_EMAIL_CAP, default 300, the Brevo free limit) leaves the rest
+// for the next run. Product kinds need product-email consent and one a week; service
+// kinds go to everyone in the audience and are not counted against the week.
+async function sendAnnouncementEmails(id, now = new Date()) {
+  if (!emailConfigured()) return { skipped: 'email not configured' };
+  const a = await Announcement.findOneAndUpdate(
+    { _id: id, status: 'scheduled', channels: 'email', emailDone: false, $or: [{ emailLockUntil: null }, { emailLockUntil: { $lt: now } }] },
+    { $set: { emailLockUntil: new Date(now.getTime() + 10 * 60000) } }, { new: true },
+  ).lean();
+  if (!a) return { skipped: 'nothing to send' };
+  if (announcementsLib.effectiveStatus(a, now) !== 'live') { await Announcement.updateOne({ _id: id }, { $set: { emailLockUntil: null } }); return { skipped: 'not live' }; }
+  const cap = Math.max(1, Number(process.env.ANNOUNCEMENT_EMAIL_CAP) || 300);
+  const audience = await resolveAudience(a.audience, now);
+  const done = new Set((await AnnouncementState.find({ announcementId: a._id, emailedAt: { $ne: null } }).select('userId').lean()).map((s) => String(s.userId)));
+  const todo = announcementsLib.emailRecipients(a, audience, now).filter((u) => !done.has(String(u._id)));
+  let sent = 0, failed = 0;
+  for (const u of todo.slice(0, cap)) {
+    try {
+      const unsub = announcementsLib.isServiceKind(a.kind) ? null : `${PUBLIC_API_URL}/unsubscribe?token=${await annUnsubToken(u)}`;
+      await annSend(a, u.email, annEmail(a, unsub));
+      await AnnouncementState.updateOne({ userId: u._id, announcementId: a._id }, { $set: { emailedAt: new Date() }, $setOnInsert: { delivered: false } }, { upsert: true });
+      if (!announcementsLib.isServiceKind(a.kind)) await User.updateOne({ _id: u._id }, { $set: { lastAnnouncementEmailAt: new Date() } });
+      sent += 1;
+    } catch (e) { failed += 1; console.error('[announcement-email]', e.response?.data?.message || e.message); }
+  }
+  await Announcement.updateOne({ _id: id }, { $set: { emailLockUntil: null, emailDone: todo.length <= cap } });
+  return { sent, failed, remaining: Math.max(0, todo.length - cap) };
+}
+
+// The user's current card and any full-screen they have not seen. Delivery is recorded
+// here (and a bell entry made) the first time something is served.
+app.get('/api/announcements/active', auth, async (req, res) => {
+  try {
+    const now = new Date();
+    const live = await Announcement.find({ status: 'scheduled', endsAt: { $gt: now }, startsAt: { $lte: now } }).lean();
+    if (!live.length) return res.json({ card: null, fullscreen: [] });
+    const rows = await AnnouncementState.find({ userId: req.user._id, announcementId: { $in: live.map((a) => a._id) } }).lean();
+    const states = Object.fromEntries(rows.map((r) => [String(r.announcementId), r]));
+    const card = announcementsLib.pickActiveCard(live, states, req.user, now);
+    const full = announcementsLib.pickFullscreen(live, states, req.user, now);
+    for (const a of [card, ...full].filter(Boolean)) {
+      if (states[String(a._id)]) continue;
+      states[String(a._id)] = { delivered: true };
+      try {
+        await AnnouncementState.create({ userId: req.user._id, announcementId: a._id });
+        await createNotification(req.user._id, {
+          type: 'info', title: a.title, message: a.body,
+          link: a.buttonLink && a.buttonLink.startsWith('/') ? a.buttonLink : '', dedupeKey: `announcement:${a._id}`,
+        });
+      } catch (e) { /* already recorded by a parallel request */ }
+    }
+    res.json({ card: card ? annCard(card) : null, fullscreen: full.map(annCard) });
+  } catch (e) { console.error('[announcements/active]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+for (const [action, field] of [['seen', 'seen'], ['tap', 'tapped'], ['dismiss', 'dismissed']]) {
+  app.post(`/api/announcements/:id/${action}`, auth, async (req, res) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+      const a = await Announcement.findById(req.params.id).select('channels').lean();
+      if (!a) return res.status(404).json({ message: 'Not found' });
+      const set = { [field]: true };
+      // Full-screen shows once: opening it (seen) or leaving it (dismiss) both retire it.
+      if (a.channels.includes('fullscreen') && (field === 'seen' || field === 'dismissed')) set.fullscreenShown = true;
+      await AnnouncementState.updateOne({ userId: req.user._id, announcementId: a._id }, { $set: set }, { upsert: true });
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+  });
+}
+
+// ── Announcements: admin (superadmin and newsletter editors) ───────────────────
+const ANN_CONTENT_KEYS = ['title', 'body', 'emailBody', 'buttonLabel', 'buttonLink', 'kind', 'channels', 'audience'];
+const annFromBody = (b) => ({
+  title: String(b.title || '').trim().slice(0, 100), body: String(b.body || '').trim().slice(0, 400),
+  emailBody: String(b.emailBody || '').slice(0, 6000), buttonLabel: String(b.buttonLabel || '').trim().slice(0, 60),
+  buttonLink: String(b.buttonLink || '').trim().slice(0, 300), kind: b.kind,
+  channels: [...new Set((Array.isArray(b.channels) ? b.channels : []).filter((c) => announcementsLib.CHANNELS.includes(c)))],
+  audience: announcementsLib.sanitizeAudience(b.audience),
+  startsAt: b.startsAt ? new Date(b.startsAt) : null, endsAt: b.endsAt ? new Date(b.endsAt) : null,
+});
+const annOut = (a) => ({
+  ...a, id: String(a._id), effectiveStatus: announcementsLib.effectiveStatus(a),
+  needsApproval: announcementsLib.needsSecondApproval(a),
+});
+async function annStats(a) {
+  const rows = await AnnouncementState.aggregate([{ $match: { announcementId: a._id } }, { $group: {
+    _id: null, delivered: { $sum: { $cond: ['$delivered', 1, 0] } }, seen: { $sum: { $cond: ['$seen', 1, 0] } },
+    tapped: { $sum: { $cond: ['$tapped', 1, 0] } }, dismissed: { $sum: { $cond: ['$dismissed', 1, 0] } },
+    emailed: { $sum: { $cond: [{ $ne: ['$emailedAt', null] }, 1, 0] } } } }]);
+  const s = rows[0] || {};
+  // emailOpened needs an open-tracking webhook we do not have: null means "not tracked", never 0.
+  return { delivered: s.delivered || 0, seen: s.seen || 0, tapped: s.tapped || 0, dismissed: s.dismissed || 0, emailed: s.emailed || 0, emailOpened: null };
+}
+
+app.get('/api/admin/announcements/templates', auth, newsletterAuth, (req, res) => res.json({ templates: announcementsLib.TEMPLATES }));
+
+// Live audience count. Same resolver as the send path; also says how many of them
+// the email would reach once consent and the weekly limit are applied.
+app.get('/api/admin/announcements/audience-count', auth, newsletterAuth, async (req, res) => {
+  try {
+    let filter = {};
+    try { filter = req.query.audience ? JSON.parse(String(req.query.audience)) : {}; } catch { return res.status(400).json({ message: 'Bad audience' }); }
+    const users = await resolveAudience(filter);
+    const kind = announcementsLib.KINDS.includes(req.query.kind) ? req.query.kind : 'feature';
+    const email = announcementsLib.emailRecipients({ kind, audience: filter }, users).length;
+    res.json({ count: users.length, email });
+  } catch (e) { console.error('[announcements/count]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+app.get('/api/admin/announcements', auth, newsletterAuth, async (req, res) => {
+  try {
+    const items = await Announcement.find({}).sort({ createdAt: -1 }).limit(100).lean();
+    res.json({ items: items.map(annOut) });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+app.post('/api/admin/announcements', auth, newsletterAuth, async (req, res) => {
+  try {
+    const data = annFromBody(req.body || {});
+    const problems = announcementsLib.validate(data);
+    if (problems.length) return res.status(400).json({ message: problems[0], problems });
+    const a = await Announcement.create({ ...data, status: 'draft', createdBy: req.user._id, createdByEmail: req.user.email });
+    res.status(201).json(annOut(a.toObject()));
+  } catch (e) { console.error('[announcements/create]', e.message); res.status(500).json({ message: 'Could not save.' }); }
+});
+
+app.get('/api/admin/announcements/:id', auth, newsletterAuth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+    const a = await Announcement.findById(req.params.id).lean();
+    if (!a) return res.status(404).json({ message: 'Not found' });
+    res.json({ ...annOut(a), stats: await annStats(a) });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Edit (draft or scheduled-not-yet-live) and schedule / unschedule. Changing any content
+// clears the test and the approval: what was tested and approved is what goes out.
+app.patch('/api/admin/announcements/:id', auth, newsletterAuth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+    const a = await Announcement.findById(req.params.id);
+    if (!a) return res.status(404).json({ message: 'Not found' });
+    if (announcementsLib.effectiveStatus(a) === 'ended') return res.status(409).json({ message: 'That announcement has ended.' });
+    if (announcementsLib.effectiveStatus(a) === 'live') return res.status(409).json({ message: 'It is live. End it now, or make a new one.' });
+    const body = req.body || {};
+    const next = annFromBody({ ...a.toObject(), ...body });
+    if (!('startsAt' in body)) next.startsAt = a.startsAt;
+    if (!('endsAt' in body)) next.endsAt = a.endsAt;
+    const changed = ANN_CONTENT_KEYS.some((k) => k in body) || 'startsAt' in body || 'endsAt' in body;
+    Object.assign(a, next);
+    if (changed) { a.testedAt = null; a.approvedBy = null; a.approvedAt = null; a.emailDone = false; }
+    const wantStatus = body.status;
+    if (wantStatus === 'scheduled') {
+      if (!a.startsAt) a.startsAt = new Date();
+      const problems = announcementsLib.validate(a.toObject(), { forSchedule: true });
+      if (problems.length) return res.status(400).json({ message: problems[0], problems });
+      a.status = 'scheduled';
+    } else if (wantStatus === 'draft') a.status = 'draft';
+    else {
+      const problems = announcementsLib.validate(a.toObject());
+      if (problems.length) return res.status(400).json({ message: problems[0], problems });
+    }
+    await a.save();
+    if (a.status === 'scheduled' && a.channels.includes('email') && a.startsAt <= new Date()) sendAnnouncementEmails(a._id).catch((e) => console.error('[announcement-email]', e.message));
+    res.json(annOut(a.toObject()));
+  } catch (e) { console.error('[announcements/patch]', e.message); res.status(500).json({ message: 'Could not save.' }); }
+});
+
+app.delete('/api/admin/announcements/:id', auth, newsletterAuth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+    const r = await Announcement.deleteOne({ _id: req.params.id, status: 'draft' });
+    if (!r.deletedCount) return res.status(409).json({ message: 'Only a draft can be deleted. End it instead.' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// A second superadmin approves security and full-screen announcements. Enforced here,
+// not in the client: the creator can never approve their own.
+app.post('/api/admin/announcements/:id/approve', auth, superAdminAuth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+    const a = await Announcement.findById(req.params.id);
+    if (!a) return res.status(404).json({ message: 'Not found' });
+    const check = announcementsLib.canApprove(a, req.user);
+    if (!check.ok) return res.status(403).json({ message: check.message });
+    a.approvedBy = req.user._id; a.approvedAt = new Date();
+    await a.save();
+    res.json(annOut(a.toObject()));
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Send the admin their own preview: a bell entry (the card) and, if email is a channel,
+// the real email. A test counts only when everything it covers was delivered.
+app.post('/api/admin/announcements/:id/test', auth, newsletterAuth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+    const a = await Announcement.findById(req.params.id);
+    if (!a) return res.status(404).json({ message: 'Not found' });
+    const problems = announcementsLib.validate(a.toObject());
+    if (problems.length) return res.status(400).json({ message: problems[0], problems });
+    if (a.channels.includes('email')) {
+      if (!emailConfigured()) return res.status(503).json({ message: 'Email is not configured here, so the test email could not be sent.' });
+      const unsub = announcementsLib.isServiceKind(a.kind) ? null : `${PUBLIC_API_URL}/unsubscribe?token=preview`;
+      const m = annEmail(a, unsub);
+      try { await annSend(a, req.user.email, { ...m, subject: `[TEST] ${m.subject}` }); }
+      catch (e) { console.error('[announcements/test]', e.response?.data || e.message); return res.status(502).json({ message: 'The test email failed. Check the email config.' }); }
+    }
+    await createNotification(req.user._id, { type: 'info', title: `[Test] ${a.title}`, message: a.body, link: '' });
+    a.testedAt = new Date();
+    await a.save();
+    res.json({ ok: true, testedAt: a.testedAt, sentEmail: a.channels.includes('email') });
+  } catch (e) { console.error('[announcements/test]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// End now: gone on the next fetch.
+app.post('/api/admin/announcements/:id/end', auth, newsletterAuth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Bad id' });
+    const a = await Announcement.findByIdAndUpdate(req.params.id, { $set: { status: 'ended', endedAt: new Date() } }, { new: true }).lean();
+    if (!a) return res.status(404).json({ message: 'Not found' });
+    res.json(annOut(a));
+  } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
+
+// Import the old PIXLCO card and known-issue banner as announcements, once each. The old
+// endpoints keep serving older app builds; the new builds read announcements only.
+app.post('/api/admin/announcements/import-legacy', auth, superAdminAuth, async (req, res) => {
+  try {
+    const made = [];
+    const pix = promo.pixlcoVote();
+    if (pix && !(await Announcement.exists({ legacyKey: 'pixlco-vote' }))) {
+      const a = await Announcement.create({
+        title: 'We would love your vote', body: pix.text.slice(0, 240), kind: 'event', channels: ['card'],
+        buttonLabel: pix.linkText.slice(0, 30), buttonLink: pix.url, startsAt: new Date(),
+        endsAt: pix.endsAt ? new Date(pix.endsAt) : new Date(Date.now() + 14 * 86400000),
+        status: 'scheduled', createdBy: req.user._id, createdByEmail: req.user.email, legacyKey: 'pixlco-vote',
+      });
+      made.push(String(a._id));
+    }
+    const b = await GlobalBanner.findOne({ active: true }).sort({ createdAt: -1 }).lean();
+    if (b && !(await Announcement.exists({ legacyKey: `banner:${b._id}` }))) {
+      const a = await Announcement.create({
+        title: 'Known issue', body: b.message.slice(0, 240), kind: 'outage', channels: ['card'],
+        buttonLabel: b.link ? (b.linkText || 'Learn more').slice(0, 30) : '', buttonLink: b.link || '',
+        startsAt: new Date(), endsAt: new Date(Date.now() + 3 * 86400000), // banners had no end; a card must have one
+        status: 'scheduled', createdBy: req.user._id, createdByEmail: req.user.email, legacyKey: `banner:${b._id}`,
+      });
+      made.push(String(a._id));
+    }
+    res.json({ imported: made.length, ids: made });
+  } catch (e) { console.error('[announcements/import-legacy]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// External scheduler: start emails for announcements whose start time has arrived, and
+// keep going on any that hit the daily cap.
+app.post('/api/cron/announcements', async (req, res) => {
+  if (!cronAuthorized(req)) return res.status(401).json({ message: 'Unauthorized' });
+  try {
+    const now = new Date();
+    const due = await Announcement.find({ status: 'scheduled', channels: 'email', emailDone: false, startsAt: { $lte: now }, endsAt: { $gt: now } }).select('_id').lean();
+    const results = [];
+    for (const d of due) results.push(await sendAnnouncementEmails(d._id, now));
+    res.json({ processed: results.length, results });
+  } catch (e) { console.error('[cron/announcements]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 app.patch('/api/notifications/:id/read', auth, async (req, res) => {
   try {
     await Notification.updateOne({ _id: req.params.id, userId: req.user._id }, { read: true });
@@ -4365,6 +4748,10 @@ app.get('/unsubscribe', async (req, res) => {
     if (token && token !== 'preview') {
       const r = await Waitlist.updateOne({ unsubToken: token }, { $set: { unsubscribed: true } });
       if (r.matchedCount) return res.send(page("You're unsubscribed. You won't get any more Automonie emails. Change your mind? Just rejoin the waitlist."));
+      // An app user's one-click unsubscribe from product emails (announcements). Service
+      // messages about the app or the account are not product emails and still arrive.
+      const au = await User.updateOne({ announcementUnsubToken: token }, { $set: { productEmails: false } });
+      if (au.matchedCount) return res.send(page("You're unsubscribed from product emails. We will still email you about your account or if the app has a problem."));
     }
     res.send(page('This unsubscribe link is invalid or has already been used.'));
   } catch (e) { res.status(500).send(page('Something went wrong. Please try again later.')); }

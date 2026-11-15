@@ -53,6 +53,7 @@ const People = lazy(() => import('./components/People'));
 const ActionCenter = lazy(() => import('./components/ActionCenter'));
 const AlertsToCheck = lazy(() => import('./components/AlertsToCheck'));
 const NewsletterComposer = lazy(() => import('./components/NewsletterComposer'));
+const AnnouncementComposer = lazy(() => import('./components/AnnouncementComposer'));
 const Transactions = lazy(() => import('./components/Transactions'));
 const AiAssistant = lazy(() => import('./components/AiAssistant'));
 const Profile = lazy(() => import('./components/Profile'));
@@ -169,6 +170,11 @@ function AppContent() {
           <Route path="newsletter" element={
             <NewsletterRoute>
               <NewsletterComposer />
+            </NewsletterRoute>
+          } />
+          <Route path="announcements" element={
+            <NewsletterRoute>
+              <AnnouncementComposer />
             </NewsletterRoute>
           } />
           {/* Safety net: any unknown in-app path (stale links, old reminder:* bell

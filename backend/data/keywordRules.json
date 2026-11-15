@@ -25,7 +25,7 @@
     { "for": "expense", "category": "Shopping", "keywords": ["amazon", "jumia", "konga", "slot", "boutique", "fashion", "clothing", "shopping", "mall", "aliexpress", "temu", "shein"] },
     { "for": "expense", "category": "Entertainment", "keywords": ["cinema", "gaming", "event", "ticket", "lounge", "concert", "movie"] },
     { "for": "expense", "category": "Betting", "keywords": ["bet9ja", "nairabet", "sportybet", "1xbet", "betking", "merrybet"] },
-    { "for": "expense", "category": "Savings", "keywords": ["piggyvest", "cowrywise", "risevest", "target savings", "ajo", "esusu", "thrift", "vault"] },
+    { "for": "expense", "category": "Savings", "keywords": ["piggyvest", "piggybank", "piggy bank", "cowrywise", "risevest", "target savings", "ajo", "esusu", "thrift", "vault"] },
     { "for": "expense", "category": "Bank Charges", "keywords": ["stamp duty", "stamp duties", "vat", "bank fee", "transfer fee", "nip fee", "maintenance fee", "account maintenance", "amf", "emtl", "e-levy", "electronic money transfer levy", "sms alert", "commission", "cot", "levy", "atm charge", "card fee", "charge", "charges"] }
   ]
 }

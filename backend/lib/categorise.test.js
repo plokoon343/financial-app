@@ -116,6 +116,11 @@ for (const [d, t] of NASTY) {
   }
 }
 
+// Person detection with dashes, initials and relationship words
+check('dash form with an initial is a person', cat('NIP Transfer In - Chukwuemeka O.', 'income').category === 'Money from People');
+check('a relationship word is a person', cat('NIP Transfer In - Family Support', 'income').category === 'Money from People' && cat('Transfer Out - Mum').category === 'Sent to people');
+check('a purpose label is not a person', cat('NIP Transfer In - Rental Income', 'income').category === 'Other Income' && cat('NIP Transfer In - Business Partner', 'income').category === 'Other Income');
+check('piggybank is Savings', cat('Transfer Out - Savings (Piggybank)').category === 'Savings');
 // The data file is what drives the keywords (A4).
 check('keywords live in data/keywordRules.json', fs.existsSync(path.join(__dirname, '..', 'data', 'keywordRules.json')));
 check('SOURCES lists the nine sources', SOURCES.length === 9);

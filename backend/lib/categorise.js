@@ -53,14 +53,31 @@ const RAIL_WORDS = /\b(?:opay|palmpay|moniepoint|kuda|gtbank|gtb|gtworld|uba|zen
 // to a wallet name, or the narration says FT). Needs a transfer word and a to/from, and
 // the name left after the rail words are dropped must be person-shaped and not business-
 // shaped. Returns true only then, so an unclear narration stays an honest guess.
+// Words that name a relationship, not a business: "Family Support", "Mum", "Big Brother".
+const RELATION = /\b(?:family|friends?|mum|mummy|mom|dad|daddy|parents?|brother|bro|sister|sis|uncle|aunty|auntie|cousin|wife|husband|son|daughter|boo)\b/i;
+// Words that make a two-word label a purpose or a business, not a person.
+const NOT_A_NAME = /\b(?:income|payment|repayment|salary|loan|savings?|rent|rental|business|partner|investment|interest|refund|fee|fees|charges?|bill|bills|purchase|subscription|allowance)\b/i;
+// "Ada Obi", "Chukwuemeka O.": at least one full name word plus another name word or an initial.
+function nameShaped(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return false;
+  if (!words.every((w) => /^[A-Za-z'-]{2,}$/.test(w) || /^[A-Za-z]\.$/.test(w))) return false;
+  return words.some((w) => /^[A-Za-z'-]{3,}$/.test(w));
+}
+
 function personFromTransfer(description) {
   const d = String(description || '');
   if (!/\b(?:transfer|trf|nip|ft|sent)\b/i.test(d)) return false;
-  const m = d.match(/\b(?:to|from)\b[\s:\-|/]*(.+)$/i);
+  // "NIP Transfer In - Ada Obi", "Transfer Out - Mum": the name follows a dash.
+  const dashed = d.match(/\btransfer\s+(?:in|out)\b\s*[-\u2013:]\s*(.+)$/i);
+  const m = dashed || d.match(/\b(?:to|from)\b[\s:\-|/]*(.+)$/i);
   if (!m) return false;
   const segment = m[1].split(/[|/]/)[0].replace(/\b\d[\d*]{3,}\b.*$/, '');
-  const name = segment.replace(RAIL_WORDS, ' ').replace(/[-–:]/g, ' ').replace(/\s+/g, ' ').trim();
-  return !!name && !looksLikeBusiness(name) && looksLikePerson(name);
+  const name = segment.replace(RAIL_WORDS, ' ').replace(/[-\u2013:]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!name) return false;
+  if (dashed && RELATION.test(name)) return true;
+  if (looksLikeBusiness(name) || NOT_A_NAME.test(name)) return false;
+  return looksLikePerson(name) || nameShaped(name);
 }
 
 function directionOf(txn) {
@@ -147,7 +164,10 @@ function categorise({ txn = {}, user = null, maps = null } = {}) {
 
   // 8. A person on the other end of a transfer.
   let person = false;
-  try { person = cleanName({ raw: description, type: base }).counterpartyType === 'person'; } catch { person = false; }
+  try {
+    const cn = cleanName({ raw: description, type: base });
+    person = cn.counterpartyType === 'person' && !NOT_A_NAME.test(cn.name || '');
+  } catch { person = false; }
   if (!person) person = personFromTransfer(description);
   if (person && !own) return result(isExpense ? SENT_TO_PEOPLE : MONEY_FROM_PEOPLE, 'person', kindExtra);
 

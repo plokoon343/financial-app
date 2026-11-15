@@ -206,3 +206,11 @@ Checked in the main session rather than taken on trust:
 - All six patched mobile fonts (`finpilot-mobile/assets/fonts/Poppins_*.ttf`) carry U+20A6 and a real `tnum`, confirmed with fontTools. All five web woff2 files in `frontend/public/fonts/` carry U+20A6, and no `fonts.googleapis.com` reference is left in the web app.
 - Mobile `npx tsc --noEmit`: clean. Web `npm run build`: clean. `scripts/contrast-audit.ts`: 150 passed, 0 failed.
 - The mobile screenshots could not be captured from the main session either: the Expo web server on port 8081 belongs to another session, and this session's browser cannot reach it. They stay outstanding, alongside the owner's Android check of C1 and C2.
+
+### A3 backfill APPLIED to production, 15 Nov 2026
+
+Applied by the owner's decision, on backend version `480cd05`, after a dry run run immediately before showed exactly the same counts as the recorded ones (4854 scanned, 2857 changed). Result: `applied: true`, 2857 rows changed, counts identical to the table above. A dry run straight afterwards reports **0 changed**, so nothing is pending.
+
+Left behind on purpose: on the owner's own account 7 rows still read Transfer and 7 still read ATM/POS. Every one of them has `reviewedAt` set, so `retireRow` refused to touch a row a person had already reviewed. The guard is doing what it should, and that is the right default.
+
+Known residue to decide on later: those reviewed rows now display a category the pickers no longer offer, so the user cannot pick it again if they edit the row. Two honest options when it matters: leave them (a person's own choice outranks a tidy taxonomy) or show a one-off prompt on exactly those rows asking for a current category. Not done, not urgent, and it must never be solved by silently overwriting a reviewed row.

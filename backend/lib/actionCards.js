@@ -48,7 +48,11 @@ const PRIORITY = {
   // category-level question (priority 3: floor, cap and skip-expiry apply). One fixture
   // account produced 104 of these at priority 2, which is exempt from every limit.
   refund_match: 3,
-  regular_payment: 2,
+  // Round 10 Part B, second pass (measured on the owner's real account, 919 rows): was
+  // 2, which made it exempt from the floor, the cap and the skip expiry. "Do you pay X
+  // every month?" neither flags fraud nor changes a total: its own builder says it is
+  // "worth knowing for Coming up", which is forecast metadata, so it is priority 3.
+  regular_payment: 3,
   category: 3,
   grouped_category: 3,
   cash: 3,

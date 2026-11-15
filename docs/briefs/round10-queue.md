@@ -55,3 +55,32 @@ To measure the owner's real queue once this is deployed, call it with their own 
     Authorization: Bearer <the owner's token>
 
 Any kind at priority 1 or 2 with more than 2 cards in that answer is the next thing to judge, by the same rule used here: priority 1 or 2 means fraud risk or it changes the totals, everything else is priority 3.
+
+## The real queue, measured on production (15 Nov 2026)
+
+Measured with `GET /api/admin/queue-breakdown` against the deployed backend on version `2549d7b`, on the owner's own account (919 transactions). This replaces the fixture numbers above as the figure that counts.
+
+| Kind | Priority | Cards |
+|---|---|---|
+| same_as | 2 | 6 |
+| regular_payment | 2 | 3 |
+| category | 3 | 3 |
+| refund_match | 3 | 1 |
+| income | 2 | 1 |
+| subscription | 4 | 1 |
+| Total | | 15 |
+
+By priority: 1 = 0, 2 = 10, 3 = 4, 4 = 1. Also `who_is_this` produced 8 cards that the cap removed (`queue_overflow`), so those questions are never asked; nothing is written for them, since `demote()` files a guess for category kinds only.
+
+### Decisions on the kinds at priority 1 or 2 with more than 2 cards
+
+- `regular_payment` (3 cards): demoted to priority 3. "Do you pay X every month?" neither flags fraud nor changes a total. Its own builder comment calls it "worth knowing for Coming up", which is forecast metadata. Pinned by a test, together with a check that a dozen of them cannot exceed the cap.
+- `same_as` (6 cards): stays at priority 2. It asks whether two rows are one movement, so a wrong answer double-counts money. That is exactly what the priority 2 exemption is for, and demoting it would let real duplicates sit unasked and quietly inflate spending. Pinned by a test so a later pass does not demote it for the sake of the count.
+
+### The target is not met, and relabelling cannot meet it
+
+With `regular_payment` at 3, priority 2 still holds 7 cards (6 `same_as` plus 1 `income`), and priority 2 is exempt from the cap by design. The projected total is about 12, down from 15, against a target of 5.
+
+The remaining count is one kind asking the same question six times. The honest fix is to group it the way `grouped_category` already groups category questions: one card that says six rows may be duplicates, answered row by row inside the card. That keeps every duplicate question asked while the queue shows one card. Raising the cap or demoting `same_as` would only hide them.
+
+Not done in this pass: grouping `same_as` is a change to what the card shows and how it is answered, on web and mobile as well as the backend, so it is its own piece of work rather than a priority edit.

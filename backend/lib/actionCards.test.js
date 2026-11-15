@@ -375,6 +375,21 @@ const ownMoveItem = {
   const { cards: q, counts } = build({ refund_match: many });
   check('forty ambiguous refunds never exceed the queue cap', q.length <= cards.MAX_QUEUE);
   eq('and none is priority 1 or 2', counts.byPriority[1] + counts.byPriority[2], 0);
+
+  // Round 10 Part B, second pass: measured on the owner's real account, regular_payment
+  // was 3 of the 15 cards and sat at priority 2, exempt from every limit. It asks whether
+  // a payment repeats monthly, which changes no total, so it belongs at priority 3.
+  eq('regular_payment is priority 3, not 2', cards.PRIORITY.regular_payment, 3);
+  const regulars = Array.from({ length: 12 }, (_, i) => ({ id: `rp${i}`, name: `Landlord ${i}`, amount: 50000 + i, months: 3 }));
+  const { cards: rq, counts: rc } = build({ regular_payment: regulars });
+  check('a dozen regular payments never exceed the queue cap', rq.length <= cards.MAX_QUEUE);
+  eq('and none is priority 1 or 2', rc.byPriority[1] + rc.byPriority[2], 0);
+
+  // same_as stays at priority 2 on purpose: it asks whether two rows are ONE movement,
+  // and a wrong answer double-counts money, so it is exempt by the same rule that
+  // exempts fraud-risk cards. The measured queue had 6 of them; the fix for that is
+  // grouping the question, not demoting it.
+  eq('same_as stays priority 2', cards.PRIORITY.same_as, 2);
 }
 
 // ── An empty queue ───────────────────────────────────────────────────────────────

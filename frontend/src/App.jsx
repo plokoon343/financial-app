@@ -59,6 +59,7 @@ const AiAssistant = lazy(() => import('./components/AiAssistant'));
 const Profile = lazy(() => import('./components/Profile'));
 const Settings = lazy(() => import('./components/Settings'));
 const Support = lazy(() => import('./components/Support'));
+const EmailSetup = lazy(() => import('./components/EmailSetup'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
@@ -111,6 +112,7 @@ function AppContent() {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/setup/email" element={<Suspense fallback={<PageLoader />}><EmailSetup /></Suspense>} />
         <Route path="/" element={
           <ProtectedLayout
             transactions={transactions}

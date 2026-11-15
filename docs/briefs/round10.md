@@ -247,3 +247,14 @@ Deviations and things the brief got wrong or left open:
 Retiring the old endpoints (`GET /api/global-banner`, `/api/public/promo` PIXLCO card): every build that reads announcements must be the minimum first. The first build with the announcement client is the next mobile build after this commit (current `app.json` is 1.0.0, and 1.0.0 builds already in testers' hands read the old endpoints). When that build ships, bump it to 1.1.0, set `APP_MIN_VERSION` to at least that version once the update screen exists as a real block (see above), and only then remove the old endpoints. Until then keep them: older builds would otherwise lose the known-issue banner. The web `GlobalBanner.jsx` still reads `/api/global-banner` and is untouched; the composer does not feed it.
 
 Owner steps: add the `/api/cron/announcements` job; decide where users switch product emails on; run "Import old PIXLCO card and banner" once after deploy if either is still live; create the first announcement as a draft and use "Send me a test" before anything real.
+
+### Part F progress, 15 Nov 2026 (branches: financial-app `claude/round10-part-f-email-851e83`, finpilot-mobile `claude/round10-part-f-email-mobile`; not pushed, not merged)
+
+Report and F3 ship gate: `docs/briefs/round10-email.md`.
+
+- Done: F1 handoff. One-time link (24 hours, single use, one user, hash stored, atomic redeem), web page `/setup/email`, phone card with QR, "Email me the link", "Copy link" and three live ticks, "Desktop site" instructions removed. Backend `npm test` 70/70 (new `emailHandoff.test.js` proves expiry and single use), web build passes, mobile `tsc` clean and lint 0 errors.
+- Done: F2 attempted and NOT proven. The Gmail URL needs a signed-in account I did not have; file import stays for step 3. Recorded in the report.
+- Done, off: F3 built (Kotlin listener, filter, sender list endpoint, pre-permission screen, server flag `FEATURE_GMAIL_BANK_EMAILS` unset). Filter unit test (TypeScript, 22 checks) passes; the Kotlin test is written but NOT run.
+- Keys-pending: F1 forwarding itself needs `INBOUND_EMAIL_SECRET` and the inbound MX (Round 9). "Email me the link" needs `BREVO_API_KEY` (already live). Optional `HANDOFF_BASE_URL` if the page should live on the bare domain.
+- Needs an EAS build: F3 only (native). The F1 phone card is JS and can go by OTA.
+- Not verified: routes against a real database and browser (no Mongo here); Gmail accepting the filter XML; F3 on a device.

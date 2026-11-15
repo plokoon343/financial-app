@@ -1,0 +1,25 @@
+/* Round 10 F1 setup page. Semantic tokens only (theme.css), so it follows light and dark. */
+.es-page { min-height: 100vh; background: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); padding: 24px 16px; display: flex; justify-content: center; align-items: flex-start; }
+.es-card { width: 100%; max-width: 640px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); box-shadow: var(--shadow-md); padding: 24px; }
+.es-h1 { font-size: 1.5rem; margin: 0 0 6px; }
+.es-h2 { font-size: 1.05rem; margin: 0 0 8px; display: flex; gap: 10px; align-items: center; }
+.es-muted { color: var(--text-secondary); line-height: 1.55; margin: 0 0 12px; font-size: 0.95rem; }
+.es-fine { color: var(--text-faint); font-size: 0.8rem; margin: 20px 0 0; text-align: center; }
+.es-ok { color: var(--income-color); font-weight: 600; margin: 0; }
+.es-err { color: var(--error-color); margin: 12px 0 0; }
+.es-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.es-ticks { list-style: none; padding: 0; margin: 18px 0 8px; display: grid; gap: 8px; }
+.es-tick { display: flex; align-items: center; gap: 10px; color: var(--text-secondary); font-weight: 500; }
+.es-tick-done { color: var(--text-primary); }
+.es-tick-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border-color); display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; color: var(--text-light); }
+.es-tick-done .es-tick-dot { background: var(--income-color); border-color: var(--income-color); }
+.es-step { border-top: 1px solid var(--border-color); padding-top: 18px; margin-top: 18px; }
+.es-num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent-primary); color: var(--text-light); display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; flex: none; }
+.es-copy { display: flex; gap: 8px; align-items: stretch; margin: 0 0 10px; flex-wrap: wrap; }
+.es-code { flex: 1; min-width: 0; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 10px 12px; overflow-wrap: anywhere; font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.es-code-big { font-size: 1.5rem; font-weight: 700; letter-spacing: 3px; }
+.es-btn { background: var(--bg-card); color: var(--accent-primary); border: 1.5px solid var(--accent-primary); border-radius: var(--radius-sm); padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px; }
+.es-btn-main { background: var(--accent-primary); color: var(--text-light); }
+.es-btn:disabled { opacity: 0.6; cursor: default; }
+.es-btn:focus-visible, .es-link:focus-visible { outline: 3px solid var(--accent-primary); outline-offset: 2px; }
+.es-link { color: var(--accent-primary); font-weight: 600; display: inline-block; margin: 0 12px 10px 0; }

@@ -18,7 +18,7 @@
       "id": "email-gmail",
       "title": "Forward bank alerts from Gmail",
       "category": "automatic-tracking",
-      "summary": "A one-time rule in Gmail sends every bank alert email to your private Automonie address. Do this on a computer, or in your phone's browser with Desktop site turned on: the Gmail app doesn't have these settings.",
+      "summary": "A one-time rule in Gmail sends every bank alert email to your private Automonie address. Do this on a computer: the Gmail app doesn't have these settings. In Automonie, choose Finish on your computer on the Email forwarding screen and scan the QR code or email yourself the link.",
       "videoUrl": "",
       "steps": [
         { "text": "In Automonie, open Accounts & alerts, then Email alerts, and copy your forwarding address.", "image": "" },

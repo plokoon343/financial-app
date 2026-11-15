@@ -89,6 +89,7 @@ const dollarAccounts = require('./lib/dollarAccounts');
 const remoteRules = require('./lib/remoteRules');
 const appVersionLib = require('./lib/appVersion');
 const announcementsLib = require('./lib/announcements');
+const emailHandoff = require('./lib/emailHandoff');
 const moneyFormat = require('./lib/moneyFormat');
 const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
@@ -455,6 +456,7 @@ const userSchema = new mongoose.Schema({
   gmailVerifyCode: { type: String, default: '' },
   gmailVerifyLink: { type: String, default: '' },
   gmailVerifyAt:   { type: Date },
+  gmailConfirmedAt: { type: Date },   // round 10 F1: the user said they entered Google's code
   // round 9 part A3: a security notice from Microsoft about forwarding (no code to
   // paste, unlike Gmail - just a heads-up to go confirm in Outlook's own settings).
   outlookForwardNoticeAt: { type: Date },
@@ -5751,7 +5753,7 @@ app.get('/api/inbound-email/status', auth, async (req, res) => {
 // longer needs it shown.
 app.post('/api/inbound-email/gmail-verification/clear', auth, async (req, res) => {
   try {
-    await User.updateOne({ _id: req.user._id }, { $set: { gmailVerifyCode: '', gmailVerifyLink: '', gmailVerifyAt: null } });
+    await User.updateOne({ _id: req.user._id }, { $set: { gmailVerifyCode: '', gmailVerifyLink: '', gmailVerifyAt: null, gmailConfirmedAt: new Date() } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -8295,17 +8297,134 @@ app.get('/api/me/email-filter', auth, async (req, res) => {
 // apps:property elements. Written from Gmail's documented schema; not verified
 // against a live Gmail import in this session (no test Gmail account available) -
 // flagged in the round 9 report for the owner to try once.
+function gmailFilterXml(addresses, forwardTo) {
+  const now = new Date().toISOString();
+  const stamp = Date.now();
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<feed xmlns="http://www.w3.org/2005/Atom" xmlns:apps="http://schemas.google.com/apps/2006">\n  <title>Mail Filters</title>\n  <id>tag:mail.google.com,2008:filters:${stamp}</id>\n  <updated>${now}</updated>\n  <author><name>Automonie</name></author>\n  <entry>\n    <category term="filter"></category>\n    <title>Mail Filter</title>\n    <id>tag:mail.google.com,2008:filter:${stamp}</id>\n    <updated>${now}</updated>\n    <content></content>\n    <apps:property name="from" value="${escapeXml(addresses.join(' OR '))}"/>\n    <apps:property name="forwardTo" value="${escapeXml(forwardTo)}"/>\n    <apps:property name="shouldArchive" value="false"/>\n  </entry>\n</feed>\n`;
+}
 app.get('/api/me/email-filter/gmail.xml', auth, async (req, res) => {
   try {
     const { addresses, forwardTo } = await buildEmailFilter(req.user);
     if (!addresses.length) return res.status(422).json({ message: 'We’re still learning your bank’s alert address. Forward one alert once and we’ll learn it, then try again.' });
-    const now = new Date().toISOString();
-    const stamp = Date.now();
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<feed xmlns="http://www.w3.org/2005/Atom" xmlns:apps="http://schemas.google.com/apps/2006">\n  <title>Mail Filters</title>\n  <id>tag:mail.google.com,2008:filters:${stamp}</id>\n  <updated>${now}</updated>\n  <author><name>Automonie</name></author>\n  <entry>\n    <category term="filter"></category>\n    <title>Mail Filter</title>\n    <id>tag:mail.google.com,2008:filter:${stamp}</id>\n    <updated>${now}</updated>\n    <content></content>\n    <apps:property name="from" value="${escapeXml(addresses.join(' OR '))}"/>\n    <apps:property name="forwardTo" value="${escapeXml(forwardTo)}"/>\n    <apps:property name="shouldArchive" value="false"/>\n  </entry>\n</feed>\n`;
+    const xml = gmailFilterXml(addresses, forwardTo);
     res.set('Content-Type', 'application/xml; charset=utf-8');
     res.set('Content-Disposition', 'attachment; filename="automonie-filter.xml"');
     res.send(xml);
   } catch (e) { console.error('[me/email-filter/gmail.xml]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// ── Finish on your computer (round 10 part F1) ──
+// The phone makes a one-time link; the setup page on a computer redeems it for a short
+// page session. See lib/emailHandoff.js for the token rules.
+const EmailHandoff = emailHandoff.defineModel(mongoose);
+const handoffUrl = (token) => `${process.env.HANDOFF_BASE_URL || FRONTEND_URL}/setup/email?t=${token}`;
+const handoffTicksFor = async (userId, user) => {
+  const opened = await EmailHandoff.exists({ userId, openedAt: { $ne: null } });
+  return emailHandoff.ticksFor({ opened, user });
+};
+// The page polls every few seconds, so it gets a roomier limiter than sensitiveLimiter.
+const handoffLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 600, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many requests. Please slow down.' } });
+const handoffRateMsg = 'You have made several links in the last hour. Use the latest one, or try again later.';
+
+app.post('/api/email-handoff', auth, async (req, res) => {
+  try {
+    const { token, expiresAt } = await emailHandoff.createHandoff(EmailHandoff, req.user._id);
+    const url = handoffUrl(token);
+    const qrSvg = await require('qrcode').toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+    res.json({ url, qrSvg, expiresAt });
+  } catch (e) {
+    if (e.code === 'rate') return res.status(429).json({ message: handoffRateMsg });
+    console.error('[email-handoff/create]', e.message); res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Emails a link to the user's own address on file, never to anyone else's.
+app.post('/api/email-handoff/send', auth, async (req, res) => {
+  try {
+    if (!emailConfigured()) return res.status(503).json({ message: 'Email is not available right now. Copy the link instead.' });
+    const { token } = await emailHandoff.createHandoff(EmailHandoff, req.user._id);
+    const url = handoffUrl(token);
+    await sendEmail({
+      to: req.user.email,
+      subject: 'Finish your email setup on your computer',
+      text: `Open this link on your computer to finish setting up bank emails. It works once and expires in 24 hours.\n\n${url}\n\nIf you did not ask for this, ignore this email.`,
+      html: `<p>Open this link on your computer to finish setting up bank emails. It works once and expires in 24 hours.</p><p><a href="${url}">Finish setup</a></p><p>If you did not ask for this, ignore this email.</p>`,
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 'rate') return res.status(429).json({ message: handoffRateMsg });
+    console.error('[email-handoff/send]', e.message); res.status(500).json({ message: 'Could not send the email.' });
+  }
+});
+
+// Round 10 F3: the verified bank senders, so the phone can decide on its own which Gmail
+// notifications are bank mail. Public bank facts only (names, aliases, alert addresses);
+// nothing about any user. The phone keeps this list and never sends Gmail content to find out.
+app.get('/api/bank-email-senders', auth, async (req, res) => {
+  try {
+    const rows = await BankEmailSender.find({ status: 'verified', alertType: { $in: ['debit_credit', 'e_statement'] } }).lean();
+    const banks = require('./data/banks.json');
+    const byBank = new Map();
+    for (const r of rows) {
+      const b = banks.find((x) => x.code === r.bankCode);
+      if (!b) continue;
+      if (!byBank.has(b.code)) byBank.set(b.code, { name: b.name, aliases: b.aliases || [], addresses: [] });
+      byBank.get(b.code).addresses.push(r.sender);
+    }
+    res.json({ senders: [...byBank.values()] });
+  } catch (e) { console.error('[bank-email-senders]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// The three ticks for the phone: the same function the web page uses.
+app.get('/api/email-handoff/ticks', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('gmailConfirmedAt inboundEmailLastAt');
+    res.json(await handoffTicksFor(req.user._id, user));
+  } catch (e) { console.error('[email-handoff/ticks]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Page side. These routes are public: the page session key is the only credential, and
+// every lookup below is scoped to the one user that key belongs to.
+const handoffUser = async (req, res) => {
+  const userId = await emailHandoff.userForSession(EmailHandoff, req.get('x-handoff-session'));
+  if (!userId) { res.status(401).json({ message: 'This page has ended. Ask your phone for a new link.' }); return null; }
+  return User.findById(userId);
+};
+const handoffView = async (user) => {
+  const [f, ticks] = await Promise.all([buildEmailFilter(user), handoffTicksFor(user._id, user)]);
+  return emailHandoff.pageView({ user, ticks, address: f.forwardTo, active: inboundActive(), filter: f });
+};
+
+app.post('/api/email-handoff/redeem', handoffLimiter, async (req, res) => {
+  try {
+    const gone = { message: 'This link has expired or was already used. Ask your phone for a new one.' };
+    const r = await emailHandoff.redeem(EmailHandoff, req.body && req.body.t);
+    if (!r.ok) return res.status(410).json({ reason: r.reason, ...gone });
+    const user = await User.findById(r.userId);
+    if (!user) return res.status(410).json({ reason: 'invalid', ...gone });
+    res.json({ sessionKey: r.sessionKey, expiresAt: r.sessionExpiresAt, view: await handoffView(user) });
+  } catch (e) { console.error('[email-handoff/redeem]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.get('/api/email-handoff/view', handoffLimiter, async (req, res) => {
+  try { const user = await handoffUser(req, res); if (user) res.json(await handoffView(user)); }
+  catch (e) { console.error('[email-handoff/view]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.post('/api/email-handoff/confirmed', handoffLimiter, async (req, res) => {
+  try {
+    const user = await handoffUser(req, res); if (!user) return;
+    await User.updateOne({ _id: user._id }, { $set: { gmailVerifyCode: '', gmailVerifyLink: '', gmailVerifyAt: null, gmailConfirmedAt: new Date() } });
+    res.json({ ok: true });
+  } catch (e) { console.error('[email-handoff/confirmed]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+app.get('/api/email-handoff/filter.xml', handoffLimiter, async (req, res) => {
+  try {
+    const user = await handoffUser(req, res); if (!user) return;
+    const { addresses, forwardTo } = await buildEmailFilter(user);
+    if (!addresses.length) return res.status(422).json({ message: 'We are still learning your bank’s alert address. Forward one alert once and we will learn it, then try again.' });
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    res.set('Content-Disposition', 'attachment; filename="automonie-filter.xml"');
+    res.send(gmailFilterXml(addresses, forwardTo));
+  } catch (e) { console.error('[email-handoff/filter]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
 // The bank list for pickers: banks, microfinance banks and fintechs (data/banks.json),
@@ -11016,6 +11135,7 @@ app.get('/api/features', auth, (req, res) => {
     bankLink: monoConfigured(),
     sharedExpenses: process.env.FEATURE_SHARED_EXPENSES === 'true',
     billPay: billPay.config().enabled,
+    gmailBankEmails: process.env.FEATURE_GMAIL_BANK_EMAILS === 'true', // round 10 F3 experiment, off until the ship gate is met
     helpCentre: true, // always on: backed by backend/data/help.json until Sanity keys are set
     whatsappSupport: !!process.env.WHATSAPP_SUPPORT_NUMBER,
   });

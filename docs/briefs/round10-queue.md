@@ -92,3 +92,20 @@ Not done in this pass: grouping `same_as` is a change to what the card shows and
 Pinned by tests: six pairs give one card, it is the biggest, its helper names the other five, `things` stays 6, no `same_as` row appears in `autoResolve`, and a single pair shows no helper line.
 
 Projected total on the measured queue: 15 to 7 (6 same_as collapsing to 1, regular_payment leaving the exempt tier). Re-measured after deploy below.
+
+### Re-measured after deploy (version 5525b71)
+
+Same account, same endpoint: **15 cards to 7.**
+
+| Kind | Priority | Cards |
+|---|---|---|
+| category | 3 | 2 |
+| regular_payment | 3 | 2 |
+| same_as | 2 | 1 |
+| refund_match | 3 | 1 |
+| income | 2 | 1 |
+| Total | | 7 |
+
+By priority: 2 = 2, 3 = 5. `autoResolve`: `who_is_this` 8 over the cap, `category` 1 over the cap, `subscription` 1 over the cap, `regular_payment` 1 below the floor (demoting it to priority 3 put it under the floor, as intended).
+
+7 against a target of 5, and that 7 is the structural floor on this account: 2 cards are priority 2 (cap-exempt by design) plus the cap's own budget of 5. Reaching 5 would mean lowering `MAX_QUEUE` to 3, which shows fewer cards without there being less to answer. Recorded as 7 rather than tuned to 5.

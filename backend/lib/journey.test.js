@@ -125,7 +125,12 @@ const dayOf = (log, id) => log.filter((l) => l.id === id).map((l) => l.day);
   check('push only inside the moment window and outside quiet', journey.pushNow(m, at('2026-11-06T10:00:00'), null) && !journey.pushNow(m, at('2026-11-06T22:30:00'), null) && !journey.pushNow(m, at('2026-11-06T07:00:00'), null));
   const msg = journey.pushText(m, { copy: COPY, prefs: {} });
   check('day 3 push reuses the setup_budget nudge copy', msg && COPY.setup_budget.variants.some((v) => v.text === msg.body), JSON.stringify(msg));
-  check('payday push reuses the payday_detected copy', COPY.payday_detected.variants.some((v) => v.text === journey.pushText(MOMENTS.find((x) => x.id === 'payday'), { copy: COPY }).body));
+  // The push call is hoisted OUT of the some() predicate on purpose. Inline, it ran once
+  // per variant and picked a fresh random variant each time, so the assertion only held
+  // when one of three independent picks happened to match the variant being compared:
+  // (2/3)^3, about a 30% failure rate. One pick, then look for it.
+  const payMsg = journey.pushText(MOMENTS.find((x) => x.id === 'payday'), { copy: COPY });
+  check('payday push reuses the payday_detected copy', payMsg && COPY.payday_detected.variants.some((v) => v.text === payMsg.body), JSON.stringify(payMsg));
   check('a switched-off category sends nothing', journey.pushText(m, { copy: COPY, prefs: { budgets: false } }) === null);
   check('a moment with no push has none', journey.pushText(MOMENTS.find((x) => x.id === 'day2_rule'), { copy: COPY }) === null);
   check('better_month has no push (the phone verifies it)', !MOMENTS.find((x) => x.id === 'better_month').push);

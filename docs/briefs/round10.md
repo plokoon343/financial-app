@@ -284,6 +284,8 @@ Deviations and what is left:
 - The `LIMITS.perDay: 2` in `lib/nudges.js` is now effectively 1 through the ledger; left as is.
 - The Home card fetches on screen focus; it is not cached offline.
 
+**Flaky test found and fixed, 15 Nov 2026.** `lib/journey.test.js` failed about one run in three on the check "payday push reuses the payday_detected copy". The cause was in the test, not in `journey.js`: the `pushText` call sat inside the `some()` predicate, so it ran once per variant and picked a fresh random variant each time, and the assertion only held when one of three independent picks happened to match the variant being compared, which is (2/3)^3, about 30%. The call is now made once and then looked for. Verified by 25 consecutive runs of the file (25 passes) and `npm test` at 71/71 files. No product behaviour was involved: `mergeMoments` stably maps the `payday` moment to `payday_detected`, the corper moment is a separate id, and all three variants render identically to their own text, so no wrong copy could reach a user from this.
+
 Owner steps: nothing is needed for the cards. To turn on the push: `PUT /api/admin/journey {"pushEnabled": true}`. To turn on the win-back email: set `JOURNEY_EMAIL_ENABLED=true`. The hourly cron job already exists for the nudges and now also drives these. Needs the next mobile build or OTA for the Home card.
 ### Part F progress, 15 Nov 2026 (built on branches `claude/round10-part-f-email-851e83` and `claude/round10-part-f-email-mobile`, merged into `main` in both repos on 15 Nov)
 

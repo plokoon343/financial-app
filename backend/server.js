@@ -4506,6 +4506,54 @@ app.get('/api/admin/ingestion/accuracy', auth, superAdminAuth, async (req, res) 
   } catch (e) { console.error('[ingestion-accuracy]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 
+// Round 10 Part B: a READ-ONLY breakdown of one account's Quick look queue, so the
+// real queue can be measured on the deployed server. Part B had to fall back to a
+// synthetic fixture because the local database holds no real account, which left the
+// "5 or fewer cards" target unverified on real data.
+//
+// It rebuilds the queue exactly as /api/action-cards does, but deliberately does NOT
+// call actionCardQueue(): that helper runs applyGuesses(), which WRITES categories.
+// Measuring must not change what it measures, so the input and build are called
+// directly here. Nothing in this handler writes.
+app.get('/api/admin/queue-breakdown', auth, superAdminAuth, async (req, res) => {
+  try {
+    const email = String(req.query.email || '').trim().toLowerCase();
+    const user = email ? await User.findOne({ email }) : req.user;
+    if (!user) return res.status(404).json({ message: 'No such user' });
+    const [input, skipRows] = await Promise.all([
+      actionCardInput(user),
+      ActionSkip.find({ userId: user._id }, { cardKey: 1, at: 1 }).lean(),
+    ]);
+    const skips = Object.fromEntries(skipRows.map((r) => [r.cardKey, r.at]));
+    const built = actionCards.build(input, { skips });
+    const tally = (rows, keyOf) => {
+      const m = new Map();
+      for (const r of rows) { const k = keyOf(r); m.set(k, (m.get(k) || 0) + 1); }
+      return [...m].sort((a, b) => b[1] - a[1]).map(([key, count]) => ({ key, count }));
+    };
+    res.json({
+      account: user.email,
+      transactions: await Transaction.countDocuments({ userId: user._id }),
+      total: built.cards.length,
+      target: 5,
+      byPriority: tally(built.cards, (c) => `p${c.priority}`),
+      byKind: tally(built.cards, (c) => c.kind).map((r) => ({
+        kind: r.key, priority: actionCards.PRIORITY[r.key] ?? null, cards: r.count,
+      })),
+      // What the rules kept OFF the queue, and why (below the floor, skipped past its
+      // expiry, over the cap). A large queue_overflow count means the queue is merely
+      // capped rather than genuinely short, which is the dishonest version of done.
+      autoResolve: tally(built.autoResolve, (r) => `${r.kind}:${r.reason}`),
+      limits: {
+        askFloor: actionCards.ASK_FLOOR,
+        maxQueue: actionCards.MAX_QUEUE,
+        skipDays: actionCards.SKIP_DAYS,
+        exemptFromFloorAndCap: [1, 2],
+      },
+    });
+  } catch (e) { console.error('[queue-breakdown]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 // Let a user opt out of contributing anonymised parse corrections to training.
 app.post('/api/me/training-optout', auth, async (req, res) => {
   try {

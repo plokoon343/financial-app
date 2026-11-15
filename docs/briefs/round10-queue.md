@@ -25,11 +25,33 @@ What drives the total: one kind. Every credit shares narration text with many ea
 
 | Kind | Priority | Cards |
 |---|---|---|
-| refund_match | 3 | 0 (all 104 are under the ₦2,000 floor and resolve silently) |
+| refund_match | 3 | 0 (all 104 are under the ₦2,000 floor, so the question is not asked) |
 | Total | | 0 |
 
-By priority: all 0. Queue overflow and floor are logged in `autoResolve` (220 items), not hidden: they resolve as guesses.
+By priority: all 0. The floor and the cap are logged in `autoResolve` (220 items), not hidden.
+
+What "auto-resolve" does and does not do, since the two kinds behave differently (`demote()` in `lib/actionCards.js`): a `category` card files its best guess on the row and marks it `categoryGuessed`, because a category is one reversible field. A `refund_match` card files nothing at all. `demote()` returns `category: null` for every non-category kind, so an unasked refund is left unlinked rather than linked to a guessed charge. That matters for the totals: the app never silently decides which earlier charge a credit repays.
 
 ## Tests
 
 `lib/actionCards.test.js` pins `PRIORITY.refund_match === 3` and checks that 40 ambiguous refunds produce at most `MAX_QUEUE` cards and none at priority 1 or 2. Full `npm test`: 68/68.
+
+## Measuring the real queue (added after the fixture run)
+
+The gap above stands: the local database has no real account, so these numbers come from a synthetic fixture. To close it, `GET /api/admin/queue-breakdown` was added in `backend/server.js` (superadmin only). It returns the total, the count by priority, the count by kind with each kind's priority, what the rules kept off the queue and why, and the live floor, cap and skip-expiry values.
+
+It is read-only by construction. `/api/action-cards` goes through `actionCardQueue()`, which calls `applyGuesses()` and writes categories; this endpoint calls `actionCardInput()` and `actionCards.build()` directly instead, so measuring cannot change what it measures.
+
+Checked on the local database, 15 Nov 2026:
+
+- Fixture account (800 transactions): total 0, and `autoResolve` shows `refund_match:below_floor` 104 and `category:below_floor` 116. That independently reproduces the before and after in this report.
+- Two calls in a row left `categoryGuessed` at 0 rows on that account, confirming the endpoint writes nothing.
+- No `email` parameter measures the caller's own account.
+- A non-superadmin token is refused with 403.
+
+To measure the owner's real queue once this is deployed, call it with their own superadmin token:
+
+    GET https://<the Render backend>/api/admin/queue-breakdown
+    Authorization: Bearer <the owner's token>
+
+Any kind at priority 1 or 2 with more than 2 cards in that answer is the next thing to judge, by the same rule used here: priority 1 or 2 means fraud risk or it changes the totals, everything else is priority 3.

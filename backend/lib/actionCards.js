@@ -620,6 +620,32 @@ function demote(c, reason) {
   return { reason, kind: c.kind, txnIds: c.targets.txnIds || [], category: isCategoryGuess ? id.slice(4) : null };
 }
 
+// Rule 3, extended to duplicate pairs (Round 10 Part B, second pass). Two rows that
+// may be one movement cannot share an answer with another pair, so these never
+// grouped, and the owner's real queue carried six of them at once: priority 2 is
+// exempt from the cap, by design, because a missed duplicate double-counts money.
+//
+// So only the biggest pair is asked at a time. The others are NOT resolved and NOT
+// hidden: `item.count` carries the whole set, and `things` counts `item.count`, so
+// Home still says six things need a quick look while the queue shows one card.
+// Answering the shown pair brings the next one on the next build. The alternative,
+// demoting the kind to get the number down, would leave real duplicates unasked and
+// quietly inflate spending, which buys a smaller queue with a less true total.
+function collapseSameAs(ordered) {
+  const pairs = ordered.filter((c) => c.kind === 'same_as');
+  if (pairs.length < 2) return ordered;
+  // order() has already sorted them biggest amount first.
+  const [first, ...rest] = pairs;
+  const more = rest.length;
+  const shown = {
+    ...first,
+    helper: more === 1 ? '1 more possible duplicate after this one' : `${more} more possible duplicates after this one`,
+    item: { ...first.item, count: pairs.length },
+  };
+  const deferred = new Set(rest);
+  return ordered.filter((c) => !deferred.has(c)).map((c) => (c === first ? shown : c));
+}
+
 // ── Ordering ─────────────────────────────────────────────────────────────────────
 // Priority first, then the bigger amount, then the key so the order never wobbles
 // between two reloads. Skipped cards go to the back of the whole queue (rule 6:
@@ -718,7 +744,7 @@ function build(input = {}, options = {}) {
     kept.push({ ...c, skipped: true });
   }
 
-  const ordered = order(kept);
+  const ordered = collapseSameAs(order(kept));
 
   // The cap, generalised (the phone check's headline bug): never more than `maxQueue`
   // cards at once, across every kind - not only the `category` cap inside

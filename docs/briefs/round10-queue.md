@@ -84,3 +84,11 @@ With `regular_payment` at 3, priority 2 still holds 7 cards (6 `same_as` plus 1 
 The remaining count is one kind asking the same question six times. The honest fix is to group it the way `grouped_category` already groups category questions: one card that says six rows may be duplicates, answered row by row inside the card. That keeps every duplicate question asked while the queue shows one card. Raising the cap or demoting `same_as` would only hide them.
 
 Not done in this pass: grouping `same_as` is a change to what the card shows and how it is answered, on web and mobile as well as the backend, so it is its own piece of work rather than a priority edit.
+
+### Grouping same_as (done)
+
+`collapseSameAs()` in `lib/actionCards.js` now shows one duplicate pair at a time, the biggest first, with a helper line saying how many more are waiting. The deferred pairs are counted, not resolved: `item.count` carries the whole set and `countsOf` adds `item.count` into `things`, so Home still reads "6 things need a quick look" while the queue shows one card. Answering the shown pair brings the next on the next build, and no pair is ever auto-resolved. Web and mobile already render `helper`, so no client change was needed.
+
+Pinned by tests: six pairs give one card, it is the biggest, its helper names the other five, `things` stays 6, no `same_as` row appears in `autoResolve`, and a single pair shows no helper line.
+
+Projected total on the measured queue: 15 to 7 (6 same_as collapsing to 1, regular_payment leaving the exempt tier). Re-measured after deploy below.

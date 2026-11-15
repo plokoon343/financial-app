@@ -390,6 +390,24 @@ const ownMoveItem = {
   // exempts fraud-risk cards. The measured queue had 6 of them; the fix for that is
   // grouping the question, not demoting it.
   eq('same_as stays priority 2', cards.PRIORITY.same_as, 2);
+
+  // ...and instead of demoting it, six pairs become one card at a time, biggest first,
+  // with the rest still COUNTED so Home cannot under-report what is waiting.
+  const pairs = Array.from({ length: 6 }, (_, i) => ({
+    id: `d${i}`, firstId: `a${i}`, secondId: `b${i}`, title: `Shop ${i}`, name: `Shop ${i}`,
+    amount: 1000 * (i + 1), time: '9:10', meta: 'Wed',
+  }));
+  const { cards: sq, counts: sc } = build({ same_as: pairs });
+  eq('six duplicate pairs show one card', sq.filter((c) => c.kind === 'same_as').length, 1);
+  eq('and it is the biggest pair', sq[0].item.amount, 6000);
+  eq('and it says how many more are waiting', sq[0].helper, '5 more possible duplicates after this one');
+  eq('and all six still count as things needing a look', sc.things, 6);
+  // Nothing was resolved behind the user's back: a deferred pair is not an autoResolve.
+  const { autoResolve } = build({ same_as: pairs });
+  eq('no duplicate pair is auto-resolved', autoResolve.filter((r) => r.kind === 'same_as').length, 0);
+  // One pair on its own reads normally, with no "more waiting" line.
+  const { cards: one } = build({ same_as: [pairs[0]] });
+  eq('a single pair has no helper line', one[0].helper, null);
 }
 
 // ── An empty queue ───────────────────────────────────────────────────────────────

@@ -132,3 +132,23 @@ Tests: token expires and is single-use; ticks update on phone and web; F3 never 
     7. The six-path rule test is unit plus source-level (no Mongo here); I added the same checks to `scripts/api-regression.js` but could not run it. Run it against a `_test` database before the next release.
 
 - Part B (queue count): measured, report in `docs/briefs/round10-queue.md`. The owner's account is not in the local database, so the measurement used the 800-transaction fixture account: `refund_match` produced 104 priority-2 cards (exempt from floor and cap). Re-labelled to priority 3 in `lib/actionCards.js`, pinned in `actionCards.test.js`. Target of 5 or fewer is met on the fixture but NOT verified on the owner's real data; run the same measurement on it once available. Backend only, tests 68/68.
+
+### A3 backfill: production dry run, 15 Nov 2026 (NOT applied)
+
+`POST /api/admin/reclassify-kinds` with no `apply`, against production on version `2549d7b`. Scanned 4854 rows across all users, 2857 would change:
+
+| Change | Rows |
+|---|---|
+| Transfer to Other Income | 1303 |
+| Transfer to Other | 1195 |
+| Transfer to Sent to people | 138 |
+| Transfer to Other (own move) | 81 |
+| ATM/POS to Other | 65 |
+| Transfer to Money from People | 58 |
+| kind: reversal to income | 8 |
+| kind: reversal to expense | 7 |
+| ATM/POS to Sent to people | 4 |
+
+`ownMoveChanged` was 0.
+
+Read before applying: only 196 of 2857 rows land on a person category (Sent to people, Money from People). 2498 become Other or Other Income, which clears a retired label without adding information, and no cash withdrawal became an own move into Cash, although A3 expects that. On real production narrations the person and cash detection is firing far less than it does on the tuned fixtures, so applying now would file 2498 rows as Other and leave a better backfill to re-touch them later. Those rows stay machine-set, so a later pass can still move them, but the owner should decide whether to improve detection first. Not applied; waiting on the owner.

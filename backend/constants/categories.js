@@ -27,6 +27,9 @@ const GROUPS = ['Daily life', 'Home', 'People', 'You', 'Money', 'Work', 'Income'
 // Existing names and values are UNCHANGED - this is metadata added on top, not a
 // rename. New categories (marked below) are genuinely new, so they get new ids.
 const CATEGORIES = [
+  // Round 10, A3: 'Transfer' and 'ATM/POS' are RETIRED. They stay in this list so old
+  // rows still resolve (displayNameFor, categoryById), but no row is given them any
+  // more and no picker offers them (`retired: true`).
   // ── Spending: already live ──
   { id: 'Food', name: 'Food', group: 'Daily life', icon: 'restaurant', colorToken: 'food', effect: 'Spending', budgetable: true },
   { id: 'Groceries', name: 'Groceries', group: 'Daily life', icon: 'cart', colorToken: 'groceries', effect: 'Spending', budgetable: true },
@@ -47,8 +50,11 @@ const CATEGORIES = [
   // for both, and this file's GLOBAL_ELIGIBLE derivation (below) must reproduce that
   // exact membership, not a new opinion about what "budgetable" should mean here.
   { id: 'Bank Charges', name: 'Bank Charges', group: 'Money', icon: 'card', colorToken: 'bankCharges', effect: 'Spending', budgetable: true },
-  { id: 'ATM/POS', name: 'ATM/POS', group: 'Money', icon: 'cash', colorToken: 'atmPos', effect: 'Spending', budgetable: true },
-  { id: 'Transfer', name: 'Transfer', group: 'People', icon: 'swap-horizontal', colorToken: 'transfer', effect: 'Own move', budgetable: false },
+  { id: 'ATM/POS', name: 'ATM/POS', group: 'Money', icon: 'cash', colorToken: 'atmPos', effect: 'Spending', budgetable: false, retired: true },
+  { id: 'Transfer', name: 'Transfer', group: 'People', icon: 'swap-horizontal', colorToken: 'transfer', effect: 'Own move', budgetable: false, retired: true },
+  // Round 10, A3: what "Transfer" used to say for a payment to a person. Shown, never
+  // budgeted, never trusted for consensus (a person's name must not be shared).
+  { id: 'Sent to people', name: 'Sent to people', group: 'People', icon: 'people', colorToken: 'familyFriends', effect: 'Spending', budgetable: false },
   { id: 'Savings', name: 'Savings', group: 'Money', icon: 'lock-closed', colorToken: 'savings', effect: 'Own move', budgetable: false },
   { id: 'Family & Friends', name: 'Family & Friends', group: 'People', icon: 'people', colorToken: 'familyFriends', effect: 'Spending', budgetable: true },
   { id: 'Other', name: 'Other', group: 'Fallback', icon: 'pricetag', colorToken: 'other', effect: 'Spending', budgetable: true },
@@ -80,7 +86,7 @@ const CATEGORIES = [
 
 const BY_ID = new Map(CATEGORIES.map((c) => [c.id, c]));
 
-const EXPENSE_CATEGORY_IDS = CATEGORIES.filter((c) => c.effect !== 'Income').map((c) => c.id);
+const EXPENSE_CATEGORY_IDS = CATEGORIES.filter((c) => c.effect !== 'Income' && !c.retired).map((c) => c.id);
 const INCOME_CATEGORY_IDS = CATEGORIES.filter((c) => c.effect === 'Income').map((c) => c.id);
 
 // The categories a global consensus vote may be trusted for (today's
@@ -91,7 +97,7 @@ const INCOME_CATEGORY_IDS = CATEGORIES.filter((c) => c.effect === 'Income').map(
 // on purpose: they have no history of real votes yet, and that is a product call
 // for later, not something this file should decide by just existing in the list.
 const GLOBAL_ELIGIBLE = CATEGORIES
-  .filter((c) => c.budgetable && c.effect === 'Spending' && !c.isNew && c.id !== 'Other' && c.id !== 'Family & Friends')
+  .filter((c) => c.budgetable && !c.retired && c.effect === 'Spending' && !c.isNew && c.id !== 'Other' && c.id !== 'Family & Friends')
   .map((c) => c.id);
 
 function categoryById(id) { return BY_ID.get(id) || null; }

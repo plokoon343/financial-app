@@ -31,7 +31,7 @@ const RCPT = ['Receipt', '17 Oct 2026, 15:05, GMT+01:00', '₦10,600.00', 'Ten T
 for (const [label, text] of [['lines', RCPT.join('\n')], ['one line', RCPT.join(' ')]]) {
   const r = parseAlert(text, { source: 'share' });
   check(`receipt (${label}): narration is the receiver`, r && r.description === 'Transfer to Chimdalu Miriam Onukogu', r && r.description);
-  check(`receipt (${label}): amount, direction and category`, r && r.amount === 10600 && r.type === 'expense' && r.category === 'Transfer');
+  check(`receipt (${label}): amount, direction and category`, r && r.amount === 10600 && r.type === 'expense' && r.category === 'Sent to people');
   check(`receipt (${label}): the receiving bank is not the user's bank`, r && r.bank !== 'Moniepoint', r && r.bank);
 }
 // Phone check 8 Nov 2026, P1: a self-transfer receipt must become an internal

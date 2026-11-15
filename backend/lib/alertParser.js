@@ -12,7 +12,7 @@ const { normalizeAnyDate } = require('./dates');
 const { detectDirection, parseLabeledAlert, parseTransferReceipt, blockStripPattern, alertDescription } = require('./alertParse');
 const { classifyAlert, isFeeText, knownCredit, bankRule, withoutBalance } = require('./alertClassify');
 const { fingerprintAccount, detectBank } = require('./bankDetect');
-const { categorizeTransaction } = require('./categorize');
+const { categorise } = require('./categorise');
 const { receiptOwnMove } = require('./internalTransfers');
 
 // Money in an alert: "NGN 5,000.00" / "₦5,000" / "N5000" (N only when it directly
@@ -136,14 +136,17 @@ function parseAlert(msg, { source = 'sms', sender = '', today = new Date(), user
   // Second look with the narration: a fee alert is Bank Charges, a debit.
   const kind = first.kind === 'unsure' ? 'unsure' : (isFeeText(description) ? 'fee' : 'transaction');
   const type = kind === 'fee' ? 'expense' : dir.type;
-  const category = kind === 'fee' ? 'Bank Charges' : categorizeTransaction(description, type);
+  // The user's own rules are layered on by the caller (server.js ingestAlert) once it
+  // knows who the alert belongs to; this is the user-free decision and its reason.
+  const decided = categorise({ txn: { description, type, isFee: kind === 'fee', internal: !!ownMove } });
+  const category = decided.category;
   const bank = bankName || detectBank(ownText);
   const confidence = kind !== 'unsure' && amount != null && dir.conf === 'high' && amtConf !== 'low' ? 'high' : (amount != null && kind !== 'unsure' ? 'medium' : 'low');
   const amt = amount != null ? +Number(amount).toFixed(2) : 0;
   return {
     date, dateFromText: !!textDate, directionKnown: dir.conf !== 'low',
     description: ownMove ? ownMove.label : description, amount: amt,
-    type, category: ownMove ? 'Transfer' : category, bank, bankCode, accountMask, senderKey,
+    type, category, categorySource: decided.source, bank, bankCode, accountMask, senderKey,
     reference: (receipt && receipt.reference) || null,
     // Both dedupe keys, when the receipt gave them: either one matching another row
     // is the same transfer, whichever bank's receipt it came from.

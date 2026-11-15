@@ -18,7 +18,7 @@ check('owealth = savings', cat('Auto-save to OWealth Balance') === 'Savings');
 // --- brands across categories ---
 check('mtn', cat('MTN VTU AIRTIME') === 'Airtime & Data');
 check('ikedc', cat('IKEDC PREPAID TOKEN') === 'Utilities');
-check('dstv', cat('DSTV SUBSCRIPTION RENEWAL') === 'Utilities');
+check('dstv', cat('DSTV SUBSCRIPTION RENEWAL') === 'Subscriptions');
 check('netflix', cat('NETFLIX.COM') === 'Subscriptions');
 check('bolt ride', cat('POS/BOLT RIDES LAGOS') === 'Transport');
 check('shoprite', cat('POS PUR SHOPRITE LEKKI') === 'Groceries');
@@ -45,7 +45,7 @@ check('app store', cat('POS PUR APP STORE') === 'Subscriptions');
 // --- integration: categorizeTransaction applies merchants on expense, not income ---
 check('categorize: chowdeck expense -> Food', categorizeTransaction('Transfer to CHOWDECK/KOON PLO', 'expense') === 'Food');
 check('categorize: income ignores merchant layer', categorizeTransaction('OWealth Interest Earned', 'income') !== 'Savings');
-check('categorize: dstv expense -> Utilities', categorizeTransaction('DSTV renewal', 'expense') === 'Utilities');
+check('categorize: dstv expense -> Subscriptions (round 10, A4)', categorizeTransaction('DSTV renewal', 'expense') === 'Subscriptions');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

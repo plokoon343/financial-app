@@ -19,7 +19,7 @@ const insightFeed = require('./lib/insightFeed');
 const { fingerprint, matchScore, splitDuplicates, MERGE, PROBABLE: PROBABLE_DUP } = require('./lib/dedupe');
 const { detectTransfers, scorePair, routeKey } = require('./lib/internalTransfers');
 const { classifyKind } = require('./lib/txnKinds');
-const { reclassifyRow, MACHINE_KINDS } = require('./lib/reclassify');
+const { reclassifyRow, retireRow, MACHINE_KINDS } = require('./lib/reclassify');
 const { COUNTED_TYPES, monthRange, periodFigures } = require('./lib/periodView');
 const { pairReversals } = require('./lib/reversals');
 // Round 6, Block 2b (brief 3.4 to 3.6): linking, statement reconciliation and undo.
@@ -66,7 +66,7 @@ const irregularIncomeLib = require('./lib/irregularIncome');
 const owedToMeLib = require('./lib/owedToMe');
 const cashflowMath = require('./lib/cashflowMath');
 const birthday = require('./lib/birthday');
-const { categorizeTransaction } = require('./lib/categorize');
+const { categorise } = require('./lib/categorise');
 const purposeInf = require('./lib/purposeInference');
 const { classifyPurpose, proposalFrom } = require('./lib/purposeClassifier');
 const { llmConfig, llmActive, inferPurposesLLM } = require('./lib/llmPurpose');
@@ -667,6 +667,9 @@ const transactionSchema = new mongoose.Schema({
   // totals say "Includes [n] guessed categories", so a guess is never passed off as
   // a fact. Cleared the moment the user answers or edits the category.
   categoryGuessed: { type: Boolean, default: false },
+  // Round 10, A5: WHY the category is what it is, for "Why this category?" on the
+  // transaction. Set wherever lib/categorise decides a row; '' on older rows.
+  categorySource: { type: String, enum: ['', 'rule', 'contact', 'learned', 'consensus', 'catalogue', 'keyword', 'person', 'default', 'ai'], default: '' },
   // The currency this row's `amount` is actually in, when it is not naira (13.8).
   // A dollar-card charge keeps its own USD amount here; `amount` on an NGN row
   // stays naira as always. heldAs.nairaAmount below is a separate, naira concept
@@ -1587,7 +1590,7 @@ const parseCSV = (filePath) => {
 
           const reference = (r['reference'] || r['ref'] || r['ref no'] || r['cheque no'] || '').trim() || null;
           transactions.push({ date: formattedDate, description, amount, type,
-            category: categorizeTransaction(description, type), reference, balance: balance || null });
+            ...catFields(description, type), reference, balance: balance || null });
         }
         console.log(`[parseCSV] Header at line ${headerLineIdx}, parsed ${transactions.length} transactions`);
         transactions.bank = detectBank(rawContent);
@@ -1666,7 +1669,7 @@ const parseExcel = (filePath) => {
 
     const reference = refIdx !== -1 ? (row[refIdx] || '').toString().trim() || null : null;
     transactions.push({ date: formattedDate, description, amount, type,
-      category: categorizeTransaction(description, type), reference, balance });
+      ...catFields(description, type), reference, balance });
   }
 
   console.log(`[parseExcel] Header at row ${headerIdx}, parsed ${transactions.length} transactions`);
@@ -1793,7 +1796,7 @@ const stripBranchPrefix = (transactions) => {
     const remarks = t.description.slice(starts[i] + lcp.length).replace(/^[\s:;,'"’.\-]+/, '').trim();
     if (remarks) {
       t.description = remarks.slice(0, 140).trim();
-      t.category = categorizeTransaction(t.description, t.type); // re-categorise on the cleaner text
+      Object.assign(t, catFields(t.description, t.type)); // re-categorise on the cleaner text
     }
   }
 };
@@ -1885,7 +1888,7 @@ const parseStatementByBalance = (rawText) => {
       description,
       amount: +amount.toFixed(2),
       type,
-      category: categorizeTransaction(description, type),
+      ...catFields(description, type),
       reference: null,
       balance,
       confidenceLevel,
@@ -1961,7 +1964,7 @@ const parsePDF = async (filePath, password = '') => {
     // for per-account views, like every other bank the parsers detect.
     const opayMask = (opayParsed.accountNumber || '').toString().replace(/\D/g, '').slice(-4);
     opayParsed.forEach((t) => {
-      if (!t.category) t.category = categorizeTransaction(t.description, t.type === 'income' ? 'income' : 'expense');
+      if (!t.category) Object.assign(t, catFields(t.description, t.type === 'income' ? 'income' : 'expense', { internal: !!t.internal }));
       t.bankCode = 'opay';
       if (opayMask) t.accountMask = opayMask;
     });
@@ -2065,7 +2068,7 @@ const parsePDF = async (filePath, password = '') => {
       description,
       amount: txnAmount,
       type,
-      category: categorizeTransaction(description, type),
+      ...catFields(description, type),
       reference: null,
       balance,
       confidenceLevel: 'medium', // generic column parse, no balance validation (A6)
@@ -2106,7 +2109,7 @@ const parsePDF = async (filePath, password = '') => {
         description,
         amount,
         type,
-        category: categorizeTransaction(description, type),
+        ...catFields(description, type),
         reference: null,
         balance: null,
         confidenceLevel: 'low', // speculative line-pair guess: flag for the user (A6)
@@ -2237,45 +2240,47 @@ async function maybeLinkSubscription(userId, { description, amount, category, da
   } catch (e) { if (e && e.code !== 11000) console.error('[maybeLinkSubscription]', e.message); }
 }
 
-// Override categories using what this user has taught the app previously.
-const applyLearnedCategories = async (userId, transactions) => {
-  const rules = await LearnedCategory.find({ userId }).lean();
-  if (!rules.length) return transactions;
-  const map = new Map(rules.map(r => [r.key, r.category]));
-  return transactions.map(t => {
-    const key = deriveCategoryKey(t.description);
-    return key && map.has(key) ? { ...t, category: map.get(key), learned: true } : t;
-  });
+// ── Round 10, A2: the one place a category is decided ──
+// Every ingestion path asks lib/categorise, in its fixed order, and writes the answer
+// together with WHY (`categorySource`, shown on transaction detail). The maps hold what
+// the user has taught the app, batch-loaded once per request or scan, never per row.
+const catFields = (description, type, extra = {}) => {
+  const c = categorise({ txn: { description, type, ...extra } });
+  return { category: c.category, categorySource: c.source };
 };
-
-// Apply the SHARED consensus to rows the rules/user couldn't confidently place
-// (still 'Other'/uncategorised). Only overrides when a merchant key has enough
-// votes and a clear majority. Batch-loads to keep it one query per import.
-const applyGlobalCategories = async (transactions) => {
-  const isOther = (c) => !c || c === 'Other' || c === 'Other Income';
-  const targets = transactions.filter((t) => isOther(t.category));
-  if (!targets.length) return transactions;
-  const keyOf = new Map();
+async function loadCategoriseMaps(userId, descriptions = []) {
   const keys = new Set();
-  for (const t of targets) { const k = deriveCategoryKey(t.description); if (k) { keyOf.set(t, k); keys.add(k); } }
-  if (!keys.size) return transactions;
-
-  const docs = await GlobalCategory.find({ key: { $in: [...keys] } }).lean();
-  const winner = new Map(); // key -> category
+  for (const d of descriptions) { const k = deriveCategoryKey(d); if (k) keys.add(k); }
+  const [rules, contacts, nameRules, docs] = await Promise.all([
+    LearnedCategory.find({ userId }, { key: 1, category: 1 }).lean(),
+    Contact.find({ userId, $or: [{ category: { $ne: '' } }, { relationship: { $in: ['family', 'friend'] } }] }, { key: 1, category: 1, relationship: 1 }).lean(),
+    loadNameRules(userId),
+    keys.size ? GlobalCategory.find({ key: { $in: [...keys] }, status: 'approved' }).lean() : [],
+  ]);
+  const consensus = new Map();
   for (const d of docs) {
-    const counts = d.counts || {};
-    let bestSlug = null, bestN = 0, total = 0;
-    for (const [slug, n] of Object.entries(counts)) { if (n > 0) { total += n; if (n > bestN) { bestN = n; bestSlug = slug; } } }
-    if (bestSlug && bestN >= GLOBAL_MIN_VOTES && total > 0 && bestN / total >= GLOBAL_MIN_SHARE) {
-      const cat = SLUG_TO_CAT.get(bestSlug);
-      // Live only once an admin approved this exact category.
-      if (cat && d.status === 'approved' && d.approvedCategory === cat) winner.set(d.key, cat);
-    }
+    const w = globalWinner(d);
+    if (w.ready && d.approvedCategory === w.category) consensus.set(d.key, w.category);
   }
-  if (!winner.size) return transactions;
-  return transactions.map((t) => {
-    const k = keyOf.get(t);
-    return (k && winner.has(k) && isOther(t.category)) ? { ...t, category: winner.get(k), globalGuess: true } : t;
+  return {
+    userRules: new Map(rules.map((r) => [r.key, r.category])),
+    contacts: new Map(contacts.map((c) => [c.key, { category: c.category || '', relationship: c.relationship }])),
+    nameRules,
+    consensus,
+  };
+}
+// Re-decide the category of parsed rows with the user's own maps applied. Keeps the
+// `learned` / `globalGuess` flags the clients already read.
+const applyCategorise = async (user, rows) => {
+  if (!rows.length) return rows;
+  const maps = await loadCategoriseMaps(user._id, rows.map((r) => r.description));
+  return rows.map((r) => {
+    const c = categorise({ txn: { description: r.description, type: r.type, amount: r.amount, internal: r.internal, isFee: r.isFee }, user, maps });
+    return {
+      ...r, category: c.category, categorySource: c.source,
+      ...(['rule', 'contact', 'learned'].includes(c.source) ? { learned: true } : {}),
+      ...(c.source === 'consensus' ? { globalGuess: true } : {}),
+    };
   });
 };
 
@@ -3689,7 +3694,18 @@ app.get('/api/transactions/manual-default', auth, async (req, res) => {
 });
 app.post('/api/transactions', auth, async (req, res) => {
   const { date, description, amount, category, type, source, bank, bankCode, accountMask, parseConfidence, parseId, dedupeGroupId, paymentMethod } = req.body;
-  if (!date || !description || !amount || !category || !type) return res.status(400).json({ message: 'All fields required' });
+  if (!date || !description || !amount || !type) return res.status(400).json({ message: 'All fields required' });
+  // Round 10, A2: a manual entry with no category is decided the same way every other
+  // path is, with the user's rules applied. A category the person picked is their rule.
+  let categoryValue = (category || '').toString().trim();
+  let categorySource = 'rule';
+  if (!categoryValue || source === 'share' || source === 'receipt') {
+    const maps = await loadCategoriseMaps(req.user._id, [description]);
+    const c = categorise({ txn: { description, type }, user: req.user, maps });
+    if (!categoryValue) { categoryValue = c.category; categorySource = c.source; }
+    else if (categoryValue === c.category) categorySource = c.source; // accepted our suggestion as is
+  }
+  if (!categoryValue) return res.status(400).json({ message: 'All fields required' });
   // Provenance for a share-sheet confirm (spec §8): stamp source + parse metadata + the
   // account fingerprint so a confirmed shared alert behaves like any imported row.
   const shared = source === 'share';
@@ -3698,7 +3714,7 @@ app.post('/api/transactions', auth, async (req, res) => {
   const bMask = st.accountMask;
   const transaction = new Transaction({
     userId: req.user._id, date: new Date(date), description: description.trim(),
-    amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount), category: category.trim(), type,
+    amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount), category: categoryValue, categorySource, type,
     ...(shared ? { source: 'share', importedAt: new Date() } : {}),
     ...(source === 'receipt' ? { source: 'receipt' } : {}),
     ...(['cash', 'card', 'transfer'].includes(paymentMethod) ? { paymentMethod } : {}),
@@ -3723,14 +3739,14 @@ app.post('/api/transactions', auth, async (req, res) => {
 // every number and name removed, on the free stripped-data chain. Nothing is stored
 // here (the user checks the fields and saves through POST /api/transactions), and the
 // text is never logged.
-const RECEIPT_CATEGORIES = [...GLOBAL_ELIGIBLE_CATEGORIES].filter((c) => !['Bank Charges', 'ATM/POS', 'Subscriptions'].includes(c));
+const RECEIPT_CATEGORIES = [...GLOBAL_ELIGIBLE_CATEGORIES].filter((c) => !['Bank Charges', 'Subscriptions'].includes(c));
 app.post('/api/receipts/parse', aiLimiter, auth, async (req, res) => {
   try {
     if (!hasFeature(req.user, 'receipts')) return res.status(402).json(upgradeRequired('receipts'));
     const text = String(req.body?.text || '').slice(0, 8000);
     if (!text.trim()) return res.status(400).json({ message: 'We couldn’t read any text in that photo. Try again in better light.' });
     const r = receipt.parseReceipt(text);
-    let category = r.merchant ? categorizeTransaction(r.merchant, 'expense') : '';
+    let category = r.merchant ? categorise({ txn: { description: r.merchant, type: 'expense' } }).category : '';
     if (!RECEIPT_CATEGORIES.includes(category)) category = '';
     let assisted = false;
     if (aiProviders.strippedChain().length && (!r.merchant || !category)) {
@@ -3757,7 +3773,7 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
     if (date !== undefined) txn.date = new Date(date);
     if (description !== undefined) txn.description = description.trim();
     if (type !== undefined) txn.type = type;
-    if (category !== undefined) txn.category = category.trim();
+    if (category !== undefined) { txn.category = category.trim(); if (categoryChanged) { txn.categorySource = 'rule'; txn.categoryGuessed = false; } }
     // "Paid from / Received into": the account, a bank by name, or cash.
     if (req.body.paymentMethod === 'cash') { txn.paymentMethod = 'cash'; txn.bank = ''; txn.bankCode = ''; txn.accountMask = ''; }
     else if (req.body.bank !== undefined) {
@@ -3799,15 +3815,15 @@ app.post('/api/transactions/:id/apply-rule', auth, async (req, res) => {
     if (!txn) return res.status(404).json({ message: 'Transaction not found' });
     if (!['income', 'expense'].includes(txn.type)) return res.status(400).json({ message: 'Only income and spending can have a rule.' });
     const category = String((req.body && req.body.category) || txn.category || '').trim();
-    if (!category || category === 'Transfer') return res.status(400).json({ message: 'Pick a category first.' });
+    if (!category || (categoryCatalogue.categoryById(category) || {}).retired) return res.status(400).json({ message: 'Pick a category first.' });
     const key = deriveCategoryKey(txn.description);
     if (!key) return res.status(400).json({ message: 'This one has no name we can match on.' });
-    if (txn.category !== category) { txn.category = category; await txn.save(); }
+    if (txn.category !== category || txn.categorySource !== 'rule') { txn.category = category; txn.categorySource = 'rule'; await txn.save(); }
     await learnCategories(req.user._id, [{ description: txn.description, category }]);
     const rows = await Transaction.find({ userId: req.user._id, type: txn.type, _id: { $ne: txn._id }, category: { $ne: category } })
       .select('_id description').lean();
     const ids = rows.filter((r) => deriveCategoryKey(r.description) === key).map((r) => r._id);
-    if (ids.length) await Transaction.updateMany({ _id: { $in: ids }, userId: req.user._id }, { $set: { category } });
+    if (ids.length) await Transaction.updateMany({ _id: { $in: ids }, userId: req.user._id }, { $set: { category, categorySource: 'rule' } });
     res.json({ updated: ids.length, key, category });
   } catch (e) { console.error('[apply-rule]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -4455,7 +4471,25 @@ app.get('/api/admin/ingestion/accuracy', auth, superAdminAuth, async (req, res) 
     }
     banks.sort((a, b) => b.health - a.health);
 
+    // Round 10, A6: per-category accuracy (of the rows we filed under a category, how many
+    // the person left alone) and the share of all rows each source decided.
+    const catAgg = await ParseCorrection.aggregate([
+      { $match: { parsedCategory: { $ne: null } } },
+      { $group: { _id: '$parsedCategory', total: { $sum: 1 },
+        fixed: { $sum: { $cond: [{ $in: ['category', { $ifNull: ['$correctedFields', []] }] }, 1, 0] } } } },
+      { $sort: { total: -1 } },
+    ]);
+    const srcAgg = await Transaction.aggregate([
+      { $group: { _id: { $ifNull: ['$categorySource', ''] }, count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+    const srcTotal = srcAgg.reduce((n, r) => n + r.count, 0);
+
     res.json({
+      categories: {
+        byCategory: catAgg.map((c) => ({ category: c._id, samples: c.total, corrected: c.fixed, accuracy: pct(c.total - c.fixed, c.total) })),
+        bySource: srcAgg.map((r) => ({ source: r._id || '(before round 10)', rows: r.count, share: pct(r.count, srcTotal) })),
+      },
       corrections: {
         total: ct.total, corrected: ct.corrected, overallRate: pct(ct.corrected, ct.total),
         amountFix: ct.amountFix, amountFixRate: pct(ct.amountFix, ct.total),
@@ -4970,9 +5004,7 @@ app.post('/api/upload-statement', auth, uploadSingle, async (req, res) => {
     }).catch((e) => console.error('[reconlog]', e.message));
 
     // Apply categories the user has taught the app from previous corrections.
-    transactions = await applyLearnedCategories(req.user._id, transactions);
-    // Then the shared consensus for anything the rules/user left as 'Other'.
-    transactions = await applyGlobalCategories(transactions);
+    transactions = await applyCategorise(req.user, transactions);
 
     const existing = await Transaction.find({ userId: req.user._id }, { date: 1, amount: 1, description: 1 }).lean();
     const existingKeys = new Set(existing.map(t => `${new Date(t.date).toISOString().split('T')[0]}|${Math.abs(t.amount)}|${t.description}`));
@@ -5018,10 +5050,11 @@ async function llmRescueRow(rawText, source = 'sms', sender = '') {
     if (!v) return null;
     const { bankCode, bankName, accountMask, senderKey } = fingerprintAccount(rawText, sender);
     const description = v.merchant || 'Bank alert';
-    const category = categorizeTransaction(description, v.type);
+    const cat = categorise({ txn: { description, type: v.type } });
+    const category = cat.category;
     return {
       date: v.date || new Date().toISOString().slice(0, 10),
-      description, amount: +Number(v.amount).toFixed(2), type: v.type, category,
+      description, amount: +Number(v.amount).toFixed(2), type: v.type, category, categorySource: cat.source,
       bank: bankName || detectBank(rawText), bankCode, accountMask, senderKey,
       reference: null, raw: rawText, needsReview: true, directionKnown: v.directionKnown, confidence: 'medium',
       _parse: {
@@ -5059,7 +5092,7 @@ async function llmParseStatement(rawText) {
       description: r.description,
       amount: +Number(r.amount).toFixed(2),
       type: r.type,
-      category: categorizeTransaction(r.description, r.type),
+      ...catFields(r.description, r.type),
       reference: null,
       confidenceLevel: 'high', // it balanced exactly
     }));
@@ -5199,8 +5232,7 @@ app.post('/api/parse-sms', auth, async (req, res) => {
     let rows = (await parseAlertsWithRescue(source, 'sms', '', { userName: req.user.name || '' })).filter((r) => r && (r.amount > 0 || r.needsReview));
     if (!rows.length) return res.status(422).json({ message: "Couldn't read a transaction from that. Check you pasted the full alert.", transactions: [] });
     // Apply the user's learned categories, then the shared consensus.
-    rows = await applyLearnedCategories(req.user._id, rows);
-    rows = await applyGlobalCategories(rows);
+    rows = await applyCategorise(req.user, rows);
     const detectedBank = rows.find((r) => r.bank)?.bank || '';
     return res.json({ transactions: rows, meta: { totalFound: rows.length, detectedBank, source: 'sms' } });
   } catch (e) {
@@ -5453,6 +5485,14 @@ async function ingestAlert(user, parsed, source = 'email') {
   const fp = fingerprint({ amount: parsed.amount, type: parsed.type, date: parsed.date, bank: parsed.bank, description: parsed.description });
   const dupOf = existing.find((e) => matchScore(fp, fingerprint({ amount: e.amount, type: e.type, date: new Date(e.date).toISOString().slice(0, 10), bank: e.bank, description: e.description })) >= MERGE);
   if (dupOf) { await attachObservation(user._id, dupOf._id, parsed, source, { step: 4, rule: 'window' }); return 0; }
+  // Round 10, A2: SMS, notification, email, share-confirm and pending-confirm all land
+  // here, so the user's rules, contact labels and learned merchants apply on every one of
+  // them. A category the user just picked (confirm) is final and is not re-decided.
+  if (!parsed.categoryFinal) {
+    const maps = await loadCategoriseMaps(user._id, [parsed.description]);
+    const c = categorise({ txn: { description: parsed.description, type: parsed.type, internal: parsed.internal, isFee: parsed.isFee }, user, maps });
+    parsed.category = c.category; parsed.categorySource = c.source;
+  }
   const signed = parsed.type === 'income' ? Math.abs(parsed.amount) : -Math.abs(parsed.amount);
   const kind = classifyKind({ type: parsed.type, description: parsed.description, category: parsed.category });
   let eCode = (parsed.bankCode || '').toString().toLowerCase().slice(0, 24);
@@ -5490,6 +5530,7 @@ async function ingestAlert(user, parsed, source = 'email') {
     // is an internal_transfer, so it is left out of spending and income without
     // anyone having to be asked (round 6, B6).
     category: parsed.isFee ? 'Bank Charges' : (parsed.category || 'Other'),
+    categorySource: parsed.categorySource || 'default',
     type: parsed.isFee ? 'expense' : (parsed.internal ? 'internal_transfer' : (kind || parsed.type)),
     source, bank: eBank, importedAt: new Date(),
     bankCode: eCode, accountMask: eMask, senderKey: eSender,
@@ -5586,7 +5627,9 @@ app.post('/api/ingest/share', auth, async (req, res) => {
       .select('amount type date bank description source').lean();
 
     const parseId = crypto.randomUUID();
-    const candidates = rows.map((r) => ({
+    // Round 10, A2: the shared alert is categorised with this user's own rules applied.
+    const decided = await applyCategorise(req.user, rows);
+    const candidates = decided.map((r) => ({
       ...shareIngest.toCandidate(r),
       confidence: shareIngest.confidenceTier(r),
       dedupe: shareDedupeCheck(existing, r),
@@ -5770,7 +5813,7 @@ async function ingestInboundEmail({ recipient, from, subject = '', text = '', ht
     if (isUnsure(parsed)) { await holdForReview(user._id, parsed, parsed.raw || '', 'email', 'unclear'); continue; }
     if (bodyDescription) {
       parsed.description = bodyDescription;
-      parsed.category = parsed.isFee ? 'Bank Charges' : categorizeTransaction(bodyDescription, parsed.type);
+      Object.assign(parsed, catFields(bodyDescription, parsed.type, { isFee: !!parsed.isFee }));
     }
     created += await ingestAlert(user, parsed, 'email');
   }
@@ -6033,9 +6076,11 @@ app.post('/api/pending-alerts/:id/confirm', auth, async (req, res) => {
     if (!(amount > 0)) return res.status(400).json({ message: 'Enter the amount.' });
     if (type !== 'income' && type !== 'expense') return res.status(400).json({ message: 'Is it money in or money out?' });
     const description = String(b.description ?? was.description ?? 'Bank alert').trim().slice(0, 140) || 'Bank alert';
-    const category = String(b.category || (was.isFee ? 'Bank Charges' : categorizeTransaction(description, type)) || 'Other');
+    const picked = b.category ? String(b.category).trim() : '';
+    const decided = picked ? { category: picked, source: 'rule' } : (() => { const c = categorise({ txn: { description, type, isFee: !!was.isFee } }); return { category: c.category, source: c.source }; })();
+    const category = decided.category || 'Other';
     const date = b.date && !isNaN(new Date(b.date)) ? new Date(b.date).toISOString().slice(0, 10) : (was.date || new Date().toISOString().slice(0, 10));
-    const created = await ingestAlert(req.user, { ...was, amount, type, description, category, date, isFee: category === 'Bank Charges' && was.isFee, confidence: 'high' }, p.source === 'email' ? 'email' : p.source === 'notification' ? 'notification' : 'sms');
+    const created = await ingestAlert(req.user, { ...was, amount, type, description, category, categorySource: decided.source, categoryFinal: !!picked, date, isFee: category === 'Bank Charges' && was.isFee, confidence: 'high' }, p.source === 'email' ? 'email' : p.source === 'notification' ? 'notification' : 'sms');
     await PendingAlert.deleteOne({ _id: p._id });
     await logCorrection(req.user._id, 'confirmed', { description, bankCode: was.bankCode });
     if (was.amount && Math.abs(was.amount - amount) >= 0.01) await logCorrection(req.user._id, 'amount', { description, from: was.amount, to: amount, bankCode: was.bankCode });
@@ -6211,7 +6256,7 @@ async function actionCardInput(user) {
     input.category.push({
       ...base,
       suggestions: categorySuggest.suggest({
-        ruleGuess: categorizeTransaction(t.description, 'expense'),
+        ruleGuess: categorise({ txn: { description: t.description, type: 'expense' } }).category,
         learned: key ? learned.get(key) : '',
         global: key ? consensus.get(key) : '',
         popular,
@@ -7122,6 +7167,18 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       for (const c of cs) { const cat = contactCategory(c); if (cat) contactCatMap.set(c.key, cat); }
     }
 
+    // Round 10, A2: statement and in-app SMS imports are decided by the same categoriser
+    // as every other path. The user's standing rule or contact label wins over a category
+    // the client guessed; a category the person picked on review is kept (their own rule);
+    // a retired one (older apps still send Transfer / ATM/POS) is replaced.
+    const importMaps = await loadCategoriseMaps(req.user._id, fresh.map((t) => t.description));
+    for (const t of fresh) {
+      const c = categorise({ txn: { description: t.description, type: t.type, amount: t.amount, internal: t.internal, isFee: t.isFee }, user: req.user, maps: importMaps });
+      const retired = (categoryCatalogue.categoryById(t.category) || {}).retired;
+      if (!t.category || retired || t.category === 'Other' || t.category === 'Other Income' || ['rule', 'contact'].includes(c.source)) { t.category = c.category; t._catSource = c.source; }
+      else t._catSource = t.category === c.category ? c.source : 'rule';
+    }
+
     // Rows for an account the user merged away land on the account it went into.
     const merges = await mergedAccountMap(req.user._id);
     if (merges.size) {
@@ -7156,7 +7213,7 @@ app.post('/api/import-transactions', auth, async (req, res) => {
       const contactCat = contactCatMap.get(cpKeyOf.get(t)) || '';
       return new Transaction({
         userId: req.user._id, date: new Date(t.date), description: t.description,
-        amount, category: contactCat || t.category || 'Other', type: finalType,
+        amount, category: contactCat || t.category || 'Other', categorySource: contactCat ? 'contact' : (t._catSource || 'default'), type: finalType,
         // Prefer a per-transaction bank (an SMS scan can span several banks),
         // falling back to the batch-level label.
         source: 'import', channel, bank: ((t.bank || bankLabel) || '').toString().trim(), importBatch, importedAt,
@@ -9472,13 +9529,14 @@ async function syncMonoAccount(user, acct) {
   });
   const raw = r.data?.data || r.data?.transactions || [];
   // Map Mono txns → our model. Mono amounts are in kobo; debit=expense, credit=income.
-  const mapped = raw.map((t) => {
+  let mapped = raw.map((t) => {
     const amt = Math.abs(Number(t.amount) || 0) / 100;
     const type = (t.type === 'credit') ? 'income' : 'expense';
     const description = (t.narration || t.description || 'Bank transaction').toString().trim();
     const date = new Date(t.date).toISOString().slice(0, 10);
-    return { date, description, amount: amt, type, category: categorizeTransaction(description, type) };
+    return { date, description, amount: amt, type, ...catFields(description, type) };
   }).filter((t) => t.amount > 0 && t.date);
+  mapped = await applyCategorise(user, mapped); // round 10, A2: this user's own rules too
 
   // Idempotent dedupe against what the user already has.
   const existing = await Transaction.find({ userId: user._id }, { date: 1, amount: 1, description: 1 }).lean();
@@ -9490,7 +9548,7 @@ async function syncMonoAccount(user, acct) {
     .map((t) => new Transaction({
       userId: user._id, date: new Date(t.date), description: t.description,
       amount: t.type === 'income' ? Math.abs(t.amount) : -Math.abs(t.amount),
-      category: t.category, type: t.type, source: 'import',
+      category: t.category, categorySource: t.categorySource || 'default', type: t.type, source: 'import',
       bank: acct.institution || 'Linked bank', importBatch, importedAt,
     }));
   if (docs.length) await Transaction.insertMany(docs, { ordered: false });
@@ -10972,15 +11030,14 @@ app.post('/api/transactions/recategorize', auth, async (req, res) => {
   try {
     const uid = req.user._id;
     const others = await Transaction.find({ userId: uid, category: { $in: ['Other', 'Other Income'] } })
-      .select('_id description category type').lean();
+      .select('_id description category type amount').lean();
     if (!others.length) return res.json({ updated: 0, remaining: 0 });
-    let mapped = await applyLearnedCategories(uid, others);
-    mapped = await applyGlobalCategories(mapped);
+    const mapped = await applyCategorise(req.user, others);
     const isOther = (c) => !c || c === 'Other' || c === 'Other Income';
     const ops = [];
     for (const m of mapped) {
       if (!isOther(m.category)) {
-        ops.push({ updateOne: { filter: { _id: m._id, userId: uid }, update: { $set: { category: m.category } } } });
+        ops.push({ updateOne: { filter: { _id: m._id, userId: uid }, update: { $set: { category: m.category, categorySource: m.categorySource } } } });
       }
     }
     if (ops.length) await Transaction.bulkWrite(ops, { ordered: false });
@@ -11629,8 +11686,8 @@ app.post('/api/admin/backfill-global-categories', auth, superAdminAuth, async (r
 app.post('/api/admin/reclassify-kinds', auth, superAdminAuth, async (req, res) => {
   try {
     const apply = req.query.apply === '1' || req.body?.apply === true;
-    const rows = await Transaction.find({ type: { $in: [...MACHINE_KINDS, 'expense', 'income'] } })
-      .select('userId type amount description category reviewedAt cashAllocated cashParentId').lean();
+    const rows = await Transaction.find({ type: { $in: [...MACHINE_KINDS, 'expense', 'income', 'internal_transfer'] } })
+      .select('userId type amount description category reviewedAt cashAllocated cashParentId source categorySource').lean();
     // Phone check P1/finding 2, 8 Nov 2026: the self-transfer case in reclassifyRow
     // needs the row's own account holder's name, which the row itself doesn't carry.
     // One batch lookup for every distinct userId among the scanned rows, not one
@@ -11642,9 +11699,16 @@ app.post('/api/admin/reclassify-kinds', auth, superAdminAuth, async (req, res) =
     const sample = [];
     const ownMoveSample = [];
     let ownMoveChanged = 0;
+    // Round 10, A3: counts per change, so the owner can read exactly what an apply would
+    // do before approving it. Retired categories (Transfer, ATM/POS) are moved here too,
+    // machine-set rows only (lib/reclassify.retireRow).
+    const counts = {};
     for (const row of rows) {
       const userName = nameOf.get(String(row.userId)) || '';
-      const set = reclassifyRow(row, { userName });
+      let set = reclassifyRow(row, { userName });
+      const retired = retireRow({ ...row, ...(set || {}) });
+      if (set && set.type && set.type !== row.type) { const k = `kind: ${row.type} -> ${set.type}`; counts[k] = (counts[k] || 0) + 1; }
+      if (retired) { set = { ...(set || {}), ...retired.set }; counts[retired.change] = (counts[retired.change] || 0) + 1; }
       if (!set) continue;
       ops.push({ updateOne: { filter: { _id: row._id }, update: { $set: set } } });
       const entry = { description: (row.description || '').slice(0, 60), from: { type: row.type, category: row.category }, to: set };
@@ -11658,7 +11722,7 @@ app.post('/api/admin/reclassify-kinds', auth, superAdminAuth, async (req, res) =
       }
     }
     if (apply && ops.length) await Transaction.bulkWrite(ops, { ordered: false });
-    res.json({ scanned: rows.length, changed: ops.length, applied: apply, sample, ownMoveChanged, ownMoveSample });
+    res.json({ scanned: rows.length, changed: ops.length, applied: apply, counts, sample, ownMoveChanged, ownMoveSample });
   } catch (e) { console.error('[reclassify-kinds]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
 

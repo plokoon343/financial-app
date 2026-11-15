@@ -18,14 +18,14 @@ const b = (body) => new RegExp(`(?:^|[^a-z0-9])(?:${body})(?:[^a-z0-9]|$)`, 'i')
 const MERCHANTS = [
   // ── Telcos: airtime & data ──
   [b('mtn|airtel|glo\\b|globacom|9mobile|etisalat|smile|spectranet|swift ?network|ipnx|tizeti|starlink'), 'Airtime & Data', 'Telecom'],
-  [b('airtime|data ?bundle|data ?plan|recharge|top ?up'), 'Airtime & Data', 'Airtime/Data'],
+  [b('airtime|data ?bundle|data ?plan|(?:mobile|vtu) ?(?:recharge|top ?up)|recharge ?card|vtu'), 'Airtime & Data', 'Airtime/Data'],
 
   // ── Electricity DisCos & utilities ──
   [b('ikedc| eko ?elec|ekedc|ibedc|aedc|eedc|phed|kaedco|kedco|jed|bedc|yedc|capricorn|prepaid ?meter|electric(?:ity)?|nepa|phcn'), 'Utilities', 'Electricity'],
-  [b('lawma|waste|water ?(?:board|corp|bill)|dstv|gotv|startimes|multichoice'), 'Utilities', 'Utility/TV'],
+  [b('lawma|waste|water ?(?:board|corp|bill)'), 'Utilities', 'Utility'],
 
   // ── Streaming & digital subscriptions ──
-  [b('netflix|spotify|apple ?music|youtube ?premium|showmax|prime ?video|amazon ?prime|icloud|google ?one|canva|chatgpt|openai|anthropic|claude|adobe|microsoft ?365|office ?365|linkedin|notion|grammarly|coursera ?plus'), 'Subscriptions', 'Digital subscription'],
+  [b('dstv|gotv|startimes|multichoice|netflix|spotify|apple ?music|youtube ?premium|showmax|prime ?video|amazon ?prime|icloud|google ?one|canva|chatgpt|openai|anthropic|claude|adobe|microsoft ?365|office ?365|linkedin|notion|grammarly|coursera ?plus'), 'Subscriptions', 'Digital subscription'],
   // Apple and Google bill every app, iCloud plan and subscription through one
   // narration ("WEB PUR APPLE.COM/BILL", "Web Pur @ -ITUNES.COM"). Those are card
   // purchases, not the ATM/POS cash the generic rail rule used to make them - round

@@ -1,0 +1,1790 @@
+{
+ "note": "Round 10, A6. Labelled, redacted narrations (no real names, account numbers or amounts). expected is what a person would say the category is, written by hand, not produced by the categoriser. CI fails below 90% correct (lib/categoryAccuracy.test.js).",
+ "rows": [
+  {
+   "narration": "POS PURCHASE SHOPRITE IKEJA CITY MALL",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "POS PUR SPAR LEKKI PHASE 1 LANG",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "WEB PUR JUSTRITE ABUJA",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "PURCHASE/POS EBEANO SUPERMARKET LAGOS",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "POS PUR HUBMART STORES GWARINPA",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "Debit Alert: Addide Supermarket Lagos",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "VPOS SHOPRITE SURULERE",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "POS/Mile 12 MARKET FRESH PRODUCE",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "Payment to Grocery store Yaba",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "POS PUR PRINCE EBEANO LEKKI",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "GAME STORE ACHIVERS MALL POS",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "FOODCO SUPERMARKET LAGOS ISLAND",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "POS PUR MARKET SQUARE VI",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "Supermarket purchase Port Harcourt",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "POS WITHDRAWAL SHOPRITE ABUJA",
+   "type": "expense",
+   "expected": "Groceries"
+  },
+  {
+   "narration": "CHOWDECK ORDER LAGOS",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Transfer to CHOWDECK/KOON PLO",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "GLOVO FOOD DELIVERY",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "POS PUR KFC IKEJA",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "POS CHICKEN REPUBLIC SURULERE",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "DOMINOS PIZZA LEKKI",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Payment to Mr Biggs Yaba",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "POS PUR THE PLACE VI",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "COLDSTONE CREAMERY LEKKI",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Jumia Food order",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "WEB PUR BOLT FOOD",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Sweet Sensation Ikeja",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Tantalizers Surulere",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "POS PUR KILIMANJARO RESTAURANT",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Bukka lunch payment",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Buka payment Mushin",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Payment to restaurant Ikoyi",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Suya spot Lekki",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Shawarma Ibadan POS",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "POS PUR JOLLOF HUB",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Local kitchen payment",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Cafe Neo POS PURCHASE",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Eatery payment Abuja",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "Burger King Lekki POS",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "POS PUR FOOD COURT MALL",
+   "type": "expense",
+   "expected": "Food"
+  },
+  {
+   "narration": "UBER TRIP LEKKI",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Uber *TRIP Lagos",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "BOLT RIDE LAGOS",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Bolt Ride Abuja",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "INDRIVE RIDE",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "LAGRIDE RIDE VI",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Danfo fare",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "KEKE payment Ikorodu",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Okada ride Surulere",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Air Peace flight booking",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "ARIK AIR TICKET",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "IBOM AIR booking",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "DANA AIR TICKET",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Green Africa flight",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "BRT card top up",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Cowry card reload",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Transport to Ibadan",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Toll payment Lekki",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Flight to Abuja",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Train ticket Lagos Ibadan",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Trip to Abuja bus",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Taxify ride",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "WEB PUR UBER TRIP",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Rida Lagos ride",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "Airway ticket purchase",
+   "type": "expense",
+   "expected": "Transport"
+  },
+  {
+   "narration": "NNPC FILLING STATION PMS",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "POS PUR CONOIL LEKKI",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "ARDOVA PETROL STATION",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "TOTAL ENERGIES FILLING STATION",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "TotalEnergies Ikeja",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "MOBIL STATION LEKKI POS",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "Oando filling station Abuja",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "Matrix Energy fuel",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "RAINOIL PETROL",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "Petrol purchase Ikorodu",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "Diesel for generator",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "Fuel for car",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "Forte Oil station",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "POS PUR FILLING STATION OSHODI",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "NNPC retail Abuja",
+   "type": "expense",
+   "expected": "Fuel"
+  },
+  {
+   "narration": "MTN VTU RECHARGE",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Airtime purchase MTN",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "AIRTEL AIRTIME TOP UP",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "GLO AIRTIME COLLECTION",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "VIA AIRTIME VIA GTWORLD AIRTIME TO GLO AIRTIME COLLECTION",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "9MOBILE RECHARGE",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Data bundle MTN 5GB",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Data plan Airtel monthly",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Mobile data purchase",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Spectranet internet subscription renewal",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Smile 4G data",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Swift Network data",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Starlink internet payment",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "IPNX broadband",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Airtime to self",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Airtime VTU PalmPay",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Recharge card purchase",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Airtime top up Opay",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Mobile recharge top up",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "Tizeti WiFi payment",
+   "type": "expense",
+   "expected": "Airtime & Data"
+  },
+  {
+   "narration": "IKEDC PREPAID ELECTRICITY",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "IBEDC prepaid token",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "EKEDC electricity payment",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "AEDC Abuja electricity",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Eko electricity bill payment",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "PHED prepaid meter",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Kaduna Electric payment",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Electricity token purchase",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "NEPA bill",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Prepaid meter recharge",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "LAWMA waste payment",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Waste collection Lagos",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Water bill Lagos",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Water corporation payment",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "EEDC electricity",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "BEDC prepaid",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Utility bill payment",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "Capricorn digital power",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "JED prepaid token",
+   "type": "expense",
+   "expected": "Utilities"
+  },
+  {
+   "narration": "NETFLIX.COM LAGOS NG",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "POS PUR NETFLIX.COM",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "SPOTIFY P1234 STOCKHOLM",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "WEB PUR APPLE.COM/BILL",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Web Pur @ -APPLE.COM/BILL 866-712-7753 CAUS",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Web Pur @ -ITUNES.COM",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "GOOGLE *YouTube Premium",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "GOOGLE ONE storage",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Google Play subscription",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "DSTV renewal",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "DSTV SUBSCRIPTION RENEWAL",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "GOTV payment",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "GOTV Jolli",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Startimes subscription",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Showmax monthly",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Amazon Prime Video",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "CANVA subscription",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "OPENAI CHATGPT PLUS",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "ADOBE creative cloud",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "iCloud storage",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Microsoft 365 subscription",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Apple Music",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Grammarly premium",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "Notion plan",
+   "type": "expense",
+   "expected": "Subscriptions"
+  },
+  {
+   "narration": "House rent for November",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Rent payment Lekki",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Rent for the flat",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Landlord payment",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Payment to landlord Surulere",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Annual rent",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Service charge estate",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Estate service charge",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Lease payment apartment",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Property agent fee",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Accommodation payment Abuja",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Rent Ikeja",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Shop rent",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Rent for December",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "Landlord rent top up",
+   "type": "expense",
+   "expected": "Housing"
+  },
+  {
+   "narration": "MEDPLUS PHARMACY IKEJA",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "POS PUR HEALTHPLUS LEKKI",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Pharmacy payment",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Hospital bill Reddington",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Lagoon Hospital payment",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Clinic consultation",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Dental clinic Lekki",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "HMO premium payment",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Chemist purchase",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Synlab lab test",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Clinix healthcare",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Medical bills",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Drugs purchase",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "Health check payment",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "POS PUR GRACE PHARMACY",
+   "type": "expense",
+   "expected": "Healthcare"
+  },
+  {
+   "narration": "School fees payment",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "Tuition fee Covenant University",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "WAEC registration",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "JAMB UTME registration",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "NECO payment",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "Coursera subscription",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "UDEMY course",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "AltSchool payment",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "University portal fee",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "Polytechnic school fees",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "College fees Abuja",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "Exam registration fee",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "Lecture notes handout",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "Textbook purchase",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "Andela learning",
+   "type": "expense",
+   "expected": "Education"
+  },
+  {
+   "narration": "Leadway Assurance premium",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "AIICO insurance premium",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "AXA Mansard policy",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "Cornerstone insurance renewal",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "Custodian insurance",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "Allianz premium",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "Car insurance renewal",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "Insurance premium payment",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "NSIA insurance",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "Mutual Benefits policy",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "Assurance premium debit",
+   "type": "expense",
+   "expected": "Insurance"
+  },
+  {
+   "narration": "JUMIA ORDER",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Jumia Nigeria purchase",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "KONGA ONLINE",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "AMAZON.COM order",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "ALIEXPRESS purchase",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "TEMU order",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "SHEIN order",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "SLOT SYSTEMS Ikeja",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "POS PUR SLOT LEKKI",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Pointek electronics",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Fashion boutique Lekki",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Clothing store payment",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Shopping mall Ikeja",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Boutique payment",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Jiji purchase",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Fashion Nova order",
+   "type": "expense",
+   "expected": "Shopping"
+  },
+  {
+   "narration": "Filmhouse cinema ticket",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "SILVERBIRD CINEMA",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "Genesis cinema",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "Concert ticket",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "Event ticket purchase",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "Movie night",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "Gaming top up",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "Lounge payment VI",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "Ebonylife Cinemas",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "Cinema Lekki",
+   "type": "expense",
+   "expected": "Entertainment"
+  },
+  {
+   "narration": "BET9JA deposit",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "NAIRABET funding",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "SPORTYBET deposit",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "Sporty Bet wallet",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "1XBET payment",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "BETKING deposit",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "MERRYBET",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "Betway deposit",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "MSport funding",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "BetNaija deposit",
+   "type": "expense",
+   "expected": "Betting"
+  },
+  {
+   "narration": "PiggyVest savings",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "COWRYWISE investment",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "RISEVEST purchase",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "Target savings top up",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "Ajo contribution",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "Esusu contribution",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "Thrift contribution",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "Vault deposit",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "Bamboo investment",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "Trove stock purchase",
+   "type": "expense",
+   "expected": "Savings"
+  },
+  {
+   "narration": "Commission on NIP Transfer",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "VAT",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "E-LEVY ON TRANSFER",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "ACCOUNT MAINTENANCE FEE",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "STAMP DUTY",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "Stamp duty charge",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "SMS ALERT CHARGE",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "Card maintenance fee",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "COT charge",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "NIP FEE",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "Transfer fee",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "EMTL charge",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "Electronic Money Transfer Levy",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "AMF charge",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "ATM charge",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "Bank fee",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "Commission on turnover",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "Card fee",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "SMS charge",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "Maintenance fee",
+   "type": "expense",
+   "expected": "Bank Charges"
+  },
+  {
+   "narration": "TRANSFER TO ADA OBI",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "NIP TRANSFER TO CHIDERA OKAFOR",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "Transfer to Emeka Nwosu 0123456789",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "MOBILE TRF TO FUNKE ADEBAYO",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "Sent to Ngozi Eze",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "OUTWARD TRANSFER TO OPAY - TUNDE BELLO",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "Transfer to Ibrahim Musa GTBank",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "NIP/TO KEMI ADEYEMI/PALMPAY",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "Transfer to Blessing Okoro Moniepoint",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "Transfer to Segun Ojo",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "TRANSFER TO CHINWE UDEH",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "Trf to Farida Bello",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "FT TO YUSUF ABDULLAHI",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "Transfer to Amaka Obi Kuda",
+   "type": "expense",
+   "expected": "Sent to people"
+  },
+  {
+   "narration": "POS PUR UNKNOWN SHOP LAGOS",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "POS/WEB PURCHASE LAGOS NG",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "VPOS 1234 SOME SHOP",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "SOME RANDOM NARRATION XYZ",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "ATM WITHDRAWAL GTB LAGOS",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "Cash withdrawal Ikeja",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "Payment on current account",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "Private tutoring session",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "Salvation Army donation",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "Scott and Sons hardware",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "Training workshop materials",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "WEB PUR UNKNOWNSHOP.COM",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "POS PUR T ABUBAKAR ISA DvJMSD 2214TMTR LANG 803456",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "Payment for services",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "Mobile phone repair",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "PURCHASE/POS 0912",
+   "type": "expense",
+   "expected": "Other"
+  },
+  {
+   "narration": "SALARY PAYMENT SEPTEMBER",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "Salary for November",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "SALARY OCT 2026 ACME LTD",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "Payroll credit",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "Monthly pay credit",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "Wages for the week",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "NIP/SALARY/ACME TECHNOLOGIES",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "Stipend payment",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "Salary advance repayment received",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "Staff salary credit",
+   "type": "income",
+   "expected": "Salary"
+  },
+  {
+   "narration": "NYSC ALLOWANCE OCTOBER",
+   "type": "income",
+   "expected": "Allowance"
+  },
+  {
+   "narration": "NYSC allawee payment",
+   "type": "income",
+   "expected": "Allowance"
+  },
+  {
+   "narration": "Allowance for November",
+   "type": "income",
+   "expected": "Allowance"
+  },
+  {
+   "narration": "Monthly allowance from parents",
+   "type": "income",
+   "expected": "Allowance"
+  },
+  {
+   "narration": "Allawee credit",
+   "type": "income",
+   "expected": "Allowance"
+  },
+  {
+   "narration": "NYSC payment September",
+   "type": "income",
+   "expected": "Allowance"
+  },
+  {
+   "narration": "Corper allowance",
+   "type": "income",
+   "expected": "Allowance"
+  },
+  {
+   "narration": "Allowance October",
+   "type": "income",
+   "expected": "Allowance"
+  },
+  {
+   "narration": "Freelance payment design",
+   "type": "income",
+   "expected": "Freelance"
+  },
+  {
+   "narration": "Consulting fee received",
+   "type": "income",
+   "expected": "Freelance"
+  },
+  {
+   "narration": "UPWORK withdrawal",
+   "type": "income",
+   "expected": "Freelance"
+  },
+  {
+   "narration": "FIVERR payout",
+   "type": "income",
+   "expected": "Freelance"
+  },
+  {
+   "narration": "Contract pay milestone",
+   "type": "income",
+   "expected": "Freelance"
+  },
+  {
+   "narration": "DATA SUBSCRIPTION FROM WYZE CONSULTING SERVICES LTD",
+   "type": "income",
+   "expected": "Freelance"
+  },
+  {
+   "narration": "Consulting retainer",
+   "type": "income",
+   "expected": "Freelance"
+  },
+  {
+   "narration": "Sales proceeds",
+   "type": "income",
+   "expected": "Business"
+  },
+  {
+   "narration": "Invoice 0042 payment",
+   "type": "income",
+   "expected": "Business"
+  },
+  {
+   "narration": "Business income",
+   "type": "income",
+   "expected": "Business"
+  },
+  {
+   "narration": "Customer payment for order",
+   "type": "income",
+   "expected": "Business"
+  },
+  {
+   "narration": "Sales for the day",
+   "type": "income",
+   "expected": "Business"
+  },
+  {
+   "narration": "Invoice payment received",
+   "type": "income",
+   "expected": "Business"
+  },
+  {
+   "narration": "OWealth interest earned",
+   "type": "income",
+   "expected": "OWealth Interest"
+  },
+  {
+   "narration": "OWealth interest credit",
+   "type": "income",
+   "expected": "OWealth Interest"
+  },
+  {
+   "narration": "Dividend payment",
+   "type": "income",
+   "expected": "Investment"
+  },
+  {
+   "narration": "Interest earned",
+   "type": "income",
+   "expected": "Investment"
+  },
+  {
+   "narration": "You earned interest today",
+   "type": "income",
+   "expected": "Investment"
+  },
+  {
+   "narration": "Investment return payout",
+   "type": "income",
+   "expected": "Investment"
+  },
+  {
+   "narration": "Maturity of fixed deposit",
+   "type": "income",
+   "expected": "Investment"
+  },
+  {
+   "narration": "ROI payout",
+   "type": "income",
+   "expected": "Investment"
+  },
+  {
+   "narration": "MOBILE TRF GIFT FROM UCHE",
+   "type": "income",
+   "expected": "Gift"
+  },
+  {
+   "narration": "Gift from dad",
+   "type": "income",
+   "expected": "Gift"
+  },
+  {
+   "narration": "Birthday present",
+   "type": "income",
+   "expected": "Gift"
+  },
+  {
+   "narration": "Gift money received",
+   "type": "income",
+   "expected": "Gift"
+  },
+  {
+   "narration": "Present from aunt",
+   "type": "income",
+   "expected": "Gift"
+  },
+  {
+   "narration": "Refund for order",
+   "type": "income",
+   "expected": "Refund"
+  },
+  {
+   "narration": "Reversal of failed transfer",
+   "type": "income",
+   "expected": "Refund"
+  },
+  {
+   "narration": "Returned payment",
+   "type": "income",
+   "expected": "Refund"
+  },
+  {
+   "narration": "Chargeback credit",
+   "type": "income",
+   "expected": "Refund"
+  },
+  {
+   "narration": "Refund from Jumia",
+   "type": "income",
+   "expected": "Refund"
+  },
+  {
+   "narration": "Reversal credit",
+   "type": "income",
+   "expected": "Refund"
+  },
+  {
+   "narration": "TRANSFER FROM ADA OBI",
+   "type": "income",
+   "expected": "Money from People"
+  },
+  {
+   "narration": "NIP TRANSFER FROM CHIDERA OKAFOR",
+   "type": "income",
+   "expected": "Money from People"
+  },
+  {
+   "narration": "Transfer from Emeka Nwosu",
+   "type": "income",
+   "expected": "Money from People"
+  },
+  {
+   "narration": "Received from Funke Adebayo",
+   "type": "income",
+   "expected": "Money from People"
+  },
+  {
+   "narration": "MOBILE TRF FROM TUNDE BELLO",
+   "type": "income",
+   "expected": "Money from People"
+  },
+  {
+   "narration": "Transfer from Ibrahim Musa",
+   "type": "income",
+   "expected": "Money from People"
+  },
+  {
+   "narration": "NIP/FROM KEMI ADEYEMI/PALMPAY",
+   "type": "income",
+   "expected": "Money from People"
+  },
+  {
+   "narration": "Transfer from Blessing Okoro",
+   "type": "income",
+   "expected": "Money from People"
+  },
+  {
+   "narration": "UNKNOWN CREDIT SOURCE",
+   "type": "income",
+   "expected": "Other Income"
+  },
+  {
+   "narration": "Credit alert",
+   "type": "income",
+   "expected": "Other Income"
+  },
+  {
+   "narration": "Inward payment",
+   "type": "income",
+   "expected": "Other Income"
+  },
+  {
+   "narration": "Deposit 0912",
+   "type": "income",
+   "expected": "Other Income"
+  }
+ ]
+}

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
 import ReportProblem from './ReportProblem';
+import { whyCategory } from '../lib/whyCategory';
 
 // Transaction detail (Round 6, brief 3.4 to 3.6).
 //
@@ -105,6 +106,22 @@ export default function TxnDetail({ txn, onClose, onChanged, flash }) {
         {data && data.charges && (
           <div className="txn-detail-charges">{data.charges}</div>
         )}
+
+        {/* Why this category (round 10, A5): the reason the app filed it here, and an amber
+            "Check it" when it only guessed. */}
+        {(() => {
+          const why = !['internal_transfer', 'cash_withdrawal'].includes(txn.type) ? whyCategory(txn, txn.cleanName || txn.description) : null;
+          if (!why) return null;
+          return (
+            <section className="txn-detail-section txn-why">
+              <h4>Why this category?</h4>
+              <div className="txn-why-row">
+                <span className="txn-why-line">{why.line}</span>
+                {why.check && <span className="txn-why-check">Check it</span>}
+              </div>
+            </section>
+          );
+        })()}
 
         {error && <div className="txn-detail-error">{error}</div>}
         {!data && !error && <div className="txn-detail-loading">Loading…</div>}

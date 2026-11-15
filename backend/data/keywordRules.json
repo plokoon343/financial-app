@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "note": "Round 10, A1/A4. The whole-word keyword rules behind lib/categorize.js, kept as data so a fix ships without a release. Rules run top to bottom, first hit wins; a keyword matches only as a whole word or phrase (edge-anchored, like lib/merchants.js), so 'rent' never fires inside 'current'. Spell a keyword out in full: there is no partial matching. Category names must exist in constants/categories. DStv/GOtv/Startimes are Subscriptions everywhere (merchants.js agrees).",
+  "rules": [
+    { "for": "income", "category": "Allowance", "keywords": ["allowance", "allawee", "nysc"] },
+    { "for": "income", "category": "Salary", "keywords": ["salary", "wage", "wages", "payroll", "monthly pay", "stipend"] },
+    { "for": "income", "category": "Freelance", "keywords": ["freelance", "consulting", "contract pay", "upwork", "fiverr"] },
+    { "for": "income", "category": "Business", "keywords": ["sales", "invoice", "business income", "customer payment"] },
+    { "for": "income", "category": "OWealth Interest", "keywords": ["owealth interest", "owealth"] },
+    { "for": "income", "category": "Investment", "keywords": ["dividend", "interest", "investment return", "maturity", "roi"] },
+    { "for": "income", "category": "Gift", "keywords": ["gift", "present"] },
+    { "for": "income", "category": "Refund", "keywords": ["refund", "reversal", "returned", "chargeback"] },
+
+    { "for": "expense", "category": "Airtime & Data", "keywords": ["airtime", "recharge", "mobile data", "data bundle", "data plan", "mtn", "airtel", "9mobile", "globacom", "spectranet", "smile", "swift network"] },
+    { "for": "expense", "category": "Subscriptions", "keywords": ["netflix", "spotify", "apple music", "youtube premium", "showmax", "prime video", "dstv", "gotv", "startimes", "icloud", "google one", "canva", "chatgpt", "openai", "adobe", "subscription"] },
+    { "for": "expense", "category": "Fuel", "keywords": ["fuel", "petrol", "petroleum", "filling station", "nnpc", "conoil", "ardova", "mobil", "total energies", "diesel", "pms"] },
+    { "for": "expense", "category": "Transport", "keywords": ["uber", "bolt", "taxify", "lagride", "rida", "danfo", "keke", "transport", "brt", "flight", "air peace", "arik", "ibom air", "train", "trip", "toll"] },
+    { "for": "expense", "category": "Groceries", "keywords": ["shoprite", "spar", "supermarket", "grocery", "groceries", "justrite", "ebeano", "hubmart", "addide", "market"] },
+    { "for": "expense", "category": "Food", "keywords": ["restaurant", "eatery", "bukka", "buka", "kfc", "chicken republic", "dominos", "pizza", "coldstone", "cafe", "food", "kitchen", "jollof", "the place", "chowdeck", "glovo", "suya"] },
+    { "for": "expense", "category": "Housing", "keywords": ["rent", "rents", "landlord", "property", "estate", "accommodation", "service charge", "lease"] },
+    { "for": "expense", "category": "Utilities", "keywords": ["electricity", "nepa", "phcn", "ikedc", "ibedc", "ekedc", "aedc", "eedc", "kaduna electric", "eko electric", "ibadan electric", "prepaid", "water bill", "water corporation", "water board", "lawma", "waste", "utility", "utilities"] },
+    { "for": "expense", "category": "Healthcare", "keywords": ["pharmacy", "hospital", "clinic", "medplus", "health", "chemist", "hmo", "drugs", "medical", "dental"] },
+    { "for": "expense", "category": "Education", "keywords": ["school fees", "tuition", "waec", "jamb", "neco", "coursera", "udemy", "university", "college", "exam", "lecture", "textbook"] },
+    { "for": "expense", "category": "Insurance", "keywords": ["insurance", "assurance", "leadway", "aiico", "axa mansard", "cornerstone"] },
+    { "for": "expense", "category": "Shopping", "keywords": ["amazon", "jumia", "konga", "slot", "boutique", "fashion", "clothing", "shopping", "mall", "aliexpress", "temu", "shein"] },
+    { "for": "expense", "category": "Entertainment", "keywords": ["cinema", "gaming", "event", "ticket", "lounge", "concert", "movie"] },
+    { "for": "expense", "category": "Betting", "keywords": ["bet9ja", "nairabet", "sportybet", "1xbet", "betking", "merrybet"] },
+    { "for": "expense", "category": "Savings", "keywords": ["piggyvest", "cowrywise", "risevest", "target savings", "ajo", "esusu", "thrift", "vault"] },
+    { "for": "expense", "category": "Bank Charges", "keywords": ["stamp duty", "stamp duties", "vat", "bank fee", "transfer fee", "nip fee", "maintenance fee", "account maintenance", "amf", "emtl", "e-levy", "electronic money transfer levy", "sms alert", "commission", "cot", "levy", "atm charge", "card fee", "charge", "charges"] }
+  ]
+}

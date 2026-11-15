@@ -644,6 +644,9 @@ const Transactions = () => {
         .txn-detail-title { font-weight: 600; font-size: 1.05rem; }
         .txn-detail-sub { font-size: 0.85rem; color: var(--text-secondary); margin-top: 2px; }
         .txn-detail-section { margin-top: 18px; }
+        .txn-why-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .txn-why-line { color: var(--text-primary); font-weight: 500; }
+        .txn-why-check { color: var(--warning-color); border: 1px solid var(--warning-color); border-radius: 10px; padding: 4px 10px; font-size: 0.8rem; font-weight: 700; }
         .txn-detail-section h4 { margin: 0 0 8px; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; }
         .txn-prov-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border-color, var(--glass-border)); }
         .txn-prov-row:first-of-type { border-top: 0; }

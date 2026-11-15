@@ -756,6 +756,26 @@ async function main() {
     check('apply-rule: a nameless row is refused', (await call('POST', `/api/transactions/${id}/apply-rule`, { category: 'Transfer' })).status === 400);
   }
 
+  // ── Round 10, A2: one user rule, every path ──
+  {
+    const first = await call('POST', '/api/transactions', { date: day(8), description: 'KOON PLOT STORES LEKKI', amount: -2000, category: 'Giving', type: 'expense' });
+    const rid = first.body?._id || first.body?.id;
+    const made = await call('POST', `/api/transactions/${rid}/apply-rule`, { category: 'Giving' });
+    check('R10 rule: apply-rule accepted', made.status === 200, JSON.stringify(made.body));
+    const man = await call('POST', '/api/transactions', { date: day(8), description: 'KOON PLOT STORES LEKKI', amount: -3000, type: 'expense' });
+    check('R10 rule: manual entry with no category takes the rule', man.status === 201 && man.body?.category === 'Giving' && man.body?.categorySource === 'rule', JSON.stringify(man.body));
+    const note = await cap('Debit Alert\nAcct: 11*****865\nAmt: NGN4,100.00\nDesc: KOON PLOT STORES LEKKI\nAvail Bal: NGN9,000.00');
+    check('R10 rule: a notification takes the rule', note.body?.saved, JSON.stringify(note.body));
+    const sms = await call('POST', '/api/ingest/share', { sharedText: 'Debit Alert\nAcct: 11*****865\nAmt: NGN5,200.00\nDesc: KOON PLOT STORES LEKKI\nAvail Bal: NGN3,800.00' });
+    check('R10 rule: a shared alert is categorised with the rule', sms.body?.candidate?.category === 'Giving', JSON.stringify(sms.body?.candidate));
+    const imp = await call('POST', '/api/import-transactions', { transactions: [{ date: day(8), amount: 6100, description: 'KOON PLOT STORES LEKKI', type: 'expense', category: 'Other' }], bank: 'GTBank', channel: 'statement' });
+    check('R10 rule: an import row is accepted', imp.status === 200, JSON.stringify(imp.body));
+    const saved = await txns();
+    const koon = saved.filter((t) => /KOON PLOT/i.test(t.description));
+    check('R10 rule: every saved KOON row is Giving', koon.length >= 3 && koon.every((t) => t.category === 'Giving'), koon.map((t) => t.category).join(','));
+    check('R10: no non-manual row is Transfer or ATM/POS', !saved.some((t) => t.source !== 'manual' && ['Transfer', 'ATM/POS'].includes(t.category)));
+  }
+
   await mongoose.connection.db.dropDatabase();
   await mongoose.disconnect();
   console.log(`\n${pass} passed, ${fail} failed`);

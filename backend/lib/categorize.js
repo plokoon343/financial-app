@@ -1,72 +1,68 @@
-// Keyword transaction categoriser (extracted from server.js so it can be corpus-
-// tested against real bank alerts). Pure + dependency-free. Rules are ordered most-
-// specific first; a known merchant (e.g. "shoprite") wins over a generic rail term
-// (e.g. "pos"). Category names must match constants/categories on web + mobile.
+// Keyword transaction categoriser. Pure + dependency-free apart from the merchant
+// layer. Every keyword is matched as a WHOLE WORD or phrase using the same
+// edge-anchored pattern lib/merchants.js uses, so "rent" no longer fires inside
+// "current", "vat" inside "private", "rida" inside "Farida" or "cot" inside "Scott"
+// (round 10, A1). The lists themselves live in data/keywordRules.json (A4) so a fix
+// ships as data. This is the keyword + merchant layer only: the user's own rules,
+// contact labels and learned merchants sit above it in lib/categorise.js, which is
+// the entry point everything else calls.
+//
+// "Transfer" and "ATM/POS" are no longer categories this can return: a person
+// transfer is decided by lib/categorise (Sent to people / Money from People) and a
+// withdrawal is a cash kind, not a spending category (A3).
 
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { matchMerchant } = require('./merchants');
 
-const categorizeTransaction = (description, typeOrAmount) => {
-  const lower = (description || '').toLowerCase();
-  const isExpense = typeof typeOrAmount === 'string' ? typeOrAmount === 'expense' : typeOrAmount < 0;
+const FILE = path.join(__dirname, '..', 'data', 'keywordRules.json');
 
-  // High-precision layer first: a known Nigerian merchant/biller (chowdeck, IKEDC,
-  // MTN, Shoprite…) is a stronger signal than the generic rules below and beats a
-  // rail term like "transfer". Merchants are expense-side, so only apply on expenses.
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Same anchoring as merchants.js's b(): a non-alphanumeric or string edge on both
+// sides. Spaces inside a phrase tolerate any run of whitespace.
+const wholeWord = (kw) => new RegExp(`(?:^|[^a-z0-9])${escapeRe(kw.trim()).replace(/\s+/g, '\\s+')}(?:[^a-z0-9]|$)`, 'i');
+
+let cache = null;
+let cacheMtime = 0;
+function load() {
+  let mtime = 0;
+  try { mtime = fs.statSync(FILE).mtimeMs; } catch { /* keep the cache */ }
+  if (cache && mtime === cacheMtime) return cache;
+  const raw = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  cache = {
+    version: raw.version || 1,
+    rules: (raw.rules || []).map((r) => ({ for: r.for, category: r.category, compiled: (r.keywords || []).map(wholeWord) })),
+  };
+  cacheMtime = mtime;
+  return cache;
+}
+
+// The first keyword rule that matches, as { category }, or null. `isExpense` picks
+// the direction the rules apply to.
+function keywordMatch(description, isExpense) {
+  const text = (description || '').toString();
+  if (!text.trim()) return null;
+  for (const rule of load().rules) {
+    if (rule.for !== 'both' && ((rule.for === 'expense') !== isExpense)) continue;
+    if (rule.compiled.some((re) => re.test(text))) return { category: rule.category };
+  }
+  return null;
+}
+
+// The legacy two-layer entry (merchant then keyword) kept for callers that only need
+// the layers without a user, and for the tests. Returns Other / Other Income when
+// nothing matches. Prefer lib/categorise.categorise everywhere in the app.
+const categorizeTransaction = (description, typeOrAmount) => {
+  const isExpense = typeof typeOrAmount === 'string' ? typeOrAmount === 'expense' : typeOrAmount < 0;
   if (isExpense) {
     const m = matchMerchant(description);
     if (m) return m.category;
   }
-
-  const rules = [
-    // ── Income ──
-    { for: 'income',  keywords: ['salary', 'wage', 'payroll', 'monthly pay', 'stipend'], category: 'Salary' },
-    { for: 'income',  keywords: ['freelance', 'consulting', 'contract pay', 'upwork', 'fiverr'], category: 'Freelance' },
-    { for: 'income',  keywords: ['sales', 'invoice', 'business income', 'customer payment'], category: 'Business' },
-    // OWealth (OPay's savings pocket) interest is its own category, not Investment -
-    // round 6, part B item 6. Checked before the general interest/dividend rule.
-    { for: 'income',  keywords: ['owealth interest', 'owealth'], category: 'OWealth Interest' },
-    // Any credit that mentions interest IS interest (behaviour matrix row 22). The
-    // list used to need the exact phrase "interest earned", so OPay's own wording
-    // ("You earned ₦2.99 interest today") fell through to Other Income and the alert
-    // ended up in the Action Center as raw text for the user to sort out.
-    { for: 'income',  keywords: ['dividend', 'interest', 'investment return', 'maturity', 'roi'], category: 'Investment' },
-    { for: 'income',  keywords: ['gift', 'present'], category: 'Gift' },
-    { for: 'income',  keywords: ['refund', 'reversal', 'returned', 'chargeback'], category: 'Refund' },
-
-    // ── Expense (specific first) ──
-    { for: 'expense', keywords: ['airtime', 'recharge', 'mobile data', 'data bundle', 'data plan', 'mtn', 'airtel', '9mobile', 'globacom', 'spectranet', ' smile', 'swift network'], category: 'Airtime & Data' },
-    { for: 'expense', keywords: ['netflix', 'spotify', 'apple music', 'youtube premium', 'showmax', 'prime video', 'dstv', 'gotv', 'startimes', 'icloud', 'google one', 'canva', 'chatgpt', 'openai', 'adobe', 'subscription'], category: 'Subscriptions' },
-    { for: 'expense', keywords: ['fuel', 'petrol', 'petroleum', 'filling station', 'nnpc', 'conoil', 'ardova', 'mobil', 'total energies', 'diesel', ' pms'], category: 'Fuel' },
-    { for: 'expense', keywords: ['uber', 'bolt', 'taxify', 'lagride', 'rida', 'danfo', 'keke', 'transport', ' brt', 'flight', 'air peace', 'arik', 'ibom air', 'train', 'trip', 'toll'], category: 'Transport' },
-    { for: 'expense', keywords: ['shoprite', 'spar', 'supermarket', 'grocery', 'groceries', 'justrite', 'ebeano', 'hubmart', 'addide', 'market'], category: 'Groceries' },
-    { for: 'expense', keywords: ['restaurant', 'eatery', 'bukka', 'buka', 'kfc', 'chicken republic', 'dominos', 'pizza', 'coldstone', 'cafe', 'food', 'kitchen', 'jollof', 'the place', 'chowdeck', 'glovo', 'suya'], category: 'Food' },
-    { for: 'expense', keywords: ['rent', 'landlord', 'property', 'estate', 'accommodation', 'service charge', 'lease'], category: 'Housing' },
-    { for: 'expense', keywords: ['electricity', 'nepa', 'phcn', 'ikedc', 'ibedc', 'ekedc', 'aedc', 'eedc', 'kaduna electric', 'eko electric', 'ibadan electric', 'prepaid', 'water bill', 'lawma', 'waste', 'utility'], category: 'Utilities' },
-    { for: 'expense', keywords: ['pharmacy', 'hospital', 'clinic', 'medplus', 'health', 'chemist', 'hmo', 'drugs', 'medical', 'dental'], category: 'Healthcare' },
-    { for: 'expense', keywords: ['school fees', 'tuition', 'waec', 'jamb', 'neco', 'coursera', 'udemy', 'university', 'college', 'exam', 'lecture', 'textbook'], category: 'Education' },
-    { for: 'expense', keywords: ['insurance', 'assurance', 'leadway', 'aiico', 'axa mansard', 'cornerstone'], category: 'Insurance' },
-    { for: 'expense', keywords: ['amazon', 'jumia', 'konga', 'slot', 'purchase', 'boutique', 'fashion', 'clothing', 'shopping', 'mall', 'aliexpress', 'temu', 'shein'], category: 'Shopping' },
-    { for: 'expense', keywords: ['cinema', 'gaming', 'event', 'ticket', 'lounge', 'concert', 'movie'], category: 'Entertainment' },
-    // round 6, Block 3 (5.1): Betting is now its own category, split out of
-    // Entertainment (merchants.js's higher-precision rule changed the same way).
-    { for: 'expense', keywords: ['bet9ja', 'nairabet', 'sportybet', '1xbet', 'betking', 'merrybet'], category: 'Betting' },
-    { for: 'expense', keywords: ['piggyvest', 'cowrywise', 'risevest', 'target savings', ' ajo', 'esusu', 'thrift', 'vault'], category: 'Savings' },
-    // POS / ATM. Nigerian banks abbreviate point-of-sale purchases aggressively
-    // GTBank writes "POS PUR", others "PURCHASE/POS", "WEB PUR", "VPOS", so match the
-    // abbreviations, not just the spelled-out "pos purchase".
-    { for: 'expense', keywords: ['atm withdrawal', 'atm cash', 'cash withdrawal', ' atm ', 'atm/', 'pos pur', 'pos/', 'pos debit', 'pos withdrawal', ' pos ', 'point of sale', 'vpos', 'web pur', 'card pur', 'purchase pos'], category: 'ATM/POS' },
-    { for: 'expense', keywords: ['stamp dut', 'stamp duty', 'vat', 'bank fee', 'transfer fee', 'nip fee', 'maintenance fee', 'account maintenance', 'amf', 'emtl', 'e-levy', 'electronic money transfer levy', 'sms alert', 'commission', 'cot', 'levy', 'atm charge', 'card fee', 'charge'], category: 'Bank Charges' },
-
-    // ── Catch-all transfer (either direction) ──
-    { for: 'both',    keywords: ['transfer', 'nip', 'neft', ' trf', 'send money', 'pos transfer', 'opay', 'palmpay', 'moniepoint', ' kuda', 'paystack'], category: 'Transfer' },
-  ];
-  for (const rule of rules) {
-    if (rule.for !== 'both' && ((rule.for === 'expense') !== isExpense)) continue;
-    if (rule.keywords.some((kw) => lower.includes(kw))) return rule.category;
-  }
+  const k = keywordMatch(description, isExpense);
+  if (k) return k.category;
   return isExpense ? 'Other' : 'Other Income';
 };
 
-module.exports = { categorizeTransaction };
+module.exports = { categorizeTransaction, keywordMatch, wholeWord, load };

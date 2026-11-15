@@ -16,7 +16,7 @@
 // Returns the fields to set, or null when the row is already right.
 
 const { classifyKind } = require('./txnKinds');
-const { categorizeTransaction } = require('./categorize');
+const { categorise, MACHINE_SOURCES } = require('./categorise');
 const { mentionsSelf } = require('./internalTransfers');
 
 // Kinds this may undo. internal_transfer is not one of them for the classifyKind
@@ -79,8 +79,10 @@ function reclassifyRow(row = {}, opts = {}) {
 
   let nextCategory = category;
   if (MACHINE_CATEGORIES.includes(category)) {
-    const fresh = categorizeTransaction(description, base);
-    if (fresh && !MACHINE_CATEGORIES.includes(fresh)) nextCategory = fresh;
+    // A person transfer is retireRow's call (Sent to people / Money from People), not
+    // part of this narrower kind fix.
+    const f = categorise({ txn: { description, type: base } });
+    if (f.category && f.source !== 'person' && !MACHINE_CATEGORIES.includes(f.category)) nextCategory = f.category;
   }
 
   const set = {};
@@ -92,4 +94,40 @@ function reclassifyRow(row = {}, opts = {}) {
   return Object.keys(set).length ? set : null;
 }
 
-module.exports = { reclassifyRow, narrationIsSelfTransfer, MACHINE_KINDS, MACHINE_CATEGORIES };
+// ── Round 10, A3: retire "Transfer" and "ATM/POS" as categories ──
+// A row still carrying one of them was given it by the machine (the picker never
+// offered a way to choose them as a rule, and the apply-rule route refuses Transfer).
+// This moves such a row, and ONLY such a row, to what the single categoriser says
+// today: a person transfer to Sent to people / Money from People, a cash withdrawal
+// to the cash kind (an own move into Cash, out of spending), a card purchase through
+// categorise. It never touches a row the user reviewed, broke down as cash, typed in
+// by hand, or whose categorySource says a rule/contact/learned answer set it.
+// Returns { set, change } where `change` names the move for the dry-run counts, or
+// null when the row is already right.
+const RETIRED_CATEGORIES = ['Transfer', 'ATM/POS'];
+function retireRow(row = {}) {
+  if (!row || !RETIRED_CATEGORIES.includes(row.category)) return null;
+  if (row.reviewedAt || row.cashAllocated || row.cashParentId) return null;
+  if (row.source === 'manual') return null;
+  if (row.categorySource && !MACHINE_SOURCES.includes(row.categorySource)) return null;
+  if (row.type !== 'income' && row.type !== 'expense' && !MACHINE_KINDS.includes(row.type) && row.type !== 'internal_transfer') return null;
+
+  const base = baseTypeOf(row);
+  const description = row.description || '';
+  const from = row.category;
+  // An own move keeps its type; only the retired label goes.
+  if (row.type === 'internal_transfer') {
+    return { set: { category: base === 'income' ? 'Other Income' : 'Other', categorySource: 'default' }, change: `${from} -> Other (own move)` };
+  }
+  // Cash out of an account is a cash kind, not a spending category.
+  const kind = row.type === 'cash_withdrawal' ? 'cash_withdrawal' : classifyKind({ type: base, description });
+  if (kind === 'cash_withdrawal') {
+    const set = { category: 'Other', categorySource: 'default' };
+    if (row.type !== 'cash_withdrawal') set.type = 'cash_withdrawal';
+    return { set, change: `${from} -> cash withdrawal (Other)` };
+  }
+  const d = categorise({ txn: { description, type: base, amount: row.amount } });
+  return { set: { category: d.category, categorySource: d.source }, change: `${from} -> ${d.category}` };
+}
+
+module.exports = { retireRow, RETIRED_CATEGORIES, reclassifyRow, narrationIsSelfTransfer, MACHINE_KINDS, MACHINE_CATEGORIES };

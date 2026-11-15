@@ -55,4 +55,27 @@ same('a machine-default category is refreshed',
   { category: 'Food' });
 check('no guess means no change', reclassifyRow({ type: 'expense', amount: -2500, description: 'ZZZ 123', category: 'Other' }) === null);
 
+// --- Round 10, A3: retire Transfer and ATM/POS (machine-set rows only) ---------
+const { retireRow } = require('./reclassify');
+same('a person transfer moves to Sent to people',
+  retireRow({ type: 'expense', amount: -5000, description: 'TRANSFER TO ADA OBI', category: 'Transfer' }),
+  { set: { category: 'Sent to people', categorySource: 'person' }, change: 'Transfer -> Sent to people' });
+same('money from a person moves to Money from People',
+  retireRow({ type: 'income', amount: 5000, description: 'TRANSFER FROM ADA OBI', category: 'Transfer' }),
+  { set: { category: 'Money from People', categorySource: 'person' }, change: 'Transfer -> Money from People' });
+same('an ATM withdrawal becomes the cash kind, out of spending',
+  retireRow({ type: 'expense', amount: -20000, description: 'ATM WITHDRAWAL LAGOS', category: 'ATM/POS' }),
+  { set: { category: 'Other', categorySource: 'default', type: 'cash_withdrawal' }, change: 'ATM/POS -> cash withdrawal (Other)' });
+same('a card purchase goes through the categoriser',
+  retireRow({ type: 'expense', amount: -4500, description: 'POS PUR SHOPRITE IKEJA', category: 'ATM/POS' }),
+  { set: { category: 'Groceries', categorySource: 'catalogue' }, change: 'ATM/POS -> Groceries' });
+check('a reviewed row is never retired', retireRow({ type: 'expense', description: 'TRANSFER TO ADA OBI', category: 'Transfer', reviewedAt: new Date() }) === null);
+check('a manual row is never retired', retireRow({ type: 'expense', description: 'TRANSFER TO ADA OBI', category: 'Transfer', source: 'manual' }) === null);
+check('a row set by the user rule is never retired', retireRow({ type: 'expense', description: 'TRANSFER TO ADA OBI', category: 'Transfer', categorySource: 'rule' }) === null);
+check('broken-down cash is never retired', retireRow({ type: 'cash_withdrawal', description: 'ATM', category: 'ATM/POS', cashAllocated: true }) === null);
+check('a row with a normal category is left alone', retireRow({ type: 'expense', description: 'TRANSFER TO ADA OBI', category: 'Food' }) === null);
+same('an own move keeps its type and loses the retired label',
+  retireRow({ type: 'internal_transfer', amount: -84000, description: 'Moved to OPay', category: 'Transfer' }),
+  { set: { category: 'Other', categorySource: 'default' }, change: 'Transfer -> Other (own move)' });
+
 console.log(`\n${pass} passed, 0 failed`);

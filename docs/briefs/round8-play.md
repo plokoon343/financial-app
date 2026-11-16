@@ -86,3 +86,19 @@ Still unmet from section 12, definition of done: no CI check (the only workflow 
 
 ### Play prep documents, 16 Nov 2026 (docs only, nothing built, uploaded or pushed)
 Personal account chosen, so the 12 testers for 14 days rule applies. Written in `docs/play/`: `data-safety.md`, `store-listing.md`, `app-access.md`, `content-rating.md`, `release-checklist.md` (owner list at the top), `screenshots.md` (spec only, no images captured). Build targets API 36 (RN 0.81.5 default), version 1.0.0 needs no bump. Open: the reviewer account does not exist yet, `RECEIVE_SMS` is requested but unused, `deleteUserData` skips `PlayPurchase` and `AnalyticsEvent`, `/support` is 404. Recommendation: start the closed test on `production-nosms`, file the SMS declaration in parallel.
+
+## Decision, 16 Nov 2026: personal Play account, D-U-N-S moved to background
+
+The owner is publishing on a **personal** Google Play developer account (signing up as `onukoguchidumebi@gmail.com`). The D-U-N-S request made on 31 Oct through the D&B regional live chat produced nothing in 16 days, with no ticket or reference, so the organisation route is no longer allowed to hold the launch.
+
+What this commits us to:
+- A closed test with **at least 12 testers for 14 continuous days** before production access can be requested. That clock is the critical path; it starts when the 12th tester is opted in on a live track, not when the account is created.
+- The listing shows the owner's legal name, which personal accounts cannot avoid.
+
+What it does not cost us: an organisation account later is still reachable. Personal cannot be converted, so the route is a new organisation account plus a Play **app transfer**, which keeps installs, reviews and the listing, and does not restart the tester rule because the app is live by then. Re-apply for D-U-N-S through the official `dnb.com/duns-number` form (not a regional chat) so there is a reference to chase, with the CAC certificate, TIN and proof of address ready, and treat it as background.
+
+Launch shape, per `docs/play/release-checklist.md`: closed test on **`production-nosms`**, SMS declaration filed in parallel, SMS added in release 2.
+
+Fixed the same day on the owner's instruction: `RECEIVE_SMS` dropped (it was requested and unused; now blocked so no library can reintroduce it) and `AnalyticsEvent` rows are deleted with the account. `PlayPurchase` is deliberately retained as a payment record, which the Data safety answer names.
+
+**Blocking the first upload:** the owner's complaints about preview build `1799244d` are not yet collected. Whatever is uploaded is what 12 testers live with for two weeks, so those come first, then a `production-nosms` AAB.

@@ -34,6 +34,7 @@ const { reconcile, extractBalances } = require('./lib/reconcile');
 const { parseOpayStatement } = require('./lib/opayStatement');
 const { extractStatement: llmExtractStatement } = require('./lib/llmStatement');
 const { extractCounterparty, contactKey, familySignal, isSelf } = require('./lib/counterparty');
+const { inferHolderName, paysHolder } = require('./lib/personName');
 const { normalizeAmount } = require('./lib/amount');
 const { MONTH_MAP, fixYear, isSaneDate, normalizeAnyDate } = require('./lib/dates');
 const inboundEmail = require('./lib/inboundEmail');
@@ -6655,6 +6656,10 @@ async function actionCardInput(user) {
     loadNameRules(userId),
   ]);
 
+  // The stored name can be one word ("Chidumebi"), which no own-name check can use; the
+  // narrations themselves name the holder in full, so that is read back from them.
+  const holderName = inferHolderName(user.name || '', rows.map((t) => t.description));
+
   const answeredKeys = new Set(answered.map((a) => a.cardKey));
   const learned = new Map(learnedRows.map((r) => [r.key, r.category]));
   const popular = categorySuggest.popularCategories(rows);
@@ -6693,6 +6698,9 @@ async function actionCardInput(user) {
 
   // ── Category questions, and the Apple one that is a category question in disguise
   for (const t of unsorted) {
+    // A payment to the account holder's own name is an own move (asked below, once), not
+    // a purchase to categorise.
+    if (paysHolder(t.description, holderName)) continue;
     const key = deriveCategoryKey(t.description);
     const base = {
       id: String(t._id), txnId: String(t._id), name: cardName(t, nameRules), amount: Math.abs(t.amount),
@@ -6721,7 +6729,7 @@ async function actionCardInput(user) {
   // screen open.
   const byId = new Map(rows.map((t) => [String(t._id), t]));
   const { ask: linkAsks } = detectLinks(rows, {
-    userName: user.name || '',
+    userName: holderName,
     routeKeys: new Set(routes.map((r) => r.routeKey)),
     feeTable: feeTableFromEnv(process.env),
   });
@@ -6751,6 +6759,10 @@ async function actionCardInput(user) {
         candidates: (a.choices || []).map((c) => ({
           id: String(c.transactionId),
           label: `${cardName(c, nameRules)} on ${new Date(c.date).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })}`,
+          // What tells two same-named purchases apart; lib/actionCards leads with these
+          // only when the labels would otherwise read the same.
+          amountText: `₦${Number(c.amount || 0).toLocaleString('en-NG')}`,
+          dayText: new Date(c.date).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' }),
         })),
       });
     }
@@ -6768,7 +6780,7 @@ async function actionCardInput(user) {
     if ((t.links || []).some((l) => l.kind === 'ownMove')) continue;
     const verdict = behaviourMatrix.classify(
       { direction: 'debit', amountKobo: Math.round(Math.abs(t.amount) * 100), description: t.description, counterpartyClean: cardName(t, nameRules), category: t.category },
-      { userName: user.name || '', trackedWallets },
+      { userName: holderName, trackedWallets },
     );
     if (!verdict.ask || verdict.ask.type !== 'ownMove') continue;
     input.own_move.push({
@@ -6795,7 +6807,7 @@ async function actionCardInput(user) {
   for (const t of credits) {
     const verdict = behaviourMatrix.classify(
       { direction: 'credit', amountKobo: Math.round(Math.abs(t.amount) * 100), description: t.description, counterpartyClean: cardName(t, nameRules), category: t.category },
-      { userName: user.name || '' },
+      { userName: holderName },
     );
     if (verdict.ask && verdict.ask.type === 'loan') {
       input.loan.push({ id: String(t._id), txnId: String(t._id), name: cardName(t, nameRules), amount: Math.abs(t.amount), meta: cardMeta(t) });

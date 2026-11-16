@@ -2,7 +2,7 @@
   {"code":"gtbank","name":"GTBank","type":"bank","aliases":["GTBANK","GTB","GTWORLD","GUARANTYTRUST","GTBANKPLC"],"domains":["gtbank.com","gtworld.com"]},
   {"code":"access","name":"Access","type":"bank","aliases":["ACCESSBANK","ACCESS","ACCESSMORE","DIAMONDXTRA","ACCESSBANKPLC"],"domains":["accessbankplc.com"]},
   {"code":"uba","name":"UBA","type":"bank","aliases":["UBA","UBAGROUP","UBAMOBILE","LEO"],"domains":["ubagroup.com"]},
-  {"code":"zenith","name":"Zenith","type":"bank","aliases":["ZENITH","ZENITHBANK","ZENITHDIRECT","EAZYBANKING"],"domains":["zenithbank.com"]},
+  {"code":"zenith","name":"Zenith","type":"bank","aliases":["ZENITH","ZBN","ZENITHBANK","ZENITHDIRECT","EAZYBANKING"],"domains":["zenithbank.com"]},
   {"code":"firstbank","name":"First Bank","type":"bank","aliases":["FIRSTBANK","FBN","FIRSTONLINE","FIRSTMONIE","FIRSTBANKNG"],"domains":["firstbanknigeria.com"]},
   {"code":"fidelity","name":"Fidelity","type":"bank","aliases":["FIDELITY","FIDELITYBANK"],"domains":["fidelitybank.ng"]},
   {"code":"fcmb","name":"FCMB","type":"bank","aliases":["FCMB","FCMBMOBILE"],"domains":["fcmb.com"]},

@@ -14,6 +14,12 @@
 //
 // Pure: callers load the maps.
 
+const { categoryById } = require('../constants/categories');
+// "Transfer" and "ATM/POS" are retired (Round 10, A3). A learned rule, a consensus or a
+// popular-category count built from old rows can still carry one, so it is dropped here, at
+// the source of every card answer.
+const isRetired = (c) => !!((categoryById(String(c || '').trim()) || {}).retired);
+
 const CATCH_ALL = new Set(['', 'Other', 'Other Income', 'Uncategorized', 'Uncategorised']);
 const isCatchAll = (c) => CATCH_ALL.has(String(c || '').trim());
 
@@ -34,14 +40,14 @@ function suggest({ ruleGuess = '', learned = '', global: consensus = '', popular
   const out = [];
   const add = (c) => {
     const v = String(c || '').trim();
-    if (!v || skip.has(v) || out.includes(v)) return;
+    if (!v || skip.has(v) || out.includes(v) || isRetired(v)) return;
     out.push(v);
   };
   add(learned);
   add(consensus);
   if (!isCatchAll(ruleGuess)) add(ruleGuess);
   for (const p of popular) { if (out.length >= limit) break; add(p); }
-  if (!out.length) add(isCatchAll(ruleGuess) ? ruleGuess || 'Other' : 'Other');
+  if (!out.length) add(isCatchAll(ruleGuess) && !isRetired(ruleGuess) ? ruleGuess || 'Other' : 'Other');
   return out.slice(0, limit);
 }
 

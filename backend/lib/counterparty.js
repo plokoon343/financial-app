@@ -27,8 +27,21 @@ function normalizeName(raw) {
     .trim();
   // A name should be mostly letters and 1–5 words.
   if (!n || n.replace(/[^A-Za-z]/g, '').length < 3) return '';
-  const words = n.split(' ').filter(Boolean).slice(0, 5);
+  const words = collapseRepeats(n.split(' ').filter(Boolean)).slice(0, 5);
   return words.join(' ').toUpperCase();
+}
+
+// "A B C A B C" (or its truncated form "A B C A B") is one name written twice, which is
+// what a narration does when the beneficiary and the account holder are the same
+// person. Keeps one copy. Case-insensitive; a name with no repeat is returned as is.
+function collapseRepeats(words) {
+  const w = words.map((x) => x.toLowerCase());
+  for (let n = 1; n <= Math.floor(w.length / 2); n++) {
+    let repeats = true;
+    for (let i = n; i < w.length; i++) if (w[i] !== w[i - n]) { repeats = false; break; }
+    if (repeats) return words.slice(0, n);
+  }
+  return words;
 }
 
 // Find an account number (masked "503****065" or a 10+ digit run) in a segment.
@@ -108,4 +121,4 @@ function isSelf(holderName, contactName) {
   return h.every((t) => c.has(t));
 }
 
-module.exports = { extractCounterparty, normalizeName, contactKey, familySignal, isSelf, findAccount };
+module.exports = { collapseRepeats, extractCounterparty, normalizeName, contactKey, familySignal, isSelf, findAccount };

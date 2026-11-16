@@ -62,12 +62,14 @@ const ownMoveItem = {
   // This is a shape check, one of every kind at once, not a cap check (the queue cap
   // is tested in isolation below) - raised so the seven priority 3/4 kinds here do not
   // trip over each other for the default budget of 5.
+  const NO_BEST_GUESS = ['who_is_this', 'refund_match', 'sources_disagree', 'which_account'];
   const { cards: q } = build(sample, { maxQueue: 100 });
   eq('every kind produced a card', q.length, Object.keys(sample).length);
   for (const c of q) {
     check(`${c.kind}: has a question`, c.question && c.question.length > 0);
     check(`${c.kind}: 2 to 4 answers`, c.answers.length >= 2 && c.answers.length <= 4);
-    check(`${c.kind}: the first answer is primary`, c.answers[0].primary === true);
+    if (NO_BEST_GUESS.includes(c.kind)) check(`${c.kind}: no answer looks pre-selected`, !c.answers.some((a) => a.primary));
+    else check(`${c.kind}: the first answer is primary`, c.answers[0].primary === true);
     check(`${c.kind}: priority is 1 to 4`, c.priority >= 1 && c.priority <= 4);
     check(`${c.kind}: no figure and no naira sign inside the question text`, !/[\d₦]/.test(c.question.replace(/\{\w+\}/g, '')));
   }
@@ -173,7 +175,7 @@ const ownMoveItem = {
 // The whole-queue cap now spans every kind, not only category versus category.
 {
   const input = { who_is_this: [], subscription: [], apple_service: [], goal: [] };
-  for (let i = 0; i < 3; i++) input.who_is_this.push({ id: `w${i}`, contactKey: `c${i}`, name: `Person ${i}`, amount: 2000 + i });
+  for (let i = 0; i < 3; i++) input.who_is_this.push({ id: `w${i}`, contactKey: `c${i}`, name: `Person Ab${String.fromCharCode(97 + i)}`, amount: 2000 + i });
   for (let i = 0; i < 3; i++) input.subscription.push({ id: `s${i}`, detectionKey: `sub${i}`, name: `Sub ${i}`, amount: 3000 + i });
   for (let i = 0; i < 3; i++) input.apple_service.push({ id: `a${i}`, amount: 4000 + i });
   const { cards: q, autoResolve } = build(input);
@@ -186,7 +188,7 @@ const ownMoveItem = {
 // is never dropped silently, however many are waiting.
 {
   const input = {
-    not_on_statement: Array.from({ length: 6 }, (_, i) => ({ id: `n${i}`, name: `Person ${i}`, amount: 50000 + i, bank: 'GTBank' })),
+    not_on_statement: Array.from({ length: 6 }, (_, i) => ({ id: `n${i}`, name: `Person Ab${String.fromCharCode(97 + i)}`, amount: 50000 + i, bank: 'GTBank' })),
   };
   const { cards: q, autoResolve } = build(input);
   eq('six priority 1 cards are all kept, over the queue cap', q.length, 6);
@@ -198,7 +200,7 @@ const ownMoveItem = {
   const input = {
     own_move: [ownMoveItem],
     not_on_statement: [{ id: 'n1', name: 'Tunde', amount: 100000, bank: 'GTBank' }],
-    who_is_this: Array.from({ length: 7 }, (_, i) => ({ id: `w${i}`, contactKey: `c${i}`, name: `Person ${i}`, amount: 2000 + i })),
+    who_is_this: Array.from({ length: 7 }, (_, i) => ({ id: `w${i}`, contactKey: `c${i}`, name: `Person Ab${String.fromCharCode(97 + i)}`, amount: 2000 + i })),
   };
   const { cards: q } = build(input);
   eq('the two priority 1/2 cards are both kept', q.filter((c) => c.priority <= 2).length, 2);
@@ -244,7 +246,7 @@ const ownMoveItem = {
 // ── Ordering ─────────────────────────────────────────────────────────────────────
 {
   const { cards: q } = build({
-    who_is_this: [{ id: 'w', contactKey: 'ada', name: 'Ada', amount: 2000 }],
+    who_is_this: [{ id: 'w', contactKey: 'ada', name: 'Ada Okafor', amount: 2000 }],
     category: [{ id: 'c', txnId: 'c', merchantKey: 'mama', name: 'Mama Put', amount: 4500, suggestions: ['Food'] }],
     own_move: [ownMoveItem],
     not_on_statement: [{ id: 'n', name: 'Tunde', amount: 100000, bank: 'GTBank' }],
@@ -317,7 +319,7 @@ const ownMoveItem = {
   ] }).cards);
   eq('three or more category cards reach the summary', threeCats.byPriority[3] >= 3 && interruptions(threeCats).digest, true);
 
-  const optional = countsOf(build({ who_is_this: [{ id: 'w', contactKey: 'ada', name: 'Ada' }] }).cards);
+  const optional = countsOf(build({ who_is_this: [{ id: 'w', contactKey: 'ada', name: 'Ada Okafor' }] }).cards);
   eq('priority 4 interrupts nothing', interruptions(optional), { badge: false, push: false, digest: false });
 }
 

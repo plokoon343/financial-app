@@ -56,12 +56,28 @@ const CHARGE_LABELS = [
 //   - shape: a single word with no space. Real Nigerian personal names are
 //     virtually always two or more words (first + surname, at least); a single
 //     unspaced word ("Groovemall", "Jumia") is far more often a trading name.
-const BUSINESS_WORDS = /\b(pharmacy|mall|stores?|ltd|limited|enterprises?|ventures?|services?|foods?|motors?|global|technolog(?:y|ies)|solutions?|nigeria|plaza|supermarket|hotel|restaurant|clinic|hospital|academy|schools?|company|industries|logistics|concepts?|group|international)\b/i;
+const BUSINESS_WORDS = /\b(pharmacy|mall|stores?|super|ltd|limited|plc|enterprises?|ventures?|services?|foods?|motors?|global|technolog(?:y|ies)|solutions?|nigeria|nig|plaza|supermarket|hotel|restaurant|clinic|hospital|academy|schools?|company|industries|logistics|concepts?|group|international|trading|resources|investments?|supplies|bakery|kitchen)\b/i;
+// The words alone, without the "one unspaced word" shape test below.
+const hasBusinessWords = (name) => BUSINESS_WORDS.test(String(name || ''));
 function looksLikeBusiness(name) {
   const s = String(name || '').trim();
   if (!s) return false;
   if (BUSINESS_WORDS.test(s)) return true;
   return !/\s/.test(s);
+}
+
+// A POS narration ends in the terminal's location and a terminal number ("... FESTAC
+// 23RD Lagos LANG 38"): none of it is the merchant. Only ever trimmed from the END, so
+// a merchant that is genuinely called "Lagos Island Pharmacy" keeps its name.
+const TRAILING_LOCATION = /(?:\s+(?:LAGOS|ABUJA|LANG|LA|NG|NGA|NGR|LANGNG))+$/i;
+function trimTerminalNoise(s) {
+  let out = String(s || '').trim();
+  for (let i = 0; i < 3; i++) {
+    const next = out.replace(/\s+\d{1,3}$/, '').replace(TRAILING_LOCATION, '').trim();
+    if (next === out) break;
+    out = next;
+  }
+  return out || String(s || '').trim();
 }
 
 // The positive shape of an ordinary Nigerian personal name: two or more words, each
@@ -188,7 +204,7 @@ function cleanName({ raw, type = 'expense', userRule = '', learnedMerchant = nul
   }
 
   // 4. Close-spelling: suggest only, never apply, never a logo.
-  const stripped = stripNoise(text);
+  const stripped = trimTerminalNoise(stripNoise(text));
   const suggestion = closeSpellingSuggestion(stripped, allEntries());
 
   if (isReadable(stripped)) {
@@ -214,4 +230,4 @@ function cleanName({ raw, type = 'expense', userRule = '', learnedMerchant = nul
   };
 }
 
-module.exports = { cleanName, stripNoise, titleCase, closeSpellingSuggestion, CHARGE_LABELS, looksLikeBusiness, looksLikePerson };
+module.exports = { cleanName, stripNoise, titleCase, closeSpellingSuggestion, CHARGE_LABELS, looksLikeBusiness, looksLikePerson, hasBusinessWords, trimTerminalNoise };

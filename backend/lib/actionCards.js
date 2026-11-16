@@ -64,6 +64,19 @@ const PRIORITY = {
 };
 const KINDS = Object.keys(PRIORITY);
 
+const { isPlausiblePerson } = require('./personName');
+const { collapseRepeats } = require('./counterparty');
+const { categoryById } = require('../constants/categories');
+
+// A retired category ("Transfer", "ATM/POS", Round 10 A3) is never an answer, whatever
+// produced the suggestion. Stopped at the source in lib/categorySuggest as well; this is
+// the guard so no producer can ever put one on a card.
+const isRetiredCategory = (name) => !!((categoryById(name) || {}).retired);
+const usableSuggestions = (list) => {
+  const kept = (list || []).filter((s) => s && !isRetiredCategory(s));
+  return kept.length ? kept : ['Other'];
+};
+
 // Interruption rules per priority (brief 4.5). The caller decides whether to send;
 // this is the table it reads.
 const INTERRUPTION = {
@@ -75,6 +88,12 @@ const INTERRUPTION = {
 
 // Don't ask about small money (rule 1). ₦2,000, in naira, as the brief states it.
 const ASK_FLOOR = 2000;
+// Priority 1 and 2 are exempt from the ASK_FLOOR above (they change totals or may be
+// fraud), but not from common sense: "did ₦0.75 go to another account of yours?" is not
+// a question anyone should be asked. ₦10 is the smallest real fee a Nigerian bank
+// charges (the ₦10 to ₦10.75 NIP fee), so anything under it is rounding, interest dust
+// or a verification micro-deposit, never a movement of money.
+const MIN_ASK = 10;
 // How many category questions the queue will ever hold. Research section 3's target
 // is "0 to 3 questions on a normal day and never more than 5 in the queue", and use
 // case 1 describes an import leaving "the biggest unknown groups". So the biggest
@@ -120,11 +139,16 @@ function fillTemplate(template, vars = {}, money = (n) => `₦${Number(n || 0).t
 //   question   template, final copy
 //   helper     at most one line under the question, or null
 //   item       what the card is about: title, amount, meta, who, count, pair
-//   answers    2 to 4; the first is the likely one and is drawn filled
+//   answers    2 to 4; the one marked `primary` is a real best guess and is drawn filled.
+//              A question with no best guess (who is this, which purchase, which account
+//              when the sender is unknown) marks none, so nothing looks pre-selected
 //   rule       the "do the same in future" offer, or null
 //   raw        the original alert text, shown only behind "See the original alert"
 //   targets    the ids an answer applies to
 //   vars       values for the question and the answer labels
+// "Chidumebi Vincent Onukogu Chidumebi Vincent Onukogu" is one name written twice.
+const oneCopy = (s) => collapseRepeats(str(s).split(/\s+/).filter(Boolean)).join(' ');
+
 const card = (c) => ({
   key: c.key,
   kind: c.kind,
@@ -132,12 +156,12 @@ const card = (c) => ({
   question: c.question,
   helper: c.helper || null,
   item: {
-    title: c.title || '',
+    title: oneCopy(c.title || ''),
     amount: c.amount == null ? null : Math.abs(Number(c.amount)),
     direction: c.direction || null,
     meta: c.meta || '',
     initials: initialsOf(c.title || c.name || ''),
-    name: c.name || null,
+    name: c.name ? oneCopy(c.name) : null,
     pair: c.pair || null,
     count: c.count || 1,
     logoKey: c.logoKey || null,
@@ -146,7 +170,7 @@ const card = (c) => ({
   rule: c.rule || null,
   raw: c.raw || null,
   targets: c.targets || {},
-  vars: c.vars || {},
+  vars: c.vars && c.vars.name ? { ...c.vars, name: oneCopy(c.vars.name) } : (c.vars || {}),
   skipped: false,
 });
 
@@ -198,7 +222,7 @@ const sourcesDisagree = (it) => card({
   meta: it.meta,
   raw: it.raw || null,
   answers: [
-    answer('a', '{a}', { primary: true, money: it.a }),
+    answer('a', '{a}', { money: it.a }),
     answer('b', '{b}', { money: it.b }),
   ],
   targets: { observationIds: [it.aId, it.bId] },
@@ -309,6 +333,27 @@ const ajo = (it) => card({
 
 // Priority 2. A refund reduces the category it came from; linking it to the wrong
 // purchase moves money out of the wrong budget.
+// Two purchases that would render the same line cannot be told apart by anyone, so the
+// question is unanswerable (phone check: both options read "Via Gtworld Onukogu,
+// Chidumebi Vincent Onukogu Uzodimma Rober..."). The label is cut to a screen's width,
+// so the part that differs has to come FIRST: the amount and the day, then the name.
+// Candidates that are identical even then (same amount, same day, same name) are one
+// choice, not two.
+const LABEL_SHOWN = 24;
+const labelKey = (s) => lc(s).replace(/s+/g, ' ').trim().slice(0, LABEL_SHOWN);
+function refundChoices(candidates) {
+  const list = (candidates || []).filter((c) => c && c.id != null);
+  const collides = list.some((c, i) => list.findIndex((d) => labelKey(d.label) === labelKey(c.label)) !== i);
+  const out = list.map((c) => {
+    if (!collides) return { id: c.id, label: c.label };
+    const bits = [c.amountText, c.dayText].filter(Boolean).join(' on ');
+    return { id: c.id, label: bits ? `${bits}, ${c.label}` : c.label };
+  });
+  const seen = new Set();
+  const distinct = out.filter((c) => { const k = labelKey(c.label); if (seen.has(k)) return false; seen.add(k); return true; });
+  return distinct.slice(0, 2);
+}
+
 const refundMatch = (it) => card({
   key: `refund_match:${it.id}`,
   kind: 'refund_match',
@@ -319,7 +364,7 @@ const refundMatch = (it) => card({
   direction: 'income',
   meta: it.meta,
   answers: [
-    ...(it.candidates || []).slice(0, 2).map((c, i) => answer(`txn:${c.id}`, c.label, i === 0 ? { primary: true } : {})),
+    ...refundChoices(it.candidates).map((c, i) => answer(`txn:${c.id}`, c.label, {})),
     answer('neither', 'Neither'),
   ],
   targets: { txnIds: [it.txnId || it.id], candidateIds: (it.candidates || []).map((c) => c.id) },
@@ -361,7 +406,7 @@ const category = (it) => card({
   logoKey: it.logoKey || null,
   raw: it.raw || null,
   answers: [
-    ...(it.suggestions || []).slice(0, 3).map((s, i) => answer(`cat:${s}`, s, i === 0 ? { primary: true, pill: 'Best guess' } : {})),
+    ...usableSuggestions(it.suggestions).slice(0, 3).map((s, i) => answer(`cat:${s}`, s, i === 0 ? { primary: true, pill: 'Best guess' } : {})),
     answer('other', 'Something else', { opensPicker: true }),
   ],
   rule: { label: 'Do the same for future {name} payments', checked: false },
@@ -384,7 +429,7 @@ const groupedCategory = (it) => card({
   count: it.count,
   logoKey: it.logoKey || null,
   answers: [
-    ...(it.suggestions || []).slice(0, 2).map((s, i) => answer(`cat:${s}`, s, i === 0 ? { primary: true, pill: 'Best guess' } : {})),
+    ...usableSuggestions(it.suggestions).slice(0, 2).map((s, i) => answer(`cat:${s}`, s, i === 0 ? { primary: true, pill: 'Best guess' } : {})),
     answer('other', 'Something else', { opensPicker: true }),
   ],
   rule: { label: 'Do the same for future {name} payments', checked: true },
@@ -425,7 +470,9 @@ const whoIsThis = (it) => card({
   direction: 'expense',
   meta: it.meta,
   answers: [
-    answer('family', 'Family', { primary: true }),
+    // No `primary` on any of these: there is no best guess, and a filled button reads as
+    // the chosen answer, so quick taps filed everyone as Family (build 1799244d).
+    answer('family', 'Family'),
     answer('friend', 'Friend'),
     answer('work', 'Work'),
     answer('skip', 'Skip', { isSkip: true }),
@@ -508,7 +555,7 @@ const whichAccount = (it) => card({
   count: it.count || 1,
   raw: it.sample || null,
   answers: [
-    ...(it.accounts || []).slice(0, 3).map((a, i) => answer(`account:${a.id}`, a.label, i === 0 && it.guessed ? { primary: true, pill: 'Best guess' } : i === 0 ? { primary: true } : {})),
+    ...(it.accounts || []).slice(0, 3).map((a, i) => answer(`account:${a.id}`, a.label, i === 0 && it.guessed ? { primary: true, pill: 'Best guess' } : {})),
     answer('cash', 'Cash'),
   ],
   rule: { label: 'Do the same for future {name} payments', checked: true },
@@ -701,6 +748,8 @@ function build(input = {}, options = {}) {
     }
     if (kind === 'grouped_category') continue; // produced by groupCategories above
     for (const it of items) {
+      // "Who is ACCESS?" is not a question about a person (bank, wallet or shop).
+      if (kind === 'who_is_this' && !isPlausiblePerson(it.name)) continue;
       const built = BUILDERS[kind](it);
       cards.push(built);
     }
@@ -723,6 +772,11 @@ function build(input = {}, options = {}) {
   for (const c of asked) {
     if (c.priority >= 3 && c.item.amount != null && Math.abs(c.item.amount) < askFloor) {
       autoResolve.push(demote(c, 'below_floor'));
+      continue;
+    }
+    // The exempt tier still has a floor of its own (MIN_ASK): sub-naira is never a question.
+    if (c.priority <= 2 && c.item.amount != null && Math.abs(c.item.amount) < MIN_ASK) {
+      autoResolve.push(demote(c, 'below_sanity_floor'));
       continue;
     }
     floored.push(c);
@@ -830,6 +884,7 @@ module.exports = {
   KINDS,
   INTERRUPTION,
   ASK_FLOOR,
+  MIN_ASK,
   MAX_CATEGORY_CARDS,
   MAX_QUEUE,
   SKIP_DAYS,

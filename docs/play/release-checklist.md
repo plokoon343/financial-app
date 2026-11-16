@@ -6,7 +6,7 @@ Status column reflects what is true today, 16 Nov 2026. "Done" means verified in
 
 **Decisions**
 1. **SMS or no SMS in the first Play build.** Recommendation: **start the closed test on `production-nosms` now**, file the SMS declaration in parallel, and ship SMS in a later release (full trade-off in the section "SMS decision" below). Your call.
-2. **Remove `RECEIVE_SMS` from the `production` profile.** `app.config.js` still requests it, but no code uses it, and the draft SMS declaration and the brief (S11) both say to remove it. Google rejects permissions an app does not use. It was your 16 Oct decision to keep it, so I did not change it. Confirm "remove", or confirm you will build the live receiver first.
+2. ~~Remove `RECEIVE_SMS` from the `production` profile.~~ **DONE 16 Nov 2026**, on the owner's instruction. `app.config.js` now asks for `READ_SMS` only in every variant, and `RECEIVE_SMS` joins `SEND_SMS` in `blockedPermissions` for the Play build, so no library can reintroduce it. Verified by rendering the config for all three variants.
 3. **Personal account developer name.** On a personal account the listing shows your legal name publicly. If that is not acceptable, wait for the D-U-N-S organisation account instead (status was "requested 31 Oct, waiting"; the brief's fallback trigger is "past 2 weeks", which is today).
 4. **Bill payments and the AI assistant in the Play build**: leave off for the first release (recommended). Check `GET /api/features` with a test login on release day; it must show `assistant: false`, `billPay: false`, `sharedExpenses: false`, `bankLink: false` unless you mean otherwise.
 5. **Alert-text logging** (`ParseCorrection.rawText` is written on accept as well as on correction, default on). Decide whether to keep it as is and fix the SMS declaration wording, or restrict it to corrections. See `data-safety.md`, item 1 under "Things the form cannot say cleanly".
@@ -109,7 +109,7 @@ Status key: **Done** (verified today), **Not done**, **Partly** (what remains is
 **Manifest check: what Play will question.** From `app.json`, `app.config.js`, the plugin list and the capture module's manifest (not read from a built bundle):
 | Permission or component | Where it comes from | Play's likely reaction |
 |---|---|---|
-| `READ_SMS`, `RECEIVE_SMS` | `app.config.js` (production only) | Restricted. Needs the declaration. RECEIVE_SMS is unused by code: likely rejection |
+| `READ_SMS` | `app.config.js` (production and beta) | Restricted. Needs the declaration. `RECEIVE_SMS` was removed on 16 Nov 2026 and is now blocked |
 | `SEND_SMS` | blocked in every build | None |
 | `BIND_NOTIFICATION_LISTENER_SERVICE` service `BankNotificationListener`, exported with the system permission | capture module | Not restricted, but the reviewer may ask. Needs the in-app explanation, already present |
 | `QuietShareActivity`, exported, accepts `application/pdf` and `image/*` | capture module | Normal share target. Fine |
@@ -125,7 +125,7 @@ Status key: **Done** (verified today), **Not done**, **Partly** (what remains is
 | Foreground service | none | Fine |
 | App signing | EAS manages the keystore; Play App Signing: opt in when you create the app | Confirm you can download the upload certificate, so a lost EAS login is not fatal |
 
-**Possible defects found, not changed:** (1) `RECEIVE_SMS` unused but requested. (2) `deleteUserData` misses `PlayPurchase` and `AnalyticsEvent`. (3) The SMS declaration's claim that alert text is sent "only when the user confirms" and "to improve parsing when the user corrects a row" is narrower than the code, which logs on accept too. None blocks a closed test on `production-nosms`.
+**Possible defects found:** (1) `RECEIVE_SMS` unused but requested: **fixed 16 Nov**. (2) `deleteUserData` missed `PlayPurchase` and `AnalyticsEvent`: **`AnalyticsEvent` now deleted (16 Nov)**; `PlayPurchase` is deliberately kept, like `ProPayment`, as a payment record for accounting, refunds and subscription disputes, and the Data safety answer names that exception. (3) The SMS declaration's claim that alert text is sent "only when the user confirms" and "to improve parsing when the user corrects a row" is narrower than the code, which logs on accept too. None blocks a closed test on `production-nosms`.
 
 ## Time estimate (work backwards from the clock)
 - Day -3 to -1 (now): finish the owner list, fix known bugs on 1799244d, make screenshots.

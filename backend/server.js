@@ -3220,7 +3220,16 @@ async function deleteUserData(userId, email) {
     // Found missing while reviewing round 6's Block 4/5/10 sweep commits: these all
     // carry a real userId and were never added here when they were built.
     ActionSkip, ActionAnswer, AnswerTally, HoldObservation, OwedToMe, DollarFunding, ProductEvent,
+    // 16 Nov 2026, found while writing the Play Data safety answers: these rows carry a
+    // userId, so leaving them behind contradicted "data can be deleted" on the form.
+    // AnalyticsEvent also holds anonymous rows (userId null) from the public site;
+    // deleting by userId leaves those alone, which is what we want.
+    AnalyticsEvent,
   ].map((M) => M.deleteMany({ userId: uid })));
+  // Deliberately NOT deleted, and disclosed as such: ProPayment, PlayPurchase and the
+  // bill purchases that carry a VTpass requestId. They are payment records kept for
+  // accounting, refunds and subscription disputes, which is a lawful retention reason
+  // and the one exception the Data safety answer names.
   await ActivityDay.deleteMany({ userId: uid });
   // 'billpayments' also holds the current bill purchases (they carry a VTpass
   // requestId). Those are payment records kept for accounting and refunds, like

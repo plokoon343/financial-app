@@ -55,3 +55,14 @@ All eight are fixed in the backend, so they reach the installed build without an
 6. **Duplicated name, and self.** `normalizeName` folds a name written twice ("A B C A B C" and its truncated form), and the card title and `{name}` are folded as a second guard. The stored account name is one word, so `lib/personName.inferHolderName` completes it from narrations that name the same person on both sides or twice in a row, only when two such narrations agree and one contains the stored word. `actionCardInput` uses that full name for own-move detection and skips category cards for payments to the holder, so they surface as the own-move question instead. Not backfilled: nothing is written to stored rows.
 7. **Identical refund options.** If two labels would read the same in the first 24 characters, each leads with amount and day. If still identical they collapse to one choice plus Neither.
 8. **Raw narration title.** I could not reproduce the raw string as a title. `cleanName` returned "11 Festac Lagos Lang 38" for it, so the leak may be a user rename rule or the original-alert sheet. What I fixed is the visible noise: trailing terminal location and numbers (Lagos, LANG, NG, trailing digits) are trimmed from the end only, giving "11 Festac". If it still shows raw on a phone, I need the card's `key`.
+
+## Queued for after Round 11 phase 1 (owner's decision, 17 Nov 2026)
+
+**The level and XP engine.** Part G left the level chip and XP bar undrawn because the brief's "Not in this round" list rules out streak and level engine changes, not because of a technical blocker. The owner wants it built once the round is finished. What it needs decided first: what earns XP (sorting a card, a check-in day, hitting a goal, setting a budget), what each is worth, the level names and thresholds, what a level unlocks, and whether the ledger lives on the server or the phone. Server is the better answer: Part G found that the existing "Sorted" counter is per phone, not per account, so a phone-local ledger would reset on reinstall. Three things unblock when it exists: the Profile level chip, the XP bar, and the Settings app icon picker (P15), which the board gates on level and which Part H had to ship ungated or gated on something real.
+
+Also waiting on a rule rather than on code:
+
+- **"On pace for March" on a goal** (Part F). Goals keep no history of when the saved amount moved, so a finish month needs a pace rule decided first, then a `planView` or backend change.
+- **The board's 14 badges**, including "Sapa-proof", "Soft Life Planner" and "Next on 1 Dec". Part G shipped 11 badges that are all earnable from data the app already records; the rest need rules.
+- **The avatar does not follow the account.** It is stored on the phone, and syncing it is one new field on the user.
+- **"My cards" starts empty for everyone**, because the app never kept past share images. Cards shared before this build cannot be recovered.

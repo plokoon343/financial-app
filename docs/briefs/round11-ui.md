@@ -110,3 +110,11 @@ Before running it on production, run it without `apply` and read `landing`.
 - Level-up moment and toast (none built). It should read the level before and after and stay silent for backfill.
 - Skipping a Quick look card pays nothing, on purpose: only an answer counts.
 - Web does not show level or XP yet.
+
+## Merchant logos: deferred, 17 Nov 2026
+
+The owner read logo.dev's terms and stopped before signing up. Confirmed: commercial use on the free plan needs a visible attribution credit, paid plans remove it, and the reported paid prices disagree across sources ($30/month, $33/month, $150/month, $280/year), so the live pricing page is the only one to trust.
+
+Decision: leave it. `LOGO_DEV_SECRET_KEY` stays unset, so `LogoTile` falls back to the glyph avatar exactly as it does today, and no merchant name ever leaves our servers. The service, the negative cache and the pinned override list are already built and keep working without a provider.
+
+When it comes back up, the preferred route is the override list alone: drop image files for the pinned brands into `backend/data/logos/` and they are served as-is, no provider call, no attribution obligation. That covers the merchants a Nigerian feed actually shows; everything else keeps the glyph.

@@ -84,6 +84,8 @@ const actionCards = require('./lib/actionCards');
 const categorySuggest = require('./lib/categorySuggest');
 const { matchMerchant } = require('./lib/merchants');
 const { cleanName } = require('./lib/cleanName');
+const { createLogoService } = require('./lib/logoService');
+const { createLogoDev } = require('./lib/logoProvider');
 const categoryOps = require('./lib/categoryOps');
 const behaviourMatrix = require('./lib/behaviourMatrix');
 const holds = require('./lib/holds');
@@ -12567,6 +12569,71 @@ app.get('/api/xp', auth, async (req, res) => {
     const t = await xpTotals(req.user._id);
     res.json(xp.summary(t.total, t.today));
   } catch (e) { console.error('[xp]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Round 11 Part J: merchant logos. We resolve a merchant to a logo once, keep the image in
+// our own database (a 128px webp is about 5 to 15 KB; thousands of merchants stay well
+// inside one small collection) and serve it from this API. Clients ask us, never the
+// provider. LOGO_DEV_SECRET_KEY switches the provider on; without it only the pinned
+// override images in backend/data/logos/ are served and nothing leaves the server.
+const merchantLogoSchema = new mongoose.Schema({
+  _id: { type: String },            // the cache id from lib/logoService keyFor
+  status: { type: String, enum: ['found', 'none', 'error'], required: true },
+  contentType: String,
+  data: Buffer,
+  etag: String,
+  domain: String,
+  source: String,
+  attempts: { type: Number, default: 0 },
+  error: String,
+  resolvedAt: Date,
+  retryAt: Date,
+}, { versionKey: false });
+const MerchantLogo = mongoose.model('MerchantLogo', merchantLogoSchema);
+const logoService = createLogoService({
+  provider: createLogoDev({ secretKey: process.env.LOGO_DEV_SECRET_KEY || '' }),
+  dailyCap: Number(process.env.LOGO_DAILY_CAP) || 300,
+  store: {
+    get: async (id) => MerchantLogo.findById(id).select('-data').lean().then((d) => d && { ...d, id: d._id }),
+    getMany: async (ids) => {
+      const rows = await MerchantLogo.find({ _id: { $in: ids } }).select('-data').lean();
+      return Object.fromEntries(rows.map((d) => [d._id, d]));
+    },
+    getImage: async (id) => MerchantLogo.findById(id).lean(),
+    put: async (d) => { const { id, ...rest } = d; await MerchantLogo.replaceOne({ _id: id }, rest, { upsert: true }); },
+  },
+});
+
+// Signed in: the merchant names on screen -> { name: our logo url | null }. Answers from
+// the cache at once; anything not cached yet is queued in the background and shows up on
+// a later ask. Bank cards and people are not logo-resolved.
+app.post('/api/logos/lookup', auth, async (req, res) => {
+  try {
+    const names = [...new Set((Array.isArray(req.body && req.body.names) ? req.body.names : [])
+      .filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim().slice(0, 80)))].slice(0, 60);
+    const base = (process.env.API_PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    const logos = await logoService.lookup(names, (id, v) => `${base}/api/logos/${id}.img?v=${encodeURIComponent(v || '')}`);
+    res.json({ logos });
+  } catch (e) { console.error('[logos]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// Public (an image tag cannot send a token): the stored logo bytes. A logo is a public
+// brand image and the id names a brand, never a user, so nothing private is in this URL.
+app.get('/api/logos/:id.img', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').toLowerCase();
+    if (!/^[a-z0-9-]{1,60}$/.test(id)) return res.status(404).end();
+    const img = await logoService.image(id);
+    if (!img) return res.status(404).end();
+    res.set({
+      'Content-Type': img.contentType,
+      'Cache-Control': 'public, max-age=2592000, immutable', // ?v= changes when the logo does
+      ETag: `"${img.etag}"`,
+      'Cross-Origin-Resource-Policy': 'cross-origin', // the web app loads this from another origin
+    });
+    if (req.get('If-None-Match') === `"${img.etag}"`) return res.status(304).end();
+    res.send(img.data);
+  } catch (e) { console.error('[logos]', e.message); res.status(500).end(); }
 });
 
 // One-time (superadmin): give existing accounts the XP the server can PROVE from

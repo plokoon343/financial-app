@@ -471,3 +471,36 @@ The month-chip row and typed day box are **gone**. `BirthdayField` was rewritten
 - **Setting a birthday needs the year-free picker only**: there is no calendar widget, by design (we never ask for a year).
 - The moment's Skip button is a pill at top right, not on the board.
 - Home's festive strip only draws on the day; "party look" beyond the strip (tinted hero etc.) was not attempted.
+
+## Part J progress note (17 Nov 2026, backend + web + mobile)
+
+Status: built and committed in `financial-app` and `finpilot-mobile`, not pushed. Backend `npm test` 74 of 74 files (new `logoService.test.js`, 53 checks), web build passes, mobile `tsc` clean and lint 0 errors. Not run against the live provider or production data, because no key exists yet. No EAS build, no OTA.
+
+### Provider decision: logo.dev (not Brandfetch), with one condition
+
+- **Brandfetch is out for this use.** Its comparison page says Logo API images "must be hotlinked rather than stored", and not downloaded, proxied or re-hosted; Brand Search results must not be stored at all. Our brief requires storing and serving from our own domain, so Brandfetch's Logo API breaks its terms.
+- **logo.dev allows it, through its API.** The self-hosting page says every plan can download the images the API returns, keep them in our own storage or CDN and refresh on change. Its fair-use page forbids copying from the CDN (`img.logo.dev`) or running a server that fetches CDN images and passes them on. So the adapter (`lib/logoProvider.js`) only uses the secret-key API: `GET /v2/search` (name to domain) then `GET /v2/brands/logo` (download url and etag), and stores the file. It never touches `img.logo.dev`.
+- **Free tier (Community):** 500K CDN requests a month (hard stop) and $5 of API credits a month; API credits are what our server-side route uses. **Free commercial use requires a visible "Logos provided by Logo.dev" link** on the production site. Paid plans remove it: Startup $33 a month (1M requests, $15 credits), Pro $150 a month (5M, $150 credits). The owner must either add that link (website footer or the app's About screen) or pay for Startup. I did not sign up for anything.
+- **Cost at scale:** we resolve each merchant once (and re-check at most every 30 days), so spend follows the number of distinct merchants, not users or rows. A few thousand distinct merchants is a one-off of a few thousand search and logo calls, which should sit inside the $5 credit; the per-call credit cost is not published on the pages I read, so check the dashboard after the first week. `LOGO_DAILY_CAP` (default 300 resolutions a day) stops a bad day from running up credits.
+- **Not verified against the live API:** the exact shape of `/v2/brands/logo` (`url`, `etag`) comes from the self-hosting page, not a live call, and the override domains marked in `lib/logoOverrides.js` are from memory. Do one live check with a key before relying on it. If the provider is unavailable or the terms change, the override list and hand-placed files keep working alone.
+
+### Where images are stored
+
+In MongoDB, collection `merchantlogos`, one document per merchant (128px webp, roughly 5 to 15 KB), served by our API at `GET /api/logos/<id>.img` with a 30-day immutable cache, ETag and a cross-origin resource policy so the web app can load it. This needs no new infrastructure and is fine into the low tens of thousands of merchants. Move to R2 if it grows past that; only the `store` object in `server.js` would change. You can also pin a hand-made image: put `<id>.png|webp|jpg` in `backend/data/logos/` and it is served as is, with no provider call.
+
+### How the key is derived
+
+`keyFor` in `lib/logoService.js`: the override list first (`lib/logoOverrides.js`: MTN, Airtel, Glo, 9mobile, DStv, GOtv, StarTimes, Showmax, Bolt, Uber, inDrive, Chowdeck, Glovo, Chicken Republic, Domino's, KFC, Jumia, Konga, Shoprite, Netflix, Spotify, YouTube, Apple, Google, Amazon, OPay, PalmPay, Moniepoint, Kuda, Paystack, Flutterwave, PiggyVest, Cowrywise and 15 banks), then the catalogue slug (the one subscriptions already use), then `deriveCategoryKey` words. Spelling variants ("N FLX", "NETFLIX.COM LAGOS NG") share one id. Overrides ask the provider by their pinned domain, so there is no name guessing for the common rows.
+
+### Caching and privacy
+
+- `POST /api/logos/lookup` (signed in) answers from the cache at once and queues anything missing in the background (one at a time, 150 ms apart), so no screen ever waits on a logo. A name with no logo yet gets one on a later ask; clients remember a miss for 5 minutes.
+- Found is kept. "No logo" is cached for 30 days. A failed attempt (rate limit, timeout) backs off 1h, 2h, 4h up to 24h. A name already resolved or known to have none never reaches the provider until then. Tests cover all of this.
+- Only business names go out: a pinned override, a catalogue brand, or a name `cleanName` calls a business. People and unknown names are never sent to the provider, so a stranger's name does not leave us and a person never gets a random company logo. The provider only ever sees a merchant name or domain, never a user id or amount. Those unknown small shops stay on the glyph or initial.
+- Clients: mobile `LogoTile` now fetches its own logo when the caller passes none (`src/lib/logoUrls.ts`, batched, session-cached); all four callers (Money rows, Quick look, subscriptions shelf, Action Center) work with no change. `LogoTile`'s look is untouched. Web: the Transactions row avatar uses `src/lib/logoUrls.js`.
+
+### Owner to do
+
+1. Set `LOGO_DEV_SECRET_KEY` on Render (secret `sk_` key). Optional: `LOGO_DAILY_CAP`, `API_PUBLIC_URL` (defaults to the request host).
+2. Add the "Logos provided by Logo.dev" link on the website footer, or upgrade to Startup.
+3. Mobile needs a new build or OTA to show logos; web ships with the next deploy.

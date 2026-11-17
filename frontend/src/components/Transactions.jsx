@@ -7,6 +7,7 @@ import { kindMeta, isExcludedKind } from '../utils/txnKind';
 import AccountSwitcher from './AccountSwitcher';
 import { useAccountScope, scopeMatches } from '../contexts/AccountScope';
 import { avatarFor } from '../utils/merchantAvatar';
+import { useLogoUrl } from '../lib/logoUrls';
 import { FeatureTip, InfoTip } from './FeatureTip';
 import { fmtNaira, fmtNairaFull } from '../utils/format';
 import ChoiceDialog from './ChoiceDialog';
@@ -16,9 +17,14 @@ import TxnDetail from './TxnDetail';
 import MissingPaymentFinder from './MissingPaymentFinder';
 
 // A small round leading avatar for a transaction row (Addendum C): a bundled merchant
-// logo, a person's initial, or the category icon: never a fetched favicon.
-function TxnAvatar({ category, description }) {
+// logo, a person's initial, or the category icon. Part J: a merchant we hold a logo for shows
+// OUR cached copy (served by our API); nothing is fetched from a third party.
+function TxnAvatar({ category, description, name }) {
   const a = avatarFor(category, description);
+  const logo = useLogoUrl(a.kind === 'initial' ? '' : (name || description));
+  if (logo) {
+    return <span className="txn-avatar" style={{ background: '#fff', overflow: 'hidden' }} aria-hidden="true"><img src={logo} alt="" width="26" height="26" style={{ objectFit: 'contain' }} /></span>;
+  }
   return (
     <span className="txn-avatar" style={{ background: a.color }} aria-hidden="true">
       {a.kind === 'initial' ? a.letter : <i className={a.icon}></i>}
@@ -495,7 +501,7 @@ const Transactions = () => {
                 <td><input type="checkbox" checked={selected.has(t._id)} onChange={() => toggleSel(t._id)} /></td>
                 <td className="nowrap">{new Date(t.date).toLocaleDateString()}</td>
                 <td className="desc" title={t.description}>
-                  <span className="desc-cell"><TxnAvatar category={t.category} description={t.description} />{t.cleanName || t.description}</span>
+                  <span className="desc-cell"><TxnAvatar category={t.category} description={t.description} name={t.cleanName} />{t.cleanName || t.description}</span>
                   {people[links[t._id]] && (() => {
                     const p = people[links[t._id]];
                     return (

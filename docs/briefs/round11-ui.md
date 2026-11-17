@@ -66,3 +66,47 @@ Also waiting on a rule rather than on code:
 - **The board's 14 badges**, including "Sapa-proof", "Soft Life Planner" and "Next on 1 Dec". Part G shipped 11 badges that are all earnable from data the app already records; the rest need rules.
 - **The avatar does not follow the account.** It is stored on the phone, and syncing it is one new field on the user.
 - **"My cards" starts empty for everyone**, because the app never kept past share images. Cards shared before this build cannot be recovered.
+
+## Level and XP engine: built (17 Nov 2026)
+
+Backend commit `3600af6` in this repo, mobile commit `c775b5f` in finpilot-mobile. Not pushed, no EAS build, no OTA, backfill not run anywhere but a throwaway test database. Backend `npm test` 73/73, new `scripts/api-xp.js` (end to end on a `_test` database) 17/17. Mobile `tsc` clean, lint 0 errors (12 old warnings), contrast audit 414 passed / 0 failed, new `scripts/xp-view.test.ts` passed, profile, settings, loading and motion tests passed. Home and `account.tsx` were not touched.
+
+### What was built
+
+- **Engine** `backend/lib/xp.js` (pure, 36 tests): level table (Starter 0, Tracker 100, Planner 250, Saver 500, Strategist 1000, Boss 2000), action values (sorted card 5, check-in 2, budget 20, goal 50, tracking on 30, card shared 10), 50 a day cap, unlocks, backfill planner.
+- **Ledger** `XpEvent` in `server.js`: one row per thing, unique on user plus key, Lagos day, source `live` or `backfill`. Keys: `card:<key>`, `checkin:<day>`, `budget:<month>:<category>`, `goal:<id>`, `tracking`. A capped award is still written (at 0 or part XP) so it cannot be paid again tomorrow.
+- **Awards wired into the places that already complete the action**: `/api/action-center/answer` (card), `/api/checkin` (today only, never the `days` a client sends), `POST /api/budgets`, goal contribute and goal PUT when it crosses the target, `POST /api/capture/key`. No new endpoints for existing actions. An award never throws into the action it follows.
+- **`GET /api/xp`**: xp, level, name, next, progress, today and cap, `badgeSlots`, and `unlocks` with how many XP to go. An empty ledger answers 0 at Starter.
+- **`POST /api/admin/xp-backfill`**: counts first, `?apply=1` to write. It reports accounts, entries, XP, counts per action and the level accounts would land on. Safe to run twice: it skips keys already in the ledger and uses the same keys as live play, so nothing double pays.
+- **Mobile Profile**: level chip ("Tracker, Level 2") and XP bar ("75 XP to Planner") on the identity card. While loading the bar says "Checking your XP". If the server cannot be reached the chip slot falls back to the money personality and the bar says XP is not available. The setup bar stays as its own, labelled bar beneath it.
+- **Mobile Settings**: the App icon row shows a lock and "Unlocks at Tracker, 100 XP. 60 to go." when locked. The picker screen (`app-icon.tsx`, where the gate has to live or a deep link would skip it) shows the same line, a progress bar, the list of ways to earn XP with values, the daily cap, and a button to Quick look. It has separate loading and error states with "Try again"; neither reads as locked.
+
+### Backfill
+
+Run against the local database as a read-only count with the same planner (I was not allowed to forge an admin token against the dev database, so I did not call the route there): 31 users, 4 goals, 10 budgets, 1 account with tracking on. 6 accounts would get 11 entries, 230 XP in all, and all 6 land on Starter. Local data is thin, so it says little about production. Rules that decide where a real account lands:
+
+- Goals hit and budgets set, five of each at most, so history cannot outrun live play (live is capped at 50 a day). Tracking on is 30.
+- The ceiling is 250 + 100 + 30 = 380 XP, which is **Planner**. So the longest-standing account ends at Planner, not Strategist or Boss. An account with one hit goal and a few budgets ends at Tracker; one with nothing the server can prove stays Starter.
+- Backfill sits outside the daily cap, is flagged `source: backfill`, and is never celebrated: the app has no level-up moment, and the first read after a backfill just shows the new level.
+- Not backfilled: the phone's Sorted counter (per device), check-in days (a client can send any), cards shared (never recorded).
+
+Before running it on production, run it without `apply` and read `landing`.
+
+### Decided by me, change if wrong
+
+1. **Icon picker opens at Tracker (100 XP).** The brief said gate it by level without naming one. 100 XP is about two days of normal use under the cap, so it is a near reward and not a wall.
+2. **Badge shelf slots**: the shelf pins 4, 5, 6, 7, 8, 9 badges at levels 1 to 6 (it was fixed at 4). "See all 11" still shows every badge at every level, so this is a nicety and not a lock.
+3. **Budget key is month plus category**, lowercase. Deleting a budget and making it again pays nothing; a new month or category does. Farming is bounded by the 50 a day cap.
+4. **Backfill limits** (five goals, five budgets) are mine, to land an honest level.
+5. **A capped award pays what room is left**, not all or nothing, and the action is spent either way.
+
+### Could not do as approved
+
+- **Sharing a card (10 XP) has no award path.** The server does not record a share: the image is made on the phone, and an endpoint the phone just calls to claim "I shared" is a number the server cannot defend. The value is in the table and tested; the award needs a server-side record of the share first (for example the share card being generated on the server, or the client uploading the share event with the card id). I did not add a claim endpoint.
+- Goal XP can be farmed a little by creating a tiny goal and finishing it. The cap bounds it at 50 a day. A minimum target would close it if wanted.
+
+### Follow-ups
+
+- Level-up moment and toast (none built). It should read the level before and after and stay silent for backfill.
+- Quick look can also give XP on skip? No: skips are not answers and pay nothing.
+- Web does not show level or XP yet.

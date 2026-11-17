@@ -108,5 +108,5 @@ Before running it on production, run it without `apply` and read `landing`.
 ### Follow-ups
 
 - Level-up moment and toast (none built). It should read the level before and after and stay silent for backfill.
-- Quick look can also give XP on skip? No: skips are not answers and pay nothing.
+- Skipping a Quick look card pays nothing, on purpose: only an answer counts.
 - Web does not show level or XP yet.

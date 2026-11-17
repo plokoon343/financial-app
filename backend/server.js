@@ -95,6 +95,7 @@ const emailHandoff = require('./lib/emailHandoff');
 const moneyFormat = require('./lib/moneyFormat');
 const billPay = require('./lib/billPay');
 const metrics = require('./lib/metrics');
+const xp = require('./lib/xp');
 const helpContent = require('./lib/helpContent');
 require('dotenv').config();
 
@@ -1123,6 +1124,54 @@ const activityDaySchema = new mongoose.Schema({
 activityDaySchema.index({ userId: 1, day: 1 }, { unique: true });
 activityDaySchema.index({ day: 1 });
 const ActivityDay = mongoose.model('ActivityDay', activityDaySchema);
+
+// ── XP ledger (level and XP engine) ──
+// One row per thing that earned XP, keyed per user so the same action never pays twice
+// (unique index on userId + key). Lives on the server so XP follows the account, not the
+// phone. source 'backfill' rows are history the server could prove when the engine
+// arrived; they sit outside the daily cap. A row with xp 0 is a capped award: it is kept
+// so the action cannot be paid later. Never expires: it is the account's record.
+const xpEventSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  key:    { type: String, required: true },
+  action: { type: String, required: true },
+  xp:     { type: Number, required: true, min: 0 },
+  day:    { type: String, required: true }, // 'YYYY-MM-DD', Lagos
+  source: { type: String, enum: ['live', 'backfill'], default: 'live' },
+  at:     { type: Date, default: Date.now },
+});
+xpEventSchema.index({ userId: 1, key: 1 }, { unique: true });
+xpEventSchema.index({ userId: 1, day: 1 });
+const XpEvent = mongoose.model('XpEvent', xpEventSchema);
+
+const xpTotals = async (userId) => {
+  const uid = new mongoose.Types.ObjectId(String(userId));
+  const today = metrics.lagosDay(new Date());
+  const [all, live] = await Promise.all([
+    XpEvent.aggregate([{ $match: { userId: uid } }, { $group: { _id: null, n: { $sum: '$xp' } } }]),
+    XpEvent.aggregate([{ $match: { userId: uid, day: today, source: 'live' } }, { $group: { _id: null, n: { $sum: '$xp' } } }]),
+  ]);
+  return { total: all[0]?.n || 0, today: live[0]?.n || 0 };
+};
+
+// Award XP for something the server just recorded. Never throws and never blocks the
+// action it follows: a failure here must not undo a goal or a card answer.
+async function awardXp(userId, action, key) {
+  try {
+    // Check the ledger first; the unique index on (userId, key) is the backstop for two
+    // requests landing at once.
+    if (key && await XpEvent.exists({ userId, key })) return null;
+    const { today } = await xpTotals(userId);
+    const entry = xp.decide(new Set(), today, action, key);
+    if (!entry) return null;
+    await XpEvent.create({ userId, key: entry.key, action: entry.action, xp: entry.xp, day: metrics.lagosDay(new Date()), source: 'live' });
+    return entry;
+  } catch (e) {
+    if (e && e.code === 11000) return null; // already paid for this exact thing
+    console.error('[xp]', e.message);
+    return null;
+  }
+}
 const CLIENTS = new Set(['web', 'android-beta', 'android-play', 'ios']);
 const clientOf = (req) => { const c = String(req.get('x-client') || '').toLowerCase(); return CLIENTS.has(c) ? c : ''; };
 
@@ -4281,6 +4330,7 @@ app.post('/api/budgets', auth, async (req, res) => {
   const budget = new Budget({ userId: req.user._id, category: category.trim(), amount: Math.abs(amount), month: currentMonth });
   await budget.save();
   rememberCategory(req.user._id, budget.category, 'expense');
+  await awardXp(req.user._id, 'budget_set', xp.keys.budget(budget.month, budget.category));
   res.status(201).json(budget);
 });
 app.delete('/api/budgets/:id', auth, async (req, res) => {
@@ -5100,12 +5150,14 @@ app.put('/api/goals/:id', auth, async (req, res) => {
   const { current, name, target, deadline, category } = req.body;
   const goal = await Goal.findOne({ _id: req.params.id, userId: req.user._id });
   if (!goal) return res.status(404).json({ message: 'Goal not found' });
+  const wasHit = goal.target > 0 && goal.current >= goal.target;
   if (current !== undefined) goal.current = Math.min(current, goal.target);
   if (name) goal.name = name;
   if (target) goal.target = target;
   if (deadline) goal.deadline = deadline;
   if (category) goal.category = category;
   await goal.save();
+  if (!wasHit && goal.target > 0 && goal.current >= goal.target) await awardXp(req.user._id, 'goal_hit', xp.keys.goal(goal._id));
   res.json(goal);
 });
 app.delete('/api/goals/:id', auth, async (req, res) => {
@@ -5124,7 +5176,10 @@ app.post('/api/goals/:id/contribute', auth, async (req, res) => {
     const justReached = goal.current + amount >= goal.target;
     goal.current = Math.min(goal.current + amount, goal.target);
     await goal.save();
-    if (justReached) await logActivity(req.user._id, { type: 'goal_reached', title: 'Goal reached', message: `${goal.name} completed`, amount: goal.target });
+    if (justReached) {
+      await logActivity(req.user._id, { type: 'goal_reached', title: 'Goal reached', message: `${goal.name} completed`, amount: goal.target });
+      await awardXp(req.user._id, 'goal_hit', xp.keys.goal(goal._id));
+    }
     res.json({ goal });
   } catch (e) { console.error('[goals/contribute]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -7212,6 +7267,7 @@ app.post('/api/action-center/answer', auth, async (req, res) => {
     }
 
     await ActionAnswer.updateOne({ userId, cardKey: key }, { $set: { kind, answerId, at: new Date() } }, { upsert: true });
+    await awardXp(userId, 'card_sorted', xp.keys.card(key));
     await ActionSkip.deleteOne({ userId, cardKey: key });
     actionMemo.delete(String(userId));
     cardMemo.delete(String(userId));
@@ -7316,6 +7372,7 @@ app.post('/api/capture/key', auth, async (req, res) => {
     req.user.captureKeyHash = capture.hashCaptureKey(key);
     await req.user.save();
     recordConsent(req.user._id, 'notification_access', 'granted', { source: clientOf(req) || 'android' });
+    await awardXp(req.user._id, 'tracking_on', xp.keys.tracking());
     res.json({ key, endpoint: `${process.env.PUBLIC_API_URL || 'https://financial-app-w2ai.onrender.com'}/api/ingest/capture` });
   } catch (e) { console.error('[capture/key]', e.message); res.status(500).json({ message: 'Server error' }); }
 });
@@ -12464,6 +12521,8 @@ app.post('/api/checkin', auth, async (req, res) => {
     }
     user.checkinDays = [...set].sort().slice(-400);
     await user.save();
+    // Only today counts for XP: the days a client sends in `days` are its own claim.
+    await awardXp(req.user._id, 'checkin', xp.keys.checkin(metrics.lagosDay(new Date())));
     const { streak, frozen } = streakWithFreeze(user.checkinDays);
     const thisMonth = new Date().toISOString().slice(0, 7);
     res.json({ streak, days: user.checkinDays, frozen, freezeUsedThisMonth: frozen.some((d) => d.startsWith(thisMonth)) });
@@ -12501,6 +12560,63 @@ app.post('/api/admin/backfill-global-categories', auth, superAdminAuth, async (r
 // user's own category or a row they have confirmed. Answers with what WOULD
 // change unless ?apply=1; the own-move count/sample is broken out separately so
 // it can be read and decided on its own.
+// Current XP, level and progress to the next, for the Profile bar and the Settings gate.
+// An empty ledger answers 0 XP at Starter, never an error.
+app.get('/api/xp', auth, async (req, res) => {
+  try {
+    const t = await xpTotals(req.user._id);
+    res.json(xp.summary(t.total, t.today));
+  } catch (e) { console.error('[xp]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
+// One-time (superadmin): give existing accounts the XP the server can PROVE from
+// history: goals already hit, budgets already set, automatic tracking already on. Not
+// the phone's "Sorted" counter (per device), and not check-in days (a client can send
+// any). Backfill is limited (lib/xp BACKFILL_MAX), sits outside the daily cap, and uses
+// the same ledger keys as live play, so nothing is paid twice and it is safe to run
+// again. Answers with what WOULD be written unless ?apply=1, like reclassify-kinds.
+app.post('/api/admin/xp-backfill', auth, superAdminAuth, async (req, res) => {
+  try {
+    const apply = req.query.apply === '1' || req.body?.apply === true;
+    const [goals, budgets, trackers, have] = await Promise.all([
+      Goal.find({}).select('userId current target').lean(),
+      Budget.find({}).select('userId month category createdAt').lean(),
+      User.find({ captureKeyHash: { $exists: true, $nin: [null, ''] } }).select('_id').lean(),
+      XpEvent.find({}).select('userId key -_id').lean(),
+    ]);
+    const group = (rows) => { const m = new Map(); for (const r of rows) { const k = String(r.userId); if (!m.has(k)) m.set(k, []); m.get(k).push(r); } return m; };
+    const goalsBy = group(goals);
+    const budgetsBy = group(budgets);
+    const trackingSet = new Set(trackers.map((u) => String(u._id)));
+    const haveSet = new Set(have.map((h) => `${h.userId}|${h.key}`));
+    const ids = new Set([...goalsBy.keys(), ...budgetsBy.keys(), ...trackingSet]);
+    const day = metrics.lagosDay(new Date());
+    const docs = [];
+    const perUser = new Map();
+    for (const uid of ids) {
+      const plan = xp.backfillPlan({ goals: goalsBy.get(uid) || [], budgets: budgetsBy.get(uid) || [], trackingOn: trackingSet.has(uid) });
+      for (const e of plan) {
+        if (haveSet.has(`${uid}|${e.key}`)) continue;
+        docs.push({ userId: uid, key: e.key, action: e.action, xp: e.xp, day, source: 'backfill' });
+        perUser.set(uid, (perUser.get(uid) || 0) + e.xp);
+      }
+    }
+    const counts = {};
+    for (const d of docs) counts[d.action] = (counts[d.action] || 0) + 1;
+    // Where those accounts land, counting XP they already hold from live play.
+    const existing = await XpEvent.aggregate([{ $group: { _id: '$userId', n: { $sum: '$xp' } } }]);
+    const held = new Map(existing.map((r) => [String(r._id), r.n]));
+    const landing = {};
+    for (const [uid, add] of perUser) { const n = xp.levelFor((held.get(uid) || 0) + add).name; landing[n] = (landing[n] || 0) + 1; }
+    let written = 0;
+    if (apply && docs.length) {
+      try { written = (await XpEvent.insertMany(docs, { ordered: false })).length; }
+      catch (e) { if (!e.writeErrors) throw e; written = docs.length - e.writeErrors.length; }
+    }
+    res.json({ accounts: perUser.size, entries: docs.length, xp: docs.reduce((n, d) => n + d.xp, 0), counts, landing, applied: apply, written, sample: docs.slice(0, 10) });
+  } catch (e) { console.error('[xp-backfill]', e.message); res.status(500).json({ message: 'Server error' }); }
+});
+
 app.post('/api/admin/reclassify-kinds', auth, superAdminAuth, async (req, res) => {
   try {
     const apply = req.query.apply === '1' || req.body?.apply === true;

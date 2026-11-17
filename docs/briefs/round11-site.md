@@ -18,7 +18,7 @@ All in `src/pages/index.astro` (frame is `.dvc` > `.scrn`, CSS in `public/assets
 
 Also: `public/assets/screens/README.txt` says screens must use demo data only. `.uiphone` CSS (site.css 500 to 533) and a matching block in `site.js` are dead code, no markup uses them.
 
-Left alone on purpose. The "Transfer to Mum" image is the one real problem; if the owner wants it gone before new screens exist, the cleanest option is removing that one figure, not redrawing it.
+Update (17 Nov, owner request): the Transactions phone figure (mobile-transactions.webp, the "Transfer to Mum" image) was removed from the Transactions panel. That panel is now text only; the image file is still in public/assets/screens. The other three mockups remain until real screenshots exist.
 
 ## 2. Stat counters
 
